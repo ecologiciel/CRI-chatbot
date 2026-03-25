@@ -22,10 +22,13 @@ from app.core.exceptions import (
     DuplicateResourceError,
     RateLimitExceededError,
     ResourceNotFoundError,
+    TenantInactiveError,
     TenantNotFoundError,
+    TenantResolutionError,
     ValidationError,
 )
 from app.core.logging import setup_logging
+from app.core.middleware import TenantMiddleware
 from app.core.minio import init_minio
 from app.core.qdrant import close_qdrant, init_qdrant
 from app.core.redis import close_redis, init_redis
@@ -91,6 +94,9 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", "Authorization", "X-Tenant-ID"],
     )
 
+    # --- Tenant resolution middleware ---
+    app.add_middleware(TenantMiddleware)
+
     # --- Prometheus metrics ---
     Instrumentator(
         should_group_status_codes=True,
@@ -129,8 +135,10 @@ def create_app() -> FastAPI:
 def _get_status_code(exc: CRIBaseException) -> int:
     """Map exception types to HTTP status codes."""
     mapping: dict[type[CRIBaseException], int] = {
+        TenantResolutionError: 400,
         AuthenticationError: 401,
         AuthorizationError: 403,
+        TenantInactiveError: 403,
         TenantNotFoundError: 404,
         ResourceNotFoundError: 404,
         DuplicateResourceError: 409,

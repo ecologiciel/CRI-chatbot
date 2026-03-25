@@ -34,6 +34,14 @@ class TenantProvisioningError(CRIBaseException):
     """Error during tenant provisioning."""
 
 
+class TenantInactiveError(CRIBaseException):
+    """Tenant exists but is not active (inactive/suspended/provisioning)."""
+
+
+class TenantResolutionError(CRIBaseException):
+    """Cannot determine tenant from the request context."""
+
+
 # --- Resource ---
 class ResourceNotFoundError(CRIBaseException):
     """Requested resource does not exist."""

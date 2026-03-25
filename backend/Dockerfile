@@ -22,6 +22,7 @@ COPY --from=builder /install /usr/local
 
 # Copy application code
 COPY app/ app/
+COPY alembic.ini .
 COPY alembic/ alembic/
 
 # Set ownership

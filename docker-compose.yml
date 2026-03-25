@@ -169,39 +169,49 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
-  # Backend FastAPI — A ACTIVER quand backend/Dockerfile existe
+  # Backend FastAPI
   # ---------------------------------------------------------------------------
-  # backend:
-  #   build:
-  #     context: ./backend
-  #     dockerfile: Dockerfile
-  #   container_name: cri-backend
-  #   ports:
-  #     - "127.0.0.1:8000:8000"
-  #   env_file: .env
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     qdrant:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #     minio:
-  #       condition: service_healthy
-  #   networks:
-  #     - cri-frontend   # Expose via Traefik
-  #     - cri-backend    # Acces aux services de donnees
-  #   labels:
-  #     - "traefik.enable=true"
-  #     - "traefik.http.routers.backend.rule=PathPrefix(`/api`)"
-  #     - "traefik.http.routers.backend.entrypoints=web"
-  #     - "traefik.http.routers.backend.middlewares=security-headers@file,cors-backoffice@file,rate-limit-global@file"
-  #     - "traefik.http.services.backend.loadbalancer.server.port=8000"
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cri-backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - QDRANT_HOST=qdrant
+      - MINIO_ENDPOINT=minio:9000
+    volumes:
+      - ./backend/app:/app/app  # Hot reload en dev
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - cri-frontend   # Expose via Traefik
+      - cri-backend    # Acces aux services de donnees
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=PathPrefix(`/api`) || PathPrefix(`/docs`) || PathPrefix(`/redoc`) || PathPrefix(`/metrics`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.middlewares=security-headers@file"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/v1/health'); exit(0 if r.status_code == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: "no"
 
 # =============================================================================
 # Reseaux — Micro-segmentation (CLAUDE.md section 9.5)

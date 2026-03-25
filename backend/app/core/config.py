@@ -80,16 +80,18 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """Async PostgreSQL connection string."""
+        from urllib.parse import quote_plus
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+asyncpg://{quote_plus(self.postgres_user)}:{quote_plus(self.postgres_password)}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
     @property
     def database_url_sync(self) -> str:
         """Sync PostgreSQL URL for Alembic migrations."""
+        from urllib.parse import quote_plus
         return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql://{quote_plus(self.postgres_user)}:{quote_plus(self.postgres_password)}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 

@@ -5,8 +5,10 @@ As new model files are added, import them here.
 """
 
 from app.core.database import Base
+from app.models.admin import Admin
 from app.models.base import TimestampMixin, UUIDMixin
-from app.models.tenant import Tenant
+from app.models.contact import Contact
+from app.models.conversation import Conversation, Message
 from app.models.enums import (
     AdminRole,
     AgentType,
@@ -26,27 +28,41 @@ from app.models.enums import (
     TenantStatus,
     UnansweredStatus,
 )
+from app.models.feedback import Feedback, UnansweredQuestion
+from app.models.kb import KBChunk, KBDocument
+from app.models.tenant import Tenant
 
 __all__ = [
+    # Base & mixins
     "Base",
-    "Tenant",
     "UUIDMixin",
     "TimestampMixin",
-    "TenantStatus",
+    # Models
+    "Admin",
+    "Contact",
+    "Conversation",
+    "Feedback",
+    "KBChunk",
+    "KBDocument",
+    "Message",
+    "Tenant",
+    "UnansweredQuestion",
+    # Enums
+    "AdminRole",
     "AgentType",
+    "CampaignStatus",
+    "ContactSource",
     "ConversationStatus",
+    "DossierStatut",
+    "EscalationStatus",
+    "EscalationTrigger",
+    "FeedbackRating",
+    "KBDocumentStatus",
+    "Language",
     "MessageDirection",
     "MessageType",
     "OptInStatus",
-    "ContactSource",
-    "Language",
-    "AdminRole",
-    "KBDocumentStatus",
-    "UnansweredStatus",
-    "FeedbackRating",
-    "EscalationTrigger",
-    "EscalationStatus",
-    "DossierStatut",
-    "CampaignStatus",
     "SyncStatus",
+    "TenantStatus",
+    "UnansweredStatus",
 ]

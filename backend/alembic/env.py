@@ -18,7 +18,6 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool, text
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
 
@@ -28,8 +27,9 @@ from app.models import Base  # noqa: F401
 config = context.config
 settings = get_settings()
 
-# Override sqlalchemy.url with actual database URL (async driver)
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Store the URL directly — avoid config.set_main_option which uses
+# ConfigParser interpolation and chokes on '%' in URL-encoded passwords.
+_database_url = settings.database_url
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -50,9 +50,8 @@ def run_migrations_offline() -> None:
 
     Generates SQL scripts without connecting to the database.
     """
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=_database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -80,13 +79,11 @@ def do_run_migrations(connection) -> None:
 
 async def run_async_migrations() -> None:
     """Create an async engine and run migrations."""
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    from sqlalchemy.ext.asyncio import create_async_engine
+    connectable = create_async_engine(_database_url, poolclass=pool.NullPool)
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
+        await connection.commit()
     await connectable.dispose()
 
 

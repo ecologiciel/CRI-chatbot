@@ -1,0 +1,315 @@
+
+
+
+
+DOCUMENT D'ARCHITECTURE TECHNIQUE
+
+PLATEFORME MULTI-TENANT DE CHATBOTS CONVERSATIONNELS INTELLIGENTS (RAG)
+
+Appel d'Offres N° 02/2026/CRI RSK
+Mise en place de Chatbots Conversationnels Intelligents
+au profit des Centres Régionaux d'Investissement
+
+
+
+
+
+TABLE DES MATIÈRES
+
+1. Introduction et Contexte
+1.1. Objet du Document
+Ce document décrit l'architecture technique complète de la plateforme multi-tenant de chatbots conversationnels intelligents basés sur la technologie RAG (Retrieval-Augmented Generation), conçue en réponse à l'Appel d'Offres N° 02/2026/CRI RSK pour la mise en place de chatbots intelligents au profit des Centres Régionaux d'Investissement (CRI) du Maroc.
+La plateforme est conçue dès l'origine avec une architecture multi-tenant permettant de déployer rapidement des instances indépendantes pour chaque CRI régional, tout en mutualisant le socle technique commun.
+1.2. Contexte Métier
+Les CRI sont les guichets uniques des investisseurs au Maroc. Ils accompagnent les porteurs de projets dans les procédures de création d'entreprise, le suivi des dossiers d'investissement, et l'accès aux incitations régionales. Le CRI-RSK (Rabat-Salé-Kénitra) est le premier client cible, avec environ 6 000 dossiers actifs et 1 000 nouveaux dossiers par an.
+1.3. Vision Multi-Tenant
+La plateforme est conçue comme un produit SaaS réplicable. Chaque CRI régional constitue un tenant isolé avec :
+Sa propre base de connaissances vectorielle (RAG) alimentée par ses sources spécifiques
+Sa propre base de données métier (suivi de dossiers, contacts, statistiques)
+Ses propres paramètres WhatsApp Business API (numéro, BSP, templates)
+Ses propres administrateurs et droits d'accès (jusqu'à 10 admins par entité)
+Son propre pipeline d'apprentissage supervisé et de validation de réponses
+Le provisionnement d'un nouveau CRI se fait via un back-office super-admin sans redéploiement de code. Aujourd'hui c'est Rabat, demain Tanger, Casablanca, Marrakech, etc.
+1.4. Périmètre Fonctionnel (conformément au CPS)
+La plateforme intègre deux agents conversationnels IA par tenant, accessibles via WhatsApp Business API :
+
+
+2. Exigences et Contraintes
+2.1. Exigences Fonctionnelles
+
+2.2. Exigences Non-Fonctionnelles
+
+3. Architecture Globale de la Plateforme
+3.1. Vue d'Ensemble
+L'architecture est conçue selon une approche microservices modulaire avec une séparation nette entre le socle technique partagé et les données isolées de chaque tenant. Voici les couches principales :
+3.1.1. Couche Présentation / Canal
+WhatsApp Business API (via BSP : 360dialog, Gupshup, ou Meta Cloud API direct)
+Webhook d'entrée unifié avec routage par numéro WhatsApp vers le bon tenant
+Extension future possible : widget web, Messenger, Telegram
+3.1.2. Couche API Gateway / Routage Multi-Tenant
+API Gateway (Nginx / Traefik) avec authentification et rate limiting
+Tenant Resolver : identification du tenant via le numéro WhatsApp entrant ou le header X-Tenant-ID
+Injection du contexte tenant dans chaque requête en aval
+3.1.3. Couche Métier / Orchestration
+Orchestrateur de conversation (gestion du flux : détection d'intention, routage vers le bon module)
+Module FAQ RAG (Retrieval-Augmented Generation)
+Module Suivi de Dossier (avec auth OTP)
+Module Incitations et Aides (arborescence décisionnelle)
+Module Notifications Proactives (envoi automatisé de mises à jour)
+Module Escalade Agent Humain
+Module Agent Interne CRI
+3.1.4. Couche IA / NLP
+Google Gemini 2.5 Flash (LLM principal, multimodal natif : texte, image, audio)
+Pipeline d'embeddings multilingue (FR/AR/EN) pour la recherche sémantique
+Moteur RAG avec ranking et re-ranking contextuel
+Détection automatique de langue
+3.1.5. Couche Données (isolée par tenant)
+Base vectorielle : Qdrant ou ChromaDB (une collection par tenant)
+Base relationnelle : PostgreSQL (un schéma ou une base par tenant)
+Cache : Redis (sessions, OTP, conversations en cours)
+Stockage fichiers : MinIO / S3-compatible (documents, logs, exports)
+3.1.6. Couche Administration
+Back-Office Super-Admin : gestion des tenants, provisionnement, monitoring global
+Back-Office Tenant : supervision des réponses, gestion KB, templates WhatsApp, analytics
+Authentification classique (email/mot de passe) conformément à la clarification R12
+
+3.2. Diagramme d'Architecture Logique
+Le schéma ci-dessous représente l'architecture logique en couches de la plateforme :
+
+
+4. Stack Technique Détaillée
+4.1. Choix Technologiques
+
+4.2. Justification de Gemini 2.5 Flash
+Le choix de Gemini 2.5 Flash comme LLM principal s'appuie sur plusieurs critères stratégiques :
+Multimodal natif : traitement de texte, images et audio dans un même modèle, essentiel pour comprendre les messages WhatsApp contenant des photos de documents ou des messages vocaux.
+Support linguistique : arabe, français et anglais supportés nativement, répondant à l'exigence de trilinguisme du CPS.
+Fenêtre contextuelle de 1 million de tokens, permettant d'injecter un large contexte RAG sans troncature.
+Rapidité : temps de premier token (TTFT) inférieur à 1 seconde, compatible avec l'exigence de réponse < 2 secondes.
+Coût maîtrisé : 0.15$/M tokens en entrée et 0.60$/M en sortie (tarifs Gemini 2.5 Flash), permettant un volume élevé de conversations à coût raisonnable.
+Capacités de raisonnement avancées (thinking mode configurable) pour les requêtes complexes.
+
+5. Architecture Multi-Tenant Détaillée
+5.1. Modèle d'Isolation des Données
+Chaque tenant (CRI régional) dispose d'un espace de données strictement isolé. Le modèle retenu est l'isolation au niveau du schéma PostgreSQL combinée avec des collections Qdrant dédiées :
+
+5.2. Provisionnement d'un Nouveau Tenant
+La création d'un nouveau CRI sur la plateforme se fait via le back-office super-admin en quelques étapes automatisées :
+Étape 1 — Création du tenant : saisie du nom, région, logo, couleurs, informations de contact.
+Étape 2 — Provisionnement automatique : création du schéma PostgreSQL, de la collection Qdrant, du bucket MinIO, et des préfixes Redis.
+Étape 3 — Configuration WhatsApp : association du numéro WhatsApp Business, configuration du webhook, définition des templates.
+Étape 4 — Alimentation de la base de connaissances : import des documents, crawl du site web régional, indexation vectorielle.
+Étape 5 — Import des données métier : import Excel/CSV des dossiers d'investissement depuis le SI existant du CRI.
+Étape 6 — Création des administrateurs : jusqu'à 10 admins par entité avec subdivision par rôles.
+Étape 7 — Tests et activation : validation en pré-production puis mise en production.
+
+5.3. Routage Multi-Tenant
+Le routage des messages entrants vers le bon tenant s'effectue automatiquement selon le mécanisme suivant :
+Chaque tenant possède un numéro WhatsApp unique associé à un webhook d'entrée unique.
+Le Tenant Resolver extrait l'identifiant du numéro destinataire (phone_number_id) du payload webhook.
+Une table de mapping phone_number_id → tenant_id est maintenue en cache Redis pour un routage ultra-rapide.
+Le contexte tenant (configuration, chaîne de connexion DB, collection Qdrant, etc.) est injecté dans le middleware FastAPI.
+Toutes les opérations en aval s'exécutent dans le scope du tenant identifié, garantissant l'isolation.
+
+6. Architecture du Pipeline RAG
+6.1. Vue d'Ensemble du Pipeline
+Le pipeline RAG (Retrieval-Augmented Generation) est le cœur de l'Agent 1. Il combine la recherche sémantique dans la base de connaissances du tenant avec la génération de réponses contextualisées par Gemini 2.5 Flash.
+6.1.1. Phase d'Ingestion (Indexation)
+Crawl automatisé des sites web du CRI (rabatinvest.ma, cri-invest.ma, etc.) avec détection de mise à jour.
+Import de documents structurés (PDF, Word, Excel) via le back-office.
+Chunking intelligent : découpage en segments de 512-1024 tokens avec chevauchement de 128 tokens.
+Enrichissement des métadonnées : source, date, catégorie (procédure, incitation, FAQ), langue.
+Génération des embeddings multilingues via text-embedding-004 ou multilingual-e5-large.
+Stockage dans la collection Qdrant dédiée au tenant.
+6.1.2. Phase de Requêtage (Retrieval)
+Réception de la question utilisateur via WhatsApp.
+Détection automatique de la langue (FR/AR/EN).
+Génération de l'embedding de la question.
+Recherche hybride dans Qdrant : similarité cosinus + filtrage par métadonnées (catégorie, langue).
+Récupération des Top-K chunks les plus pertinents (K configurable, défaut : 5).
+Re-ranking optionnel via Gemini pour affiner la pertinence.
+6.1.3. Phase de Génération (Augmented Generation)
+Construction du prompt avec : contexte système (ton, consignes du CRI), chunks récupérés, historique conversationnel (3-5 derniers échanges), question utilisateur.
+Envoi à Gemini 2.5 Flash avec instructions de répondre dans la langue détectée.
+Post-traitement : vérification de la cohérence, filtrage de contenu sensible, ajout de sources.
+Envoi de la réponse formatée via WhatsApp (texte, boutons, listes interactives).
+
+6.2. Système d'Apprentissage Supervisé
+Conformément au CPS (article 24, section 1.2), un mécanisme d'amélioration continue est intégré :
+Détection automatique des questions non couvertes (score de confiance RAG < seuil configurable).
+Enregistrement dans une file d'attente de révision accessible via le back-office.
+Génération automatique de propositions de réponses par Gemini, basées sur la base de connaissances et un moteur de suggestion.
+Interface de validation pour les agents CRI : approuver, modifier ou rejeter chaque proposition.
+Intégration automatique des réponses validées dans la base de connaissances (nouveau chunk indexé dans Qdrant).
+Tableau de bord de suivi : taux de couverture, questions fréquentes non couvertes, évolution de la qualité.
+
+7. Modules Fonctionnels Détaillés
+7.1. Module de Suivi de Dossier
+7.1.1. Flux d'Authentification OTP
+Le porteur de projet s'authentifie via un code OTP envoyé par SMS ou WhatsApp (conformément au CPS, article 24, section 1.4) :
+L'utilisateur demande à consulter son dossier via le chatbot WhatsApp.
+Le système lui demande son numéro de dossier ou CIN.
+Un code OTP à 6 chiffres est généré et stocké dans Redis (TTL : 5 minutes).
+Le code est envoyé via WhatsApp (ou SMS en fallback).
+Après validation, une session authentifiée est créée (TTL : 30 minutes, extensible).
+L'utilisateur peut consulter l'état d'avancement de son dossier.
+7.1.2. Base de Données Dédiée au Suivi
+Conformément au CPS (article 24, section 1.5), la base de suivi repose sur :
+Extraction périodique des données depuis le SI existant du CRI, exportées au format Excel ou CSV puis importées dans une base SQL Server / PostgreSQL dédiée (R8).
+Synchronisation automatisée via un job planifié (cron) avec détection de différences.
+Schéma de données : numéro de dossier, investisseur, statut, dates clés, observations, pièces jointes.
+7.1.3. Notifications Proactives
+Le système envoie automatiquement des notifications WhatsApp lors de :
+Changement de statut d'un dossier (en cours, validé, rejeté, incomplet).
+Demande de complément de pièces.
+Décision finale sur un dossier.
+Rappels de délais imminents.
+Les notifications utilisent des templates WhatsApp prévalidés par Meta et sont envoyées dans la langue préférée de l'investisseur.
+
+7.2. Module d'Incitations et Aides
+Ce module propose une arborescence interactive (article 24, section 1.3) permettant de guider l'investisseur vers les dispositifs d'incitation adaptés à son profil :
+Arbre de décision configurable par tenant via le back-office (secteur d'activité, statut juridique, localisation, nature du projet, taille d'investissement).
+Chaque noeud de l'arbre est une question posée via les boutons interactifs WhatsApp (listes, boutons de réponse rapide).
+Le résultat est une fiche d'incitation interactif envoyée sous forme de message structuré WhatsApp.
+Les fiches sont maintenues dans la base de connaissances et peuvent être mises à jour par les administrateurs.
+
+7.3. Module Agent Interne CRI (Agent 2)
+L'agent interne est réservé aux collaborateurs du CRI et fonctionne en lecture seule (R11) :
+Accès restreint par whitelist de numéros de téléphone autorisés.
+Consultation rapide de l'état des dossiers : "Quel est le statut du dossier 2024-1234 ?"
+Tableaux de bord simplifiés envoyés sous forme de messages WhatsApp formatés (nombre de dossiers en attente, validés, rejetés, incomplets).
+Génération de rapports et statistiques à la demande, exportés en format lisible.
+
+7.4. Module Campagnes / Publipostage
+Le back-office permet l'envoi de messages en masse (article 25, fonctionnalités WhatsApp) :
+Création de templates de messages validés par Meta.
+Import de listes de destinataires via fichier Excel avec mapping des variables.
+Planification des envois avec gestion du débit (respect des limites Meta).
+Suivi des statistiques : envoi, réception, lecture, interaction.
+Gestion du quota de 100 000 messages par an par tenant (article 28).
+
+8. Infrastructure et Hébergement
+8.1. Infrastructure Nindohost
+L'hébergement est assuré par Nindohost, hébergeur marocain certifié ISO 9001:2015 avec datacenter au Maroc, garantissant la conformité avec l'exigence d'hébergement local des données sensibles (article 25, section 1).
+8.1.1. Configuration Serveur Recommandée
+
+8.1.2. Topologie Réseau
+Accès SSH/VPN pour l'équipe technique (conformément à R7).
+HTTPS/TLS pour toutes les communications (certificats Let's Encrypt via Traefik).
+Firewall avec whitelist d'IP pour les accès d'administration.
+Réseau privé interne entre les VPS (pas d'exposition directe des bases de données).
+8.2. Sécurité et Conformité CNDP
+Chiffrement au repos : PostgreSQL avec encryption, MinIO avec SSE, Qdrant avec encryption at-rest.
+Chiffrement en transit : TLS 1.3 pour toutes les communications inter-services.
+Journaux d'audit : chaque action est tracée (qui, quand, quoi) avec rotation et archivage.
+Séparation stricte des accès grand public et internes (deux agents distincts, deux pipelines).
+Conformité CNDP (loi 09-08) : données personnelles uniquement sur serveurs marocains, droit d'accès et de rectification, politique de rétention définie.
+Authentification back-office : email/mot de passe avec hachage bcrypt, sessions JWT, RBAC par rôle.
+8.3. Disponibilité et PRA
+Sauvegardes automatiques : PostgreSQL (pg_dump quotidien), Qdrant (snapshot hebdomadaire), MinIO (réplication).
+Rétention : 30 jours glissants pour les sauvegardes quotidiennes, 12 mois pour les mensuelles.
+PRA : documentation de procédure de restauration complète, test de reprise trimestriel, RTO < 4h, RPO < 24h.
+Monitoring : alertes Prometheus/Grafana sur CPU, RAM, disque, latence API, taux d'erreur WhatsApp.
+
+9. Back-Office et Administration
+9.1. Back-Office Super-Admin (Plateforme)
+Le super-admin gère l'ensemble de la plateforme multi-tenant :
+Gestion des tenants : créer, activer, désactiver, configurer un CRI.
+Provisionnement automatisé de toute l'infrastructure d'un nouveau tenant.
+Monitoring global : santé de chaque tenant, consommation de ressources, alertes.
+Gestion des quotas : messages WhatsApp, stockage, nombre d'administrateurs.
+Mises à jour de la plateforme : déploiement des nouvelles versions sans interruption.
+9.2. Back-Office Tenant (CRI)
+Chaque CRI dispose de son propre espace d'administration (authentification classique, R12) :
+9.2.1. Gestion de la Base de Connaissances
+Import de documents (PDF, Word, Excel) pour alimentation du RAG.
+Configuration du crawl web automatique (URLs, fréquence).
+Visualisation et édition des chunks indexés.
+Gestion des catégories et métadonnées.
+9.2.2. Supervision des Conversations
+Visualisation de toutes les conversations en temps réel.
+File d'attente des questions non couvertes avec propositions de réponses IA.
+Actions : valider, corriger, reformuler, rejeter une réponse.
+Blocage de réponses spécifiques (modération).
+9.2.3. Gestion WhatsApp
+Configuration du numéro WhatsApp Business et des paramètres BSP.
+Création et soumission de templates de messages à Meta.
+Outil de publipostage avec import Excel et mapping des variables.
+Suivi de consommation des messages (quota 100 000/an).
+Statistiques détaillées : envoi, réception, lecture, interaction.
+9.2.4. Gestion des Utilisateurs
+Création de jusqu'à 10 administrateurs par entité avec subdivision par rôles.
+Rôles : Super-Admin Tenant, Gestionnaire KB, Superviseur Conversations, Analyste, Gestionnaire Campagnes.
+Gestion de la whitelist des numéros autorisés pour l'Agent Interne.
+9.2.5. Analytics et Rapports
+Tableau de bord temps réel : volumes de conversations, taux de résolution, temps de réponse moyen.
+Analyse des questions fréquentes et des lacunes de la base de connaissances.
+Feedback utilisateurs : notes et commentaires sur les réponses.
+Export de rapports en PDF/Excel.
+
+10. Phasage du Projet
+Le projet est découpé en 3 phases conformément au CPS (article 26), avec une recette fonctionnelle conditionnant le passage d'une phase à la suivante :
+
+10.1. Phase 1 — Socle Technique et Agent Public (FAQ + Incitations)
+
+Mise en place de l'infrastructure Nindohost (serveurs, réseau, sécurité).
+Déploiement du socle multi-tenant (API Gateway, Tenant Resolver, base de données).
+Intégration WhatsApp Business API et configuration du premier tenant (CRI-RSK).
+Développement du pipeline RAG complet (ingestion, recherche, génération).
+Alimentation de la base de connaissances (crawl web, import documents).
+Développement du module d'incitations et aides (arborescence interactive).
+Intégration du multilinguisme (FR/AR/EN).
+Développement du back-office tenant (v1 : gestion KB, supervision).
+Tests en environnement de pré-production.
+Livrables : Agent public fonctionnel (FAQ + Incitations), back-office v1, documentation technique, rapport de tests.
+
+10.2. Phase 2 — Agent Interne et Outils de Supervision
+
+Développement de l'Agent 2 (interne CRI) avec accès restreint.
+Mise en place des tableaux de bord internes (indicateurs, volumes, statuts).
+Développement du système d'apprentissage supervisé complet.
+Amélioration du back-office (gestion complète, analytics, campagnes).
+Back-office super-admin pour la gestion multi-tenant.
+Tests des fonctionnalités internes dans un cadre sécurisé.
+Livrables : Agent interne fonctionnel, back-office complet, système d'apprentissage, documentation, rapport de tests.
+
+10.3. Phase 3 — Suivi de Dossier, Sécurisation et Mise en Production
+
+Développement du module de suivi de dossier avec authentification OTP.
+Intégration de la base de données dédiée au suivi (import Excel/CSV depuis le SI CRI).
+Activation des notifications proactives (changements de statut, rappels).
+Tests de charge (100+ conversations simultanées, temps de réponse < 2s).
+Audit de sécurité et conformité CNDP.
+Déploiement en production et ouverture officielle.
+Formation des utilisateurs CRI (supervision, gestion des réponses, suivi des performances).
+Livrables : Solution complète en production, documentation complète, rapports de tests de charge et de sécurité, plan de formation, plan de maintenance.
+
+11. Maintenance et Évolutivité
+11.1. Plan de Maintenance (12 mois)
+Conformément au CPS (article 24, section 6), une maintenance corrective et évolutive de 12 mois est assurée à compter de la réception définitive :
+Correction d'anomalies : SLA de résolution selon la sévérité (critique : 4h, majeure : 24h, mineure : 72h).
+Mises à jour de sécurité : application proactive des patches système et applicatifs.
+Ajustements techniques : optimisation des performances, adaptation à l'évolution des API Meta/Google.
+Assistance technique : support à distance, documentation, vidéos tutorielles.
+Réentraînements complémentaires : mise à jour de la base de connaissances lors d'ajout de nouveaux contenus validés.
+11.2. Évolutivité de la Plateforme
+L'architecture modulaire permet des évolutions futures sans refonte :
+Ajout de nouveaux canaux : widget web, Messenger, Telegram, SMS.
+Ajout de nouveaux tenants (CRI régionaux) sans redéploiement de code.
+Migration vers un modèle LLM différent si besoin (abstraction via LangChain).
+Scale horizontale : ajout de serveurs VPS pour absorber la charge croissante.
+Intégration avec d'autres systèmes d'information via les API REST exposées.
+
+
+12. Modèle de Données Simplifié
+12.1. Schéma Principal (par tenant)
+
+13. Matrice de Conformité CPS
+Cette matrice démontre la couverture complète de chaque exigence du CPS par la solution proposée :
+
+
+
+
+--- Fin du Document d'Architecture ---
+
+Ce document est confidentiel et destiné exclusivement à l'équipe projet.

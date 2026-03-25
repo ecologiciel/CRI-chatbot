@@ -657,3 +657,11 @@ INTERDIT : dark mode, gradients, polices autres que PJSans/Inter/Noto Sans Arabi
 8. **structlog** pour le logging. Pas de `print()`.
 9. **Le CPS est le document contractuel de référence.** Toute décision technique doit être justifiable.
 10. **Tests unitaires** avec chaque module. pytest + pytest-asyncio.
+## 19. AUTONOMIE CLAUDE CODE
+
+- Claude Code a les droits COMPLETS sur tous les fichiers du repo
+- Créer et modifier `.env` directement (générer les mots de passe avec `openssl rand -base64 32`)
+- Exécuter `docker compose up/down` sans demander
+- Lancer les tests automatiquement après chaque implémentation
+- Faire les commits git avec le format conventionnel
+- Ne PAS demander confirmation pour les opérations courantes

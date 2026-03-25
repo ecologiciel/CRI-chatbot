@@ -1,0 +1,62 @@
+# =============================================================================
+# CRI Chatbot Platform — .gitignore
+# =============================================================================
+
+# Environment variables (NEVER commit secrets)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Docker volumes data
+docker-volumes/
+
+# Traefik certificates
+docker/traefik/acme.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+*.egg
+.coverage
+htmlcov/
+
+# Node.js
+node_modules/
+.next/
+out/
+.turbo/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.windsurf/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Claude Code local settings
+settings.json

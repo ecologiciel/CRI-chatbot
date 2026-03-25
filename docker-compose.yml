@@ -1,0 +1,229 @@
+# =============================================================================
+# CRI Chatbot Platform — Docker Compose (Developpement local)
+# Usage : cp .env.example .env && docker compose up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — Base relationnelle (schema par tenant + RLS)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: cri-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cri_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-cri_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    networks:
+      - cri-backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cri_admin} -d ${POSTGRES_DB:-cri_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — Base vectorielle (collection par tenant)
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: cri-qdrant
+    ports:
+      - "127.0.0.1:6333:6333"   # HTTP API
+      - "127.0.0.1:6334:6334"   # gRPC
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - cri-backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:6333/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — Cache, sessions, rate limiting (prefixe par tenant)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: cri-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - cri-backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # MinIO — Stockage objet S3-compatible (bucket par tenant)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: cri-minio
+    ports:
+      - "127.0.0.1:9000:9000"   # API S3
+      - "127.0.0.1:9001:9001"   # Console Web
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cri_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - minio_data:/data
+    networks:
+      - cri-backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Traefik v3 — Reverse proxy (seul point d'entree public)
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.2
+    container_name: cri-traefik
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8080:8080"   # Dashboard (dev only)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./docker/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - traefik_certs:/letsencrypt
+    networks:
+      - cri-frontend
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — Metriques (infra + IA + RAG)
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cri-prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    networks:
+      - cri-backend
+      - cri-frontend    # Requis pour scraper les metriques Traefik
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Grafana — Dashboards monitoring
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cri-grafana
+    ports:
+      - "127.0.0.1:3001:3000"   # 3001 pour eviter conflit avec Next.js
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - cri-backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Backend FastAPI — A ACTIVER quand backend/Dockerfile existe
+  # ---------------------------------------------------------------------------
+  # backend:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: cri-backend
+  #   ports:
+  #     - "127.0.0.1:8000:8000"
+  #   env_file: .env
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     qdrant:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #   networks:
+  #     - cri-frontend   # Expose via Traefik
+  #     - cri-backend    # Acces aux services de donnees
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.backend.rule=PathPrefix(`/api`)"
+  #     - "traefik.http.routers.backend.entrypoints=web"
+  #     - "traefik.http.routers.backend.middlewares=security-headers@file,cors-backoffice@file,rate-limit-global@file"
+  #     - "traefik.http.services.backend.loadbalancer.server.port=8000"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+# =============================================================================
+# Reseaux — Micro-segmentation (CLAUDE.md section 9.5)
+# =============================================================================
+networks:
+  cri-frontend:
+    driver: bridge
+    name: cri-frontend
+  cri-backend:
+    driver: bridge
+    name: cri-backend
+    # internal: false en dev pour acces debug direct aux ports
+    # Surcharge a internal: true en prod (docker-compose.prod.yml)
+
+# =============================================================================
+# Volumes nommes — Persistance des donnees
+# =============================================================================
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+  minio_data:
+  traefik_certs:
+  prometheus_data:
+  grafana_data:

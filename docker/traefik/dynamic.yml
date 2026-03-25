@@ -1,0 +1,48 @@
+# =============================================================================
+# Traefik v3 — Configuration dynamique (hot-reloadable)
+# Middlewares : securite, CORS, rate limiting
+# =============================================================================
+
+http:
+  middlewares:
+    # --- Headers de securite (CLAUDE.md section 9.6) ---
+    security-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customResponseHeaders:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Content-Security-Policy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
+          Permissions-Policy: "camera=(), microphone=(), geolocation=()"
+
+    # --- CORS Back-Office ---
+    cors-backoffice:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Tenant-ID
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+        accessControlMaxAge: 86400
+        addVaryHeader: true
+
+    # --- Rate limiting global (100 req/min, burst 50) ---
+    rate-limit-global:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: "1m"

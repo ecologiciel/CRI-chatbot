@@ -1,0 +1,84 @@
+# =============================================================================
+# CRI Chatbot Platform — Docker Compose PRODUCTION (Nindohost)
+# Usage : docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — Pas de port expose, limite memoire 8 Go
+  # ---------------------------------------------------------------------------
+  postgres:
+    ports: []
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — Pas de port expose, limite memoire 12 Go
+  # ---------------------------------------------------------------------------
+  qdrant:
+    ports: []
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12g
+
+  # ---------------------------------------------------------------------------
+  # Redis — Pas de port expose, limite memoire 2 Go
+  # ---------------------------------------------------------------------------
+  redis:
+    ports: []
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  # ---------------------------------------------------------------------------
+  # MinIO — Pas de port expose, limite memoire 4 Go
+  # ---------------------------------------------------------------------------
+  minio:
+    ports: []
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+
+  # ---------------------------------------------------------------------------
+  # Traefik — Uniquement ports 80/443, dashboard desactive
+  # ---------------------------------------------------------------------------
+  traefik:
+    ports:
+      - "80:80"
+      - "443:443"
+      # Dashboard port (8080) retire en production
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — Pas de port expose
+  # ---------------------------------------------------------------------------
+  prometheus:
+    ports: []
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Grafana — Pas de port expose (accessible via Traefik)
+  # ---------------------------------------------------------------------------
+  grafana:
+    ports: []
+    restart: unless-stopped
+
+# =============================================================================
+# Reseau backend isole — Aucun acces Internet direct en production
+# =============================================================================
+networks:
+  cri-backend:
+    internal: true

@@ -1,0 +1,41 @@
+# =============================================================================
+# Traefik v3 — Configuration statique
+# Dev local : HTTP simple, dashboard actif
+# Prod : Let's Encrypt TLS, dashboard desactive
+# =============================================================================
+
+api:
+  dashboard: true
+  insecure: true        # Dev only — securise en prod via labels
+
+ping: {}                # Requis pour le healthcheck Docker
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: cri-frontend
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "admin@example.com"    # Surcharge via ACME_EMAIL en prod
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
+
+log:
+  level: INFO
+
+accessLog: {}
+
+metrics:
+  prometheus: {}

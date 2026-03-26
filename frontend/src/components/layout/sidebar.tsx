@@ -23,7 +23,7 @@ import type { NavItem } from "@/types";
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Conversations", href: "/conversations", icon: MessageSquare },
-  { label: "Base de connaissances", href: "/knowledge-base", icon: BookOpen },
+  { label: "Base de connaissances", href: "/kb", icon: BookOpen },
   { label: "Contacts", href: "/contacts", icon: Users },
   { label: "Campagnes", href: "/campaigns", icon: Send, badge: "Bientôt", disabled: true },
   { label: "Analytics", href: "/analytics", icon: BarChart3, badge: "Bientôt", disabled: true },

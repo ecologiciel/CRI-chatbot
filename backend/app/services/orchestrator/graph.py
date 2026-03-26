@@ -1,0 +1,345 @@
+"""Complete LangGraph conversation graph — Wave 8.
+
+Assembles all nodes (Waves 6-7) into a compiled StateGraph:
+
+    intent_detector ─(Router)──> faq_agent ──────────┐
+                               > incentives_agent ────┤
+                               │                      ├─> response_validator -> feedback_collector -> END
+                               > greeting_response ──────> END
+                               > out_of_scope_response ──> END
+                               > blocked_response ───────> END
+                               > tracking_placeholder ───> END
+                               > escalation_placeholder ─> END
+                               > internal_placeholder ───> END
+
+Entry point: ``run_conversation()`` — called from the WhatsApp webhook handler.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+import structlog
+from langgraph.graph import END, StateGraph
+
+from app.core.tenant import TenantContext
+from app.services.orchestrator.faq_agent import get_faq_agent
+from app.services.orchestrator.feedback_collector import get_feedback_collector
+from app.services.orchestrator.incentives_agent import get_incentives_agent
+from app.services.orchestrator.intent import get_intent_detector
+from app.services.orchestrator.response_validator import get_response_validator
+from app.services.orchestrator.router import Router
+from app.services.orchestrator.simple_nodes import (
+    BlockedResponseNode,
+    EscalationPlaceholder,
+    GreetingNode,
+    InternalPlaceholder,
+    OutOfScopeNode,
+    TrackingPlaceholder,
+)
+from app.services.orchestrator.state import ConversationState
+from app.services.rag.prompts import PromptTemplates
+
+logger = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Tenant reconstruction helper
+# ---------------------------------------------------------------------------
+
+def _reconstruct_tenant(state: ConversationState) -> TenantContext:
+    """Reconstruct a TenantContext from the serialized dict in state."""
+    tc = state.get("tenant_context", {})
+    return TenantContext(
+        id=uuid.UUID(tc["id"]),
+        slug=tc["slug"],
+        name=tc["name"],
+        status=tc["status"],
+        whatsapp_config=tc.get("whatsapp_config"),
+    )
+
+
+def _serialize_tenant(tenant: TenantContext) -> dict:
+    """Serialize a TenantContext to a JSON-safe dict for state storage."""
+    return {
+        "id": str(tenant.id),
+        "slug": tenant.slug,
+        "name": tenant.name,
+        "status": tenant.status,
+        "whatsapp_config": tenant.whatsapp_config,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Node wrappers
+# ---------------------------------------------------------------------------
+
+def _wrap_tenant_node(
+    method: Callable[..., Awaitable[ConversationState]],
+    node_name: str,
+) -> Callable[[ConversationState], Awaitable[ConversationState]]:
+    """Wrap a node method that requires (state, tenant) for LangGraph.
+
+    LangGraph calls nodes with just (state). This wrapper reconstructs
+    TenantContext from state["tenant_context"] and calls the real method.
+    On failure, returns a graceful error response.
+    """
+
+    async def wrapper(state: ConversationState) -> ConversationState:
+        try:
+            tenant = _reconstruct_tenant(state)
+            return await method(state, tenant)
+        except Exception as exc:
+            logger.error(
+                "node_error",
+                node=node_name,
+                error=str(exc),
+                tenant=state.get("tenant_slug"),
+            )
+            language = state.get("language", "fr")
+            return {  # type: ignore[return-value]
+                "error": f"{node_name}: {exc}",
+                "response": PromptTemplates.get_message("no_answer", language),
+            }
+
+    wrapper.__name__ = node_name
+    return wrapper
+
+
+def _wrap_simple_node(
+    method: Callable[..., Awaitable[ConversationState]],
+    node_name: str,
+) -> Callable[[ConversationState], Awaitable[ConversationState]]:
+    """Wrap a simple node method (no tenant) for LangGraph."""
+
+    async def wrapper(state: ConversationState) -> ConversationState:
+        try:
+            return await method(state)
+        except Exception as exc:
+            logger.error(
+                "node_error",
+                node=node_name,
+                error=str(exc),
+                tenant=state.get("tenant_slug"),
+            )
+            language = state.get("language", "fr")
+            return {  # type: ignore[return-value]
+                "error": f"{node_name}: {exc}",
+                "response": PromptTemplates.get_message("no_answer", language),
+            }
+
+    wrapper.__name__ = node_name
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
+# Graph construction
+# ---------------------------------------------------------------------------
+
+def build_conversation_graph() -> Any:
+    """Build and compile the complete conversation StateGraph.
+
+    Returns:
+        Compiled LangGraph graph ready for ``ainvoke()``.
+    """
+    # Get singleton instances
+    intent_detector = get_intent_detector()
+    faq_agent = get_faq_agent()
+    incentives_agent = get_incentives_agent()
+    response_validator = get_response_validator()
+    feedback_collector = get_feedback_collector()
+
+    # Simple nodes (no tenant needed)
+    greeting_node = GreetingNode()
+    out_of_scope_node = OutOfScopeNode()
+    blocked_node = BlockedResponseNode()
+    tracking_placeholder = TrackingPlaceholder()
+    escalation_placeholder = EscalationPlaceholder()
+    internal_placeholder = InternalPlaceholder()
+
+    # Build graph
+    graph = StateGraph(ConversationState)
+
+    # ── Add nodes (wrapped for LangGraph) ──
+    graph.add_node(
+        "intent_detector",
+        _wrap_tenant_node(intent_detector.detect, "intent_detector"),
+    )
+    graph.add_node(
+        "faq_agent",
+        _wrap_tenant_node(faq_agent.handle, "faq_agent"),
+    )
+    graph.add_node(
+        "incentives_agent",
+        _wrap_tenant_node(incentives_agent.handle, "incentives_agent"),
+    )
+    graph.add_node(
+        "response_validator",
+        _wrap_tenant_node(response_validator.validate, "response_validator"),
+    )
+    graph.add_node(
+        "feedback_collector",
+        _wrap_tenant_node(feedback_collector.collect, "feedback_collector"),
+    )
+    graph.add_node(
+        "greeting_response",
+        _wrap_simple_node(greeting_node.handle, "greeting_response"),
+    )
+    graph.add_node(
+        "out_of_scope_response",
+        _wrap_simple_node(out_of_scope_node.handle, "out_of_scope_response"),
+    )
+    graph.add_node(
+        "blocked_response",
+        _wrap_simple_node(blocked_node.handle, "blocked_response"),
+    )
+    graph.add_node(
+        "tracking_placeholder",
+        _wrap_simple_node(tracking_placeholder.handle, "tracking_placeholder"),
+    )
+    graph.add_node(
+        "escalation_placeholder",
+        _wrap_simple_node(escalation_placeholder.handle, "escalation_placeholder"),
+    )
+    graph.add_node(
+        "internal_placeholder",
+        _wrap_simple_node(internal_placeholder.handle, "internal_placeholder"),
+    )
+
+    # ── Entry point ──
+    graph.set_entry_point("intent_detector")
+
+    # ── Conditional routing after intent detection ──
+    graph.add_conditional_edges(
+        "intent_detector",
+        Router.route,
+        {
+            "faq_agent": "faq_agent",
+            "incentives_agent": "incentives_agent",
+            "greeting_response": "greeting_response",
+            "out_of_scope_response": "out_of_scope_response",
+            "blocked_response": "blocked_response",
+            "tracking_placeholder": "tracking_placeholder",
+            "escalation_placeholder": "escalation_placeholder",
+            "internal_placeholder": "internal_placeholder",
+        },
+    )
+
+    # ── Linear edges: FAQ and Incentives paths converge ──
+    graph.add_edge("faq_agent", "response_validator")
+    graph.add_edge("incentives_agent", "response_validator")
+    graph.add_edge("response_validator", "feedback_collector")
+    graph.add_edge("feedback_collector", END)
+
+    # ── Simple nodes → END ──
+    graph.add_edge("greeting_response", END)
+    graph.add_edge("out_of_scope_response", END)
+    graph.add_edge("blocked_response", END)
+    graph.add_edge("tracking_placeholder", END)
+    graph.add_edge("escalation_placeholder", END)
+    graph.add_edge("internal_placeholder", END)
+
+    return graph.compile()
+
+
+# ---------------------------------------------------------------------------
+# Singleton
+# ---------------------------------------------------------------------------
+
+_conversation_graph: Any | None = None
+
+
+def get_conversation_graph() -> Any:
+    """Get or create the compiled conversation graph singleton."""
+    global _conversation_graph  # noqa: PLW0603
+    if _conversation_graph is None:
+        _conversation_graph = build_conversation_graph()
+    return _conversation_graph
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+async def run_conversation(
+    tenant: TenantContext,
+    phone: str,
+    query: str,
+    conversation_history: list[dict] | None = None,
+    incentive_state: dict | None = None,
+) -> dict:
+    """Run a user message through the conversation graph.
+
+    Called from the WhatsApp webhook handler. Manages state
+    serialization in and result extraction out.
+
+    Args:
+        tenant: TenantContext for the current tenant.
+        phone: User's WhatsApp phone number (E.164).
+        query: User's message text (or button reply ID).
+        conversation_history: Previous messages [{role, content}].
+        incentive_state: Current position in incentives tree (if any).
+
+    Returns:
+        dict with: response, intent, language, chunk_ids, confidence,
+        incentive_state, error.
+    """
+    initial_state: ConversationState = {  # type: ignore[typeddict-item]
+        "tenant_slug": tenant.slug,
+        "tenant_context": _serialize_tenant(tenant),
+        "phone": phone,
+        "language": "fr",
+        "intent": "",
+        "messages": conversation_history or [],
+        "query": query,
+        "retrieved_chunks": [],
+        "response": "",
+        "chunk_ids": [],
+        "confidence": 0.0,
+        "is_safe": True,
+        "guard_message": None,
+        "incentive_state": incentive_state or {},
+        "error": None,
+    }
+
+    try:
+        graph = get_conversation_graph()
+        final_state = await graph.ainvoke(initial_state)
+
+        logger.info(
+            "conversation_completed",
+            tenant=tenant.slug,
+            intent=final_state.get("intent"),
+            language=final_state.get("language"),
+            confidence=final_state.get("confidence"),
+            has_error=bool(final_state.get("error")),
+        )
+
+        return {
+            "response": final_state.get("response", ""),
+            "intent": final_state.get("intent", ""),
+            "language": final_state.get("language", "fr"),
+            "chunk_ids": final_state.get("chunk_ids", []),
+            "confidence": final_state.get("confidence", 0.0),
+            "incentive_state": final_state.get("incentive_state", {}),
+            "error": final_state.get("error"),
+        }
+
+    except Exception as exc:
+        logger.error(
+            "conversation_graph_error",
+            error=str(exc),
+            tenant=tenant.slug,
+            phone=phone[:6] + "***",
+        )
+        return {
+            "response": PromptTemplates.get_message("no_answer", "fr"),
+            "intent": "error",
+            "language": "fr",
+            "chunk_ids": [],
+            "confidence": 0.0,
+            "incentive_state": incentive_state or {},
+            "error": str(exc),
+        }

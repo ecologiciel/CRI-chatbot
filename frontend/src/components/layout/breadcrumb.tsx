@@ -7,7 +7,7 @@ import { ChevronRight, Home } from "lucide-react";
 const labelMap: Record<string, string> = {
   dashboard: "Tableau de bord",
   conversations: "Conversations",
-  "knowledge-base": "Base de connaissances",
+  kb: "Base de connaissances",
   contacts: "Contacts",
   campaigns: "Campagnes",
   analytics: "Analytics",

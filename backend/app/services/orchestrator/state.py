@@ -2,8 +2,9 @@
 
 ConversationState is the shared state flowing through the LangGraph
 conversation graph. Each node reads and updates fields relevant to
-its step. TenantContext is NOT stored in state (not JSON-serializable
-for LangGraph checkpointing) — it is passed as a separate parameter.
+its step. TenantContext is stored as a serialized dict (not the frozen
+dataclass) so it remains JSON-serializable for LangGraph checkpointing.
+Node wrappers in graph.py reconstruct TenantContext from this dict.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ class ConversationState(TypedDict, total=False):
 
     # ── Tenant & user identity ──
     tenant_slug: str
+    tenant_context: dict  # serialized TenantContext (id, slug, name, status, whatsapp_config)
     phone: str  # user's WhatsApp phone (E.164)
 
     # ── Language & intent detection ──

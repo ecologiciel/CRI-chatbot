@@ -68,6 +68,10 @@ class WhatsAppQuotaExhaustedError(WhatsAppError):
     """WhatsApp message quota exhausted for this tenant."""
 
 
+class WhatsAppMediaError(WhatsAppError):
+    """Media download, storage, or analysis failed."""
+
+
 # --- RAG ---
 class RAGError(CRIBaseException):
     """Base RAG pipeline error."""

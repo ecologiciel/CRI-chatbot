@@ -13,13 +13,18 @@ from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1.health import router as health_router
+from app.api.v1.webhook import router as webhook_router
 from app.core.config import get_settings
 from app.core.database import close_engine, get_engine
 from app.core.exceptions import (
+    AccountLockedError,
     AuthenticationError,
     AuthorizationError,
     CRIBaseException,
     DuplicateResourceError,
+    DuplicateTenantError,
+    EmbeddingError,
+    GeminiError,
     RateLimitExceededError,
     ResourceNotFoundError,
     TenantInactiveError,
@@ -128,6 +133,7 @@ def create_app() -> FastAPI:
 
     # --- Routes ---
     app.include_router(health_router, prefix="/api/v1", tags=["health"])
+    app.include_router(webhook_router, prefix="/api/v1")
 
     return app
 
@@ -142,8 +148,12 @@ def _get_status_code(exc: CRIBaseException) -> int:
         TenantNotFoundError: 404,
         ResourceNotFoundError: 404,
         DuplicateResourceError: 409,
+        DuplicateTenantError: 409,
         ValidationError: 422,
+        AccountLockedError: 429,
         RateLimitExceededError: 429,
+        GeminiError: 502,
+        EmbeddingError: 502,
     }
     return mapping.get(type(exc), 500)
 

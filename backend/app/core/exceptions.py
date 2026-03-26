@@ -81,3 +81,35 @@ class ValidationError(CRIBaseException):
 # --- Rate Limiting ---
 class RateLimitExceededError(CRIBaseException):
     """Rate limit exceeded."""
+
+
+# --- Account Lockout ---
+class AccountLockedError(CRIBaseException):
+    """Account temporarily locked due to excessive failed login attempts."""
+
+    def __init__(self, remaining_seconds: int = 0) -> None:
+        self.remaining_seconds = remaining_seconds
+        super().__init__(
+            message=f"Account locked. Try again in {remaining_seconds}s",
+            details={"remaining_seconds": remaining_seconds},
+        )
+
+
+# --- Tenant Provisioning ---
+class DuplicateTenantError(CRIBaseException):
+    """Tenant with this slug already exists."""
+
+    def __init__(self, slug: str) -> None:
+        super().__init__(
+            message=f"Tenant already exists: {slug}",
+            details={"slug": slug},
+        )
+
+
+# --- AI / LLM ---
+class GeminiError(CRIBaseException):
+    """Gemini API call failed."""
+
+
+class EmbeddingError(CRIBaseException):
+    """Embedding generation failed."""

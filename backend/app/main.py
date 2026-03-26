@@ -12,7 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from app.api.v1.auth import router as auth_router
 from app.api.v1.health import router as health_router
+from app.api.v1.tenant import router as tenant_router
 from app.api.v1.webhook import router as webhook_router
 from app.core.config import get_settings
 from app.core.database import close_engine, get_engine
@@ -132,7 +134,9 @@ def create_app() -> FastAPI:
         )
 
     # --- Routes ---
+    app.include_router(auth_router, prefix="/api/v1")
     app.include_router(health_router, prefix="/api/v1", tags=["health"])
+    app.include_router(tenant_router, prefix="/api/v1")
     app.include_router(webhook_router, prefix="/api/v1")
 
     return app

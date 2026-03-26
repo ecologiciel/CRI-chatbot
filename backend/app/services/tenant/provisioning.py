@@ -36,9 +36,11 @@ EMBEDDING_DIMENSION = 768
 _TEMPLATE_TABLES = [
     "contacts",
     "kb_documents",
+    "incentive_categories",
     "conversations",
     "messages",
     "kb_chunks",
+    "incentive_items",
     "feedback",
     "unanswered_questions",
 ]
@@ -50,6 +52,8 @@ _FK_CONSTRAINTS: list[tuple[str, str, str, str, str, str]] = [
     ("messages", "fk_msg_conversation", "conversation_id", "conversations", "id", "CASCADE"),
     ("kb_chunks", "fk_chunk_document", "document_id", "kb_documents", "id", "CASCADE"),
     ("feedback", "fk_feedback_message", "message_id", "messages", "id", "CASCADE"),
+    ("incentive_categories", "fk_category_parent", "parent_id", "incentive_categories", "id", "CASCADE"),
+    ("incentive_items", "fk_item_category", "category_id", "incentive_categories", "id", "CASCADE"),
 ]
 
 # Cross-schema FK (references public.admins)

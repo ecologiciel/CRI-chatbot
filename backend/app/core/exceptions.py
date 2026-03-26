@@ -64,6 +64,10 @@ class WhatsAppSignatureError(WhatsAppError):
     """Invalid HMAC signature on webhook."""
 
 
+class WhatsAppQuotaExhaustedError(WhatsAppError):
+    """WhatsApp message quota exhausted for this tenant."""
+
+
 # --- RAG ---
 class RAGError(CRIBaseException):
     """Base RAG pipeline error."""
@@ -71,6 +75,14 @@ class RAGError(CRIBaseException):
 
 class IngestionError(RAGError):
     """Document ingestion failed."""
+
+
+class RetrievalError(RAGError):
+    """RAG retrieval/search failed."""
+
+
+class ChunkingError(RAGError):
+    """Document chunking failed."""
 
 
 # --- Validation ---

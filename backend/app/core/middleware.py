@@ -18,6 +18,7 @@ logger = structlog.get_logger()
 # Paths that do NOT require tenant resolution
 TENANT_EXCLUDED_PATHS: set[str] = {
     "/health",
+    "/api/v1/health",
     "/docs",
     "/openapi.json",
     "/redoc",
@@ -26,9 +27,13 @@ TENANT_EXCLUDED_PATHS: set[str] = {
 }
 
 # Path prefixes that do NOT require tenant resolution
-# (WhatsApp webhooks resolve tenant from payload, not header)
+# - webhooks: resolve tenant from payload, not header
+# - auth: operates on public.admins (global, not tenant-scoped)
+# - tenants: operates on public.tenants (management endpoints use JWT auth, not X-Tenant-ID)
 TENANT_EXCLUDED_PREFIXES: tuple[str, ...] = (
     "/api/v1/webhook/",
+    "/api/v1/auth/",
+    "/api/v1/tenants",
 )
 
 

@@ -29,6 +29,7 @@ from app.models.enums import (
     UnansweredStatus,
 )
 from app.models.feedback import Feedback, UnansweredQuestion
+from app.models.incitation import IncentiveCategory, IncentiveItem
 from app.models.kb import KBChunk, KBDocument
 from app.models.tenant import Tenant
 
@@ -42,6 +43,8 @@ __all__ = [
     "Contact",
     "Conversation",
     "Feedback",
+    "IncentiveCategory",
+    "IncentiveItem",
     "KBChunk",
     "KBDocument",
     "Message",

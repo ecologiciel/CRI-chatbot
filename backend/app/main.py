@@ -13,7 +13,9 @@ from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1.auth import router as auth_router
+from app.api.v1.feedback import router as feedback_router
 from app.api.v1.health import router as health_router
+from app.api.v1.kb import router as kb_router
 from app.api.v1.tenant import router as tenant_router
 from app.api.v1.webhook import router as webhook_router
 from app.core.config import get_settings
@@ -34,6 +36,7 @@ from app.core.exceptions import (
     TenantResolutionError,
     ValidationError,
 )
+from app.core.arq import close_arq_pool, init_arq_pool
 from app.core.logging import setup_logging
 from app.core.middleware import TenantMiddleware
 from app.core.minio import init_minio
@@ -64,12 +67,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     init_minio()
     logger.info("minio_connected")
 
+    await init_arq_pool()
+    logger.info("arq_pool_connected")
+
     logger.info("application_started", environment=settings.environment)
 
     yield  # Application runs here
 
     # --- Shutdown ---
     logger.info("shutting_down_application")
+    await close_arq_pool()
     await close_qdrant()
     await close_redis()
     await close_engine()
@@ -135,7 +142,9 @@ def create_app() -> FastAPI:
 
     # --- Routes ---
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(feedback_router, prefix="/api/v1")
     app.include_router(health_router, prefix="/api/v1", tags=["health"])
+    app.include_router(kb_router, prefix="/api/v1")
     app.include_router(tenant_router, prefix="/api/v1")
     app.include_router(webhook_router, prefix="/api/v1")
 

@@ -83,3 +83,12 @@ class UnansweredQuestionList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class FeedbackList(BaseModel):
+    """Paginated list of feedback entries."""
+
+    items: list[FeedbackResponse]
+    total: int
+    page: int
+    page_size: int

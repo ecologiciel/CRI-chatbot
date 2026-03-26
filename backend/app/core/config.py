@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     grafana_user: str = Field(default="admin")
     grafana_password: str = Field(default="admin")
 
+    # --- Knowledge Base ---
+    kb_max_file_size_mb: int = Field(
+        default=10, description="Max KB upload file size in MB"
+    )
+
     # --- CORS ---
     backoffice_url: str = Field(default="http://localhost:3000")
 
@@ -123,6 +128,11 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         """Redis connection string."""
         return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
+
+    @property
+    def kb_max_file_size_bytes(self) -> int:
+        """Max file size in bytes for KB uploads."""
+        return self.kb_max_file_size_mb * 1024 * 1024
 
     @property
     def is_production(self) -> bool:

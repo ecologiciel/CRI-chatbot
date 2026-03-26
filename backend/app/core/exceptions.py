@@ -85,6 +85,10 @@ class ChunkingError(RAGError):
     """Document chunking failed."""
 
 
+class GenerationError(RAGError):
+    """RAG generation (LLM call) failed."""
+
+
 # --- Validation ---
 class ValidationError(CRIBaseException):
     """Business logic validation error."""
@@ -125,3 +129,8 @@ class GeminiError(CRIBaseException):
 
 class EmbeddingError(CRIBaseException):
     """Embedding generation failed."""
+
+
+# --- Guardrails ---
+class GuardrailError(CRIBaseException):
+    """Guardrail processing failed (internal error, not a blocked input)."""

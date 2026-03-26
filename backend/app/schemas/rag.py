@@ -64,3 +64,61 @@ class MetadataEnrichment(BaseModel):
     regions: list[str] = Field(default_factory=list)
     language: str = Field(default="fr")
     summary: str = Field(default="")
+
+
+# ---------------------------------------------------------------------------
+# Conversation DTO
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationTurn:
+    """A single exchange in conversation history."""
+
+    role: str  # "user" or "assistant"
+    content: str
+
+
+# ---------------------------------------------------------------------------
+# Generation request / response (Pydantic — used at API boundary)
+# ---------------------------------------------------------------------------
+
+
+class GenerationRequest(BaseModel):
+    """Input for the RAG generation pipeline."""
+
+    query: str = Field(..., min_length=1, max_length=5000)
+    language: str | None = Field(
+        default=None,
+        description="fr/ar/en — auto-detected from query if None",
+    )
+    conversation_history: list[dict] = Field(
+        default_factory=list,
+        description='[{"role": "user"|"assistant", "content": "..."}]',
+    )
+    max_history_turns: int = Field(default=5, ge=0, le=20)
+    chunks: list | None = Field(
+        default=None,
+        description="Pre-retrieved RetrievedChunk list — skips retrieval when provided",
+    )
+    retrieval_top_k: int = Field(default=5, ge=1, le=20)
+    confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    retrieval_filters: dict | None = None
+    trace_id: str | None = None
+
+
+class GenerationResponse(BaseModel):
+    """Output from the RAG generation pipeline."""
+
+    answer: str
+    language: str
+    chunk_ids: list[str] = Field(default_factory=list)
+    confidence: float
+    is_confident: bool
+    disclaimer: str | None = None
+    model: str
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    latency_ms: float
+    trace_id: str | None = None

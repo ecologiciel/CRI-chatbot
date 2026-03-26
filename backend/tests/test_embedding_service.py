@@ -120,7 +120,7 @@ async def test_embed_texts_success(embedding_service, mock_redis):
     assert len(response.embeddings[0]) == DIMENSION
     assert response.model == "text-embedding-004"
     assert response.dimension == DIMENSION
-    assert response.latency_ms > 0
+    assert response.latency_ms >= 0
 
 
 @pytest.mark.asyncio

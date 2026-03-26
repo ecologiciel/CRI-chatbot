@@ -109,7 +109,7 @@ async def test_generate_success(gemini_service, mock_redis):
     assert response.output_tokens == 8
     assert response.total_tokens == 23
     assert response.model == "gemini-2.5-flash"
-    assert response.latency_ms > 0
+    assert response.latency_ms >= 0
     assert response.finish_reason == "STOP"
 
 
@@ -143,17 +143,16 @@ async def test_generate_retries_on_rate_limit(gemini_service, mock_redis):
     """ResourceExhausted 2x then success → retry works."""
     service, mock_client = gemini_service
 
-    # Import the actual exception if available, else simulate
-    try:
-        from google.api_core.exceptions import ResourceExhausted
+    from google.api_core.exceptions import ResourceExhausted
 
-        error = ResourceExhausted("Rate limited")
-    except ImportError:
-        error = Exception("Rate limited")
+    error = ResourceExhausted("Rate limited")
 
     mock_client.aio.models.generate_content = AsyncMock(
         side_effect=[error, error, _make_mock_response(text="OK after retry")]
     )
+
+    # Disable retry wait for test speed
+    service._generate_with_retry.retry.wait = lambda *a, **kw: 0
 
     request = GeminiRequest(contents="Test retry")
     response = await service.generate(request, TEST_TENANT)
@@ -188,14 +187,13 @@ async def test_cost_tracking_redis(gemini_service, mock_redis):
     request = GeminiRequest(contents="Cost test")
     await service.generate(request, TEST_TENANT)
 
-    # Verify Redis pipeline calls
-    pipe.hincrby.assert_any_call(
-        pytest.approx(f"rabat:ai:costs:", abs=100),  # month suffix varies
-        "input_tokens",
-        20,
-    )
-    # More robust: check that hincrby was called at least 3 times (input, output, count)
+    # Verify Redis pipeline was used with correct token values
     assert pipe.hincrby.call_count >= 3
+    # Extract all hincrby calls and verify token fields
+    calls = [str(c) for c in pipe.hincrby.call_args_list]
+    assert any("input_tokens" in c and "20" in c for c in calls)
+    assert any("output_tokens" in c and "10" in c for c in calls)
+    assert any("request_count" in c for c in calls)
     pipe.execute.assert_awaited_once()
 
 

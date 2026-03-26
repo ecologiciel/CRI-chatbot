@@ -155,6 +155,48 @@ class PromptTemplates:
             "ar": "هل كانت هذه الإجابة مفيدة لكم؟",
             "en": "Was this answer helpful?",
         },
+        "feedback_ack_positive": {
+            "fr": "Merci pour votre retour positif !",
+            "ar": "شكراً لتقييمكم الإيجابي!",
+            "en": "Thank you for your positive feedback!",
+        },
+        "feedback_ack_negative": {
+            "fr": "Merci pour votre retour. Nous allons améliorer nos réponses.",
+            "ar": "شكراً لملاحظاتكم. سنعمل على تحسين إجاباتنا.",
+            "en": "Thank you for your feedback. We will improve our responses.",
+        },
+        "feedback_ack_question": {
+            "fr": "Je vous mets en relation avec un conseiller. Veuillez patienter.",
+            "ar": "سأقوم بتحويلكم إلى مستشار. يرجى الانتظار.",
+            "en": "I'm connecting you with an advisor. Please wait.",
+        },
+        "rate_limit_user": {
+            "fr": (
+                "Veuillez patienter quelques instants avant "
+                "d'envoyer un nouveau message."
+            ),
+            "ar": "يرجى الانتظار لحظات قبل إرسال رسالة جديدة.",
+            "en": "Please wait a moment before sending another message.",
+        },
+        "quota_exhausted": {
+            "fr": (
+                "Le service de messagerie a atteint sa limite. "
+                "Veuillez contacter le CRI au 05 37 77 64 00."
+            ),
+            "ar": (
+                "وصلت خدمة الرسائل إلى حدها الأقصى. "
+                "يرجى الاتصال بالمركز الجهوي للاستثمار."
+            ),
+            "en": (
+                "The messaging service has reached its limit. "
+                "Please contact the CRI at 05 37 77 64 00."
+            ),
+        },
+        "error_generic": {
+            "fr": "Une erreur est survenue. Veuillez réessayer dans quelques instants.",
+            "ar": "حدث خطأ. يرجى المحاولة مرة أخرى بعد قليل.",
+            "en": "An error occurred. Please try again in a moment.",
+        },
     }
 
     # ------------------------------------------------------------------

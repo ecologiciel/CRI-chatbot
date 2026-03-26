@@ -160,59 +160,28 @@ class WhatsAppWebhookService:
         msg: IncomingMessage,
         contacts: list | None,
     ) -> None:
-        """Process a single inbound message with deduplication.
+        """Process a single inbound message via the E2E MessageHandler.
+
+        Delegates the full pipeline (dedup, contact, conversation,
+        LangGraph, response) to MessageHandler.handle_message().
 
         Args:
             tenant: Resolved tenant context.
             msg: Parsed incoming message.
             contacts: Contact info from the webhook payload.
         """
-        wamid = msg.id
+        from app.services.whatsapp.handler import get_message_handler
 
-        # Dedup check — SET NX returns True if key was set (new message)
-        is_new = await WhatsAppWebhookService._mark_if_new(tenant.slug, wamid)
-        if not is_new:
-            logger.debug(
-                "whatsapp_message_duplicate",
+        handler = get_message_handler()
+        try:
+            await handler.handle_message(tenant, msg, contacts)
+        except Exception as exc:
+            logger.error(
+                "message_handler_error",
                 tenant_slug=tenant.slug,
-                wamid=wamid,
+                wamid=msg.id,
+                error=str(exc),
             )
-            return
-
-        # Extract sender info
-        sender_phone = msg.from_
-        sender_name = None
-        if contacts:
-            for contact in contacts:
-                if contact.wa_id == sender_phone:
-                    sender_name = contact.profile.get("name")
-                    break
-
-        # Extract message content
-        content = None
-        if msg.type == "text" and msg.text:
-            content = msg.text.body
-        elif msg.type == "interactive" and msg.interactive:
-            reply = msg.interactive.button_reply or msg.interactive.list_reply
-            if reply:
-                content = reply.title
-        elif msg.type == "button" and msg.button:
-            content = msg.button.text
-
-        logger.info(
-            "whatsapp_message_received",
-            tenant_slug=tenant.slug,
-            wamid=wamid,
-            sender_phone=f"***{sender_phone[-4:]}" if len(sender_phone) > 4 else "***",
-            sender_name=sender_name,
-            message_type=msg.type,
-            has_content=content is not None,
-        )
-
-        # TODO: Create/update contact via ContactService
-        # TODO: Create/get conversation
-        # TODO: Persist message to DB
-        # TODO: Dispatch to LangGraph orchestrator (Wave 8 — ORCH.5)
 
     @staticmethod
     def _process_status(tenant: TenantContext, status: StatusInfo) -> None:

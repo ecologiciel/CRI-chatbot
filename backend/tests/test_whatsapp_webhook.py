@@ -248,25 +248,18 @@ class TestWebhookPost:
 
 class TestWebhookDedup:
     @pytest.mark.asyncio
-    async def test_duplicate_skipped(self):
-        """Same wamid sent twice — second call is silently skipped."""
-        payload = _make_webhook_payload(wamid="wamid.dupe_test")
+    async def test_message_delegated_to_handler(self):
+        """_process_message delegates to MessageHandler.handle_message."""
+        payload = _make_webhook_payload(wamid="wamid.delegate_test")
         body = json.dumps(payload).encode()
         signature = _sign_payload(body)
         tenant = _make_tenant_context()
 
-        call_count = 0
-
-        async def mock_set(key, value, ex=None, nx=False):
-            nonlocal call_count
-            call_count += 1
-            # First call: new message (True), Second call: duplicate (None/False)
-            return call_count == 1
-
         mock_redis = AsyncMock()
-        mock_redis.set = AsyncMock(side_effect=mock_set)
         mock_redis.incr = AsyncMock(return_value=1)
         mock_redis.expire = AsyncMock()
+
+        mock_handler = AsyncMock()
 
         with (
             patch("app.services.whatsapp.webhook.get_settings", return_value=_mock_settings()),
@@ -276,21 +269,15 @@ class TestWebhookDedup:
                 new_callable=AsyncMock,
                 return_value=tenant,
             ),
+            patch(
+                "app.services.whatsapp.handler.get_message_handler",
+                return_value=mock_handler,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                # First request — should process
-                resp1 = await client.post(
-                    "/api/v1/webhook/whatsapp",
-                    content=body,
-                    headers={
-                        "X-Hub-Signature-256": signature,
-                        "Content-Type": "application/json",
-                    },
-                )
-                # Second request — should be deduplicated
-                resp2 = await client.post(
+                resp = await client.post(
                     "/api/v1/webhook/whatsapp",
                     content=body,
                     headers={
@@ -299,10 +286,9 @@ class TestWebhookDedup:
                     },
                 )
 
-        assert resp1.status_code == 200
-        assert resp2.status_code == 200
-        # Redis SET was called twice (once per request) — first returned True, second False
-        assert call_count == 2
+        assert resp.status_code == 200
+        # MessageHandler.handle_message was called
+        mock_handler.handle_message.assert_awaited_once()
 
 
 # --- Rate Limiting Tests ---

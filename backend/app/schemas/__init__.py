@@ -13,6 +13,15 @@ from app.schemas.admin import (
     AdminResponse,
     AdminUpdate,
 )
+from app.schemas.escalation import (
+    EscalationAssign,
+    EscalationCreate,
+    EscalationList,
+    EscalationRead,
+    EscalationResolve,
+    EscalationRespond,
+    EscalationStats,
+)
 from app.schemas.contact import (
     ContactCreate,
     ContactList,
@@ -51,6 +60,13 @@ from app.schemas.tenant import (
     TenantUpdate,
     WhatsAppConfig,
 )
+from app.schemas.whitelist import (
+    InternalWhitelistCreate,
+    InternalWhitelistList,
+    InternalWhitelistResponse,
+    InternalWhitelistUpdate,
+    WhitelistCheckResponse,
+)
 
 __all__ = [
     # Auth
@@ -64,6 +80,14 @@ __all__ = [
     "AdminPasswordChange",
     "AdminResponse",
     "AdminUpdate",
+    # Escalation
+    "EscalationAssign",
+    "EscalationCreate",
+    "EscalationList",
+    "EscalationRead",
+    "EscalationResolve",
+    "EscalationRespond",
+    "EscalationStats",
     # Contact
     "ContactCreate",
     "ContactList",
@@ -97,4 +121,10 @@ __all__ = [
     "TenantResponse",
     "TenantUpdate",
     "WhatsAppConfig",
+    # Whitelist
+    "InternalWhitelistCreate",
+    "InternalWhitelistList",
+    "InternalWhitelistResponse",
+    "InternalWhitelistUpdate",
+    "WhitelistCheckResponse",
 ]

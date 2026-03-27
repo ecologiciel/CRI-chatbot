@@ -7,6 +7,7 @@ As new model files are added, import them here.
 from app.core.database import Base
 from app.models.admin import Admin
 from app.models.base import TimestampMixin, UUIDMixin
+from app.models.campaign import Campaign, CampaignRecipient
 from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
 from app.models.enums import (
@@ -14,8 +15,10 @@ from app.models.enums import (
     AgentType,
     CampaignStatus,
     ContactSource,
+    RecipientStatus,
     ConversationStatus,
     DossierStatut,
+    EscalationPriority,
     EscalationStatus,
     EscalationTrigger,
     FeedbackRating,
@@ -28,10 +31,12 @@ from app.models.enums import (
     TenantStatus,
     UnansweredStatus,
 )
+from app.models.escalation import Escalation
 from app.models.feedback import Feedback, UnansweredQuestion
 from app.models.incitation import IncentiveCategory, IncentiveItem
 from app.models.kb import KBChunk, KBDocument
 from app.models.tenant import Tenant
+from app.models.whitelist import InternalWhitelist
 
 __all__ = [
     # Base & mixins
@@ -40,11 +45,15 @@ __all__ = [
     "TimestampMixin",
     # Models
     "Admin",
+    "Campaign",
+    "CampaignRecipient",
     "Contact",
     "Conversation",
+    "Escalation",
     "Feedback",
     "IncentiveCategory",
     "IncentiveItem",
+    "InternalWhitelist",
     "KBChunk",
     "KBDocument",
     "Message",
@@ -56,7 +65,9 @@ __all__ = [
     "CampaignStatus",
     "ContactSource",
     "ConversationStatus",
+    "RecipientStatus",
     "DossierStatut",
+    "EscalationPriority",
     "EscalationStatus",
     "EscalationTrigger",
     "FeedbackRating",

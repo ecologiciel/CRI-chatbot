@@ -25,6 +25,7 @@ from app.models.enums import (
 
 if TYPE_CHECKING:
     from app.models.contact import Contact
+    from app.models.escalation import Escalation
     from app.models.feedback import Feedback
 
 
@@ -67,6 +68,9 @@ class Conversation(UUIDMixin, TimestampMixin, Base):
     contact: Mapped[Contact] = relationship(back_populates="conversations")
     messages: Mapped[list[Message]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan",
+    )
+    escalations: Mapped[list[Escalation]] = relationship(
+        back_populates="conversation",
     )
 
     def __repr__(self) -> str:

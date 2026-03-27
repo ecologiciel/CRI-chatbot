@@ -95,10 +95,21 @@ class EscalationTrigger(str, Enum):
 
 
 class EscalationStatus(str, Enum):
+    """Statut du cycle de vie d'une escalade."""
+
     pending = "pending"
     assigned = "assigned"
+    in_progress = "in_progress"
     resolved = "resolved"
-    expired = "expired"
+    closed = "closed"
+
+
+class EscalationPriority(str, Enum):
+    """Priorite de l'escalade pour le tri dans la file d'attente."""
+
+    high = "high"
+    medium = "medium"
+    low = "low"
 
 
 class DossierStatut(str, Enum):
@@ -110,11 +121,22 @@ class DossierStatut(str, Enum):
 
 
 class CampaignStatus(str, Enum):
+    """Statut du cycle de vie d'une campagne de publipostage."""
     draft = "draft"
     scheduled = "scheduled"
     sending = "sending"
+    paused = "paused"
     completed = "completed"
-    cancelled = "cancelled"
+    failed = "failed"
+
+
+class RecipientStatus(str, Enum):
+    """Statut d'envoi pour un destinataire individuel d'une campagne."""
+    pending = "pending"
+    sent = "sent"
+    delivered = "delivered"
+    read = "read"
+    failed = "failed"
 
 
 class SyncStatus(str, Enum):

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Upload, FileText } from "lucide-react";
+import { Upload, FileText, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useUploadDocument } from "@/hooks/use-documents";
 
 interface UploadModalProps {
   open: boolean;
@@ -34,6 +36,8 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
   const [category, setCategory] = useState("");
   const [language, setLanguage] = useState("");
 
+  const uploadMutation = useUploadDocument();
+
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -44,16 +48,19 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
     }
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) {
-      setFile(droppedFile);
-      if (!title) setTitle(droppedFile.name.replace(/\.[^.]+$/, ""));
-    }
-  }, [title]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragActive(false);
+      const droppedFile = e.dataTransfer.files[0];
+      if (droppedFile) {
+        setFile(droppedFile);
+        if (!title) setTitle(droppedFile.name.replace(/\.[^.]+$/, ""));
+      }
+    },
+    [title],
+  );
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,20 +70,41 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
         if (!title) setTitle(selectedFile.name.replace(/\.[^.]+$/, ""));
       }
     },
-    [title]
+    [title],
   );
-
-  const handleSubmit = () => {
-    console.log("Upload document:", { file, title, category, language });
-    resetForm();
-    onOpenChange(false);
-  };
 
   const resetForm = () => {
     setFile(null);
     setTitle("");
     setCategory("");
     setLanguage("");
+  };
+
+  const handleSubmit = () => {
+    if (!file || !title) return;
+
+    uploadMutation.mutate(
+      {
+        file,
+        title,
+        category: category || undefined,
+        language: language || undefined,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Document importé", {
+            description: `"${title}" est en cours d'indexation.`,
+          });
+          resetForm();
+          onOpenChange(false);
+        },
+        onError: () => {
+          toast.error("Erreur lors de l'import", {
+            description: "Vérifiez le format et la taille du fichier.",
+          });
+        },
+      },
+    );
   };
 
   return (
@@ -110,7 +138,8 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
               dragActive
                 ? "border-primary bg-primary/5"
                 : "border-border hover:border-primary/50",
-              file && "border-[hsl(var(--success))] bg-[hsl(var(--success))]/5"
+              file &&
+                "border-[hsl(var(--success))] bg-[hsl(var(--success))]/5",
             )}
           >
             {file ? (
@@ -139,13 +168,13 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
                     <input
                       type="file"
                       className="sr-only"
-                      accept=".pdf,.docx,.txt,.md"
+                      accept=".pdf,.docx,.txt,.md,.csv"
                       onChange={handleFileSelect}
                     />
                   </label>
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  PDF, DOCX, TXT, MD — max 10 Mo
+                  PDF, DOCX, TXT, MD, CSV — max 50 Mo
                 </p>
               </>
             )}
@@ -198,8 +227,18 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Annuler
           </Button>
-          <Button onClick={handleSubmit} disabled={!file || !title}>
-            Importer
+          <Button
+            onClick={handleSubmit}
+            disabled={!file || !title || uploadMutation.isPending}
+          >
+            {uploadMutation.isPending ? (
+              <>
+                <Loader2 className="h-4 w-4 me-2 animate-spin" />
+                Import en cours...
+              </>
+            ) : (
+              "Importer"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

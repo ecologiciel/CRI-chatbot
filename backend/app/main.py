@@ -13,6 +13,8 @@ from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1.auth import router as auth_router
+from app.api.v1.contacts import router as contacts_router
+from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.feedback import router as feedback_router
 from app.api.v1.health import router as health_router
 from app.api.v1.kb import router as kb_router
@@ -142,6 +144,8 @@ def create_app() -> FastAPI:
 
     # --- Routes ---
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(contacts_router, prefix="/api/v1")
+    app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(feedback_router, prefix="/api/v1")
     app.include_router(health_router, prefix="/api/v1", tags=["health"])
     app.include_router(kb_router, prefix="/api/v1")

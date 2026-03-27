@@ -71,6 +71,13 @@ class ContactResponse(BaseModel):
     updated_at: datetime
 
 
+class ContactDetailResponse(ContactResponse):
+    """Contact detail with conversation stats."""
+
+    conversation_count: int = 0
+    last_interaction: datetime | None = None
+
+
 class ContactList(BaseModel):
     """Paginated list of contacts."""
 
@@ -78,3 +85,11 @@ class ContactList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ImportResultResponse(BaseModel):
+    """Result of a contact import operation."""
+
+    created: int
+    skipped: int
+    errors: list[dict]

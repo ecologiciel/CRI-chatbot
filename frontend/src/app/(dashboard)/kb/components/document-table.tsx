@@ -8,7 +8,9 @@ import {
   RefreshCw,
   Trash2,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +36,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { mockKBDocuments } from "@/lib/mock-data";
+import {
+  useDocuments,
+  useDeleteDocument,
+  useReindexDocument,
+} from "@/hooks/use-documents";
 import type { KBDocumentStatus } from "@/types/kb";
 
 const statusConfig: Record<
@@ -45,7 +51,7 @@ const statusConfig: Record<
     label: "En attente",
     className: "bg-[hsl(var(--info))]/10 text-[hsl(var(--info))] border-0",
   },
-  processing: {
+  indexing: {
     label: "En cours",
     className:
       "bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))] border-0",
@@ -55,13 +61,9 @@ const statusConfig: Record<
     className:
       "bg-[hsl(var(--success))]/10 text-[hsl(var(--success))] border-0",
   },
-  failed: {
-    label: "Échec",
+  error: {
+    label: "Erreur",
     className: "bg-destructive/10 text-destructive border-0",
-  },
-  archived: {
-    label: "Archivé",
-    className: "bg-muted text-muted-foreground border-0",
   },
 };
 
@@ -102,17 +104,56 @@ export function DocumentTable() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
 
-  const filtered = mockKBDocuments.filter((doc) => {
-    const matchesSearch = doc.title
-      .toLowerCase()
-      .includes(search.toLowerCase());
-    const matchesCategory =
-      categoryFilter === "all" || doc.category === categoryFilter;
-    const matchesStatus =
-      statusFilter === "all" || doc.status === statusFilter;
-    return matchesSearch && matchesCategory && matchesStatus;
+  const { data, isLoading, isError, refetch } = useDocuments({
+    page,
+    page_size: 20,
+    status: statusFilter !== "all" ? (statusFilter as KBDocumentStatus) : undefined,
+    category: categoryFilter !== "all" ? categoryFilter : undefined,
   });
+
+  const deleteDoc = useDeleteDocument();
+  const reindexDoc = useReindexDocument();
+
+  const documents = data?.items ?? [];
+  const total = data?.total ?? 0;
+
+  // Client-side search filter on top of server-side filters
+  const filtered = search
+    ? documents.filter((doc) =>
+        doc.title.toLowerCase().includes(search.toLowerCase()),
+      )
+    : documents;
+
+  function handleDelete(id: string, title: string) {
+    deleteDoc.mutate(id, {
+      onSuccess: () => toast.success(`Document "${title}" supprimé`),
+      onError: () => toast.error("Erreur lors de la suppression"),
+    });
+  }
+
+  function handleReindex(id: string, title: string) {
+    reindexDoc.mutate(id, {
+      onSuccess: () => toast.success(`Réindexation de "${title}" lancée`),
+      onError: () => toast.error("Erreur lors de la réindexation"),
+    });
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive mb-3" />
+        <p className="text-sm text-muted-foreground mb-3">
+          Impossible de charger les documents
+        </p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <RefreshCw className="h-4 w-4 me-2" />
+          Réessayer
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -127,7 +168,13 @@ export function DocumentTable() {
             className="ps-9"
           />
         </div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+        <Select
+          value={categoryFilter}
+          onValueChange={(v) => {
+            setCategoryFilter(v);
+            setPage(1);
+          }}
+        >
           <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Catégorie" />
           </SelectTrigger>
@@ -140,7 +187,13 @@ export function DocumentTable() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => {
+            setStatusFilter(v);
+            setPage(1);
+          }}
+        >
           <SelectTrigger className="w-full sm:w-[160px]">
             <SelectValue placeholder="Statut" />
           </SelectTrigger>
@@ -180,7 +233,16 @@ export function DocumentTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.length === 0 ? (
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="h-24 text-center">
+                  <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Chargement...</span>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="h-24 text-center">
                   <p className="text-muted-foreground">Aucun document trouvé</p>
@@ -219,10 +281,10 @@ export function DocumentTable() {
                       <Badge
                         className={cn(
                           "text-xs font-medium",
-                          status.className
+                          status.className,
                         )}
                       >
-                        {doc.status === "processing" && (
+                        {doc.status === "indexing" && (
                           <Loader2 className="h-3 w-3 me-1 animate-spin" />
                         )}
                         {status.label}
@@ -248,11 +310,18 @@ export function DocumentTable() {
                             <Eye className="h-4 w-4 me-2" />
                             Voir
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleReindex(doc.id, doc.title)}
+                            disabled={reindexDoc.isPending}
+                          >
                             <RefreshCw className="h-4 w-4 me-2" />
                             Réindexer
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive focus:text-destructive">
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => handleDelete(doc.id, doc.title)}
+                            disabled={deleteDoc.isPending}
+                          >
                             <Trash2 className="h-4 w-4 me-2" />
                             Supprimer
                           </DropdownMenuItem>
@@ -267,11 +336,36 @@ export function DocumentTable() {
         </Table>
       </div>
 
-      {/* Count */}
-      <p className="text-xs text-muted-foreground">
-        {filtered.length} document{filtered.length !== 1 ? "s" : ""} sur{" "}
-        {mockKBDocuments.length}
-      </p>
+      {/* Pagination + Count */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {filtered.length} document{filtered.length !== 1 ? "s" : ""} sur{" "}
+          {total}
+        </p>
+        {total > 20 && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              Précédent
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {page} / {Math.ceil(total / 20)}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= Math.ceil(total / 20)}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Suivant
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

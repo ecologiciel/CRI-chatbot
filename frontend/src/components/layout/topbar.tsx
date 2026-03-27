@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { Menu, Search, Globe, Bell, User, Settings, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -16,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Breadcrumb } from "@/components/layout/breadcrumb";
+import { useAuth } from "@/hooks/use-auth";
 import type { Locale } from "@/types";
 
 const localeLabels: Record<Locale, string> = {
@@ -28,8 +28,18 @@ interface TopbarProps {
   onMenuClick: () => void;
 }
 
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
 export function Topbar({ onMenuClick }: TopbarProps) {
-  const router = useRouter();
+  const { admin, logout } = useAuth();
   const [locale, setLocale] = React.useState<Locale>("fr");
 
   React.useEffect(() => {
@@ -126,7 +136,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             <Button variant="ghost" size="icon" className="rounded-full">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                  NA
+                  {admin ? getInitials(admin.full_name) : "?"}
                 </AvatarFallback>
               </Avatar>
             </Button>
@@ -134,8 +144,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuLabel>
               <div className="flex flex-col">
-                <span className="text-sm font-medium">Nabil Admin</span>
-                <span className="text-xs text-muted-foreground">admin@cri-rsk.ma</span>
+                <span className="text-sm font-medium">
+                  {admin?.full_name ?? "Utilisateur"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {admin?.email ?? ""}
+                </span>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -149,7 +163,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => router.push("/login")}
+              onClick={() => logout()}
               className="text-destructive focus:text-destructive"
             >
               <LogOut className="h-4 w-4" />

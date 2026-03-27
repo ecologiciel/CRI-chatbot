@@ -19,9 +19,13 @@ export interface Tenant {
 export interface Admin {
   id: string;
   email: string;
-  fullName: string;
+  full_name: string;
   role: AdminRole;
-  tenantId: string | null;
+  tenant_id: string | null;
+  is_active: boolean;
+  last_login: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface KPICard {

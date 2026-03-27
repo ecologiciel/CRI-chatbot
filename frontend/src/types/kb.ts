@@ -1,28 +1,31 @@
 export type KBDocumentStatus =
   | "pending"
-  | "processing"
+  | "indexing"
   | "indexed"
-  | "failed"
-  | "archived";
+  | "error";
 
 export interface KBDocument {
   id: string;
   title: string;
+  source_url: string | null;
   category: string | null;
   language: string;
-  status: KBDocumentStatus;
-  chunk_count: number;
+  content_hash: string | null;
+  file_path: string | null;
   file_size: number | null;
+  chunk_count: number;
+  status: KBDocumentStatus;
+  error_message: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export type UnansweredQuestionStatus =
   | "pending"
-  | "ai_proposed"
   | "approved"
+  | "modified"
   | "rejected"
-  | "edited";
+  | "injected";
 
 export interface UnansweredQuestion {
   id: string;
@@ -31,5 +34,9 @@ export interface UnansweredQuestion {
   frequency: number;
   proposed_answer: string | null;
   status: UnansweredQuestionStatus;
+  reviewed_by: string | null;
+  review_note: string | null;
+  source_conversation_id: string | null;
   created_at: string;
+  updated_at: string;
 }

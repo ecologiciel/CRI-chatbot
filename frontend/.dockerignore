@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+.turbo
+.git
+.env
+.env.*
+*.md
+.vscode/
+.idea/
+docker/

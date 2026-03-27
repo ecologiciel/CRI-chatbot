@@ -46,3 +46,9 @@ http:
         average: 100
         burst: 50
         period: "1m"
+
+    # --- HTTP to HTTPS redirect (production) ---
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true

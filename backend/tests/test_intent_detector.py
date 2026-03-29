@@ -291,11 +291,11 @@ class TestRouter:
 
     def test_route_escalade(self):
         state = _make_state(intent="escalade", is_safe=True)
-        assert Router.route(state) == "escalation_placeholder"
+        assert Router.route(state) == "escalation_handler"
 
     def test_route_interne(self):
         state = _make_state(intent="interne", is_safe=True)
-        assert Router.route(state) == "internal_placeholder"
+        assert Router.route(state) == "internal_agent"
 
     def test_route_hors_perimetre(self):
         state = _make_state(intent="hors_perimetre", is_safe=True)

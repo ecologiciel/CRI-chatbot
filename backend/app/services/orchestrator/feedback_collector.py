@@ -36,7 +36,7 @@ FEEDBACK_BUTTONS: dict[str, list[dict[str, str]]] = {
 }
 
 # Intents that should trigger feedback buttons
-_FEEDBACK_INTENTS: set[str] = {IntentType.FAQ}
+_FEEDBACK_INTENTS: set[str] = {IntentType.FAQ, IntentType.INTERNE}
 
 
 class FeedbackCollector:

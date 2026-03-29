@@ -55,6 +55,12 @@ class ConversationState(TypedDict, total=False):
     # ── Error handling ──
     error: str | None
 
+    # ── Phase 2: Internal agent & escalation ──
+    is_internal_user: bool  # True if phone is in the tenant's whitelist
+    agent_type: str  # "public" or "internal"
+    escalation_id: str | None  # UUID of escalation record if created
+    consecutive_low_confidence: int  # consecutive low-confidence RAG responses
+
 
 class IntentType:
     """Intent classification constants.

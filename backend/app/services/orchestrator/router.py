@@ -22,8 +22,8 @@ class Router:
         IntentType.FAQ: "faq_agent",
         IntentType.INCITATIONS: "incentives_agent",
         IntentType.SUIVI_DOSSIER: "tracking_placeholder",
-        IntentType.ESCALADE: "escalation_placeholder",
-        IntentType.INTERNE: "internal_placeholder",
+        IntentType.ESCALADE: "escalation_handler",
+        IntentType.INTERNE: "internal_agent",
         IntentType.HORS_PERIMETRE: "out_of_scope_response",
     }
 

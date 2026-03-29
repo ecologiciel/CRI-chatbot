@@ -51,6 +51,10 @@ def _make_state(**overrides) -> ConversationState:
         "guard_message": None,
         "incentive_state": {},
         "error": None,
+        "is_internal_user": False,
+        "agent_type": "public",
+        "escalation_id": None,
+        "consecutive_low_confidence": 0,
     }
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -106,6 +110,22 @@ def _mock_incentives_agent(response: str = "Voici les aides disponibles..."):
     return agent
 
 
+def _mock_internal_agent(response: str = "Statistiques du tenant..."):
+    """Create mock InternalAgent."""
+    agent = AsyncMock()
+
+    async def handle(state, tenant):
+        return {
+            "response": response,
+            "is_internal_user": True,
+            "agent_type": "internal",
+            "confidence": 1.0,
+        }
+
+    agent.handle = handle
+    return agent
+
+
 def _mock_response_validator():
     """Create mock ResponseValidator that passes through."""
     validator = AsyncMock()
@@ -128,6 +148,20 @@ def _mock_feedback_collector():
     return collector
 
 
+def _mock_escalation_handler(response: str = "Un conseiller CRI va prendre le relais..."):
+    """Create mock EscalationHandler."""
+    handler = AsyncMock()
+
+    async def handle(state, tenant):
+        return {
+            "response": response,
+            "escalation_id": "esc-mock-id",
+        }
+
+    handler.handle = handle
+    return handler
+
+
 def _build_graph_with_mocks(
     intent: str = IntentType.FAQ,
     language: str = "fr",
@@ -145,6 +179,8 @@ def _build_graph_with_mocks(
     mock_incentives = _mock_incentives_agent(incentives_response)
     mock_validator = _mock_response_validator()
     mock_collector = _mock_feedback_collector()
+    mock_internal = _mock_internal_agent()
+    mock_escalation = _mock_escalation_handler()
 
     with (
         patch("app.services.orchestrator.graph.get_intent_detector", return_value=mock_detector),
@@ -152,6 +188,8 @@ def _build_graph_with_mocks(
         patch("app.services.orchestrator.graph.get_incentives_agent", return_value=mock_incentives),
         patch("app.services.orchestrator.graph.get_response_validator", return_value=mock_validator),
         patch("app.services.orchestrator.graph.get_feedback_collector", return_value=mock_collector),
+        patch("app.services.orchestrator.graph.get_internal_agent", return_value=mock_internal),
+        patch("app.services.orchestrator.graph.get_escalation_handler", return_value=mock_escalation),
     ):
         graph = build_conversation_graph()
 
@@ -161,6 +199,8 @@ def _build_graph_with_mocks(
         "incentives": mock_incentives,
         "validator": mock_validator,
         "collector": mock_collector,
+        "internal": mock_internal,
+        "escalation": mock_escalation,
     }
 
 
@@ -257,8 +297,8 @@ class TestConversationGraph:
         assert "05 37 77 64 00" in result["response"]
 
     @pytest.mark.asyncio
-    async def test_graph_escalation_placeholder(self):
-        """Escalation intent: intent_detector → escalation_placeholder → END."""
+    async def test_graph_escalation_handler(self):
+        """Escalation intent: intent_detector → escalation_handler → END."""
         graph, _mocks = _build_graph_with_mocks(intent=IntentType.ESCALADE)
         state = _make_state(query="Je veux parler à un humain")
 
@@ -275,6 +315,9 @@ class TestConversationGraph:
         mock_incentives = _mock_incentives_agent()
         mock_validator = _mock_response_validator()
         mock_collector = _mock_feedback_collector()
+        mock_internal = _mock_internal_agent()
+
+        mock_escalation = _mock_escalation_handler()
 
         with (
             patch("app.services.orchestrator.graph.get_intent_detector", return_value=mock_detector),
@@ -282,6 +325,8 @@ class TestConversationGraph:
             patch("app.services.orchestrator.graph.get_incentives_agent", return_value=mock_incentives),
             patch("app.services.orchestrator.graph.get_response_validator", return_value=mock_validator),
             patch("app.services.orchestrator.graph.get_feedback_collector", return_value=mock_collector),
+            patch("app.services.orchestrator.graph.get_internal_agent", return_value=mock_internal),
+            patch("app.services.orchestrator.graph.get_escalation_handler", return_value=mock_escalation),
             patch("app.services.orchestrator.graph._conversation_graph", None),
         ):
             result = await run_conversation(
@@ -298,6 +343,7 @@ class TestConversationGraph:
         assert "chunk_ids" in result
         assert "confidence" in result
         assert "incentive_state" in result
+        assert "agent_type" in result
         assert "error" in result
         assert result["intent"] == IntentType.SALUTATION
 
@@ -315,6 +361,8 @@ class TestConversationGraph:
         validator = _mock_response_validator()
         collector = _mock_feedback_collector()
         incentives = _mock_incentives_agent()
+        internal = _mock_internal_agent()
+        escalation = _mock_escalation_handler()
 
         with (
             patch("app.services.orchestrator.graph.get_intent_detector", return_value=detector),
@@ -322,6 +370,8 @@ class TestConversationGraph:
             patch("app.services.orchestrator.graph.get_incentives_agent", return_value=incentives),
             patch("app.services.orchestrator.graph.get_response_validator", return_value=validator),
             patch("app.services.orchestrator.graph.get_feedback_collector", return_value=collector),
+            patch("app.services.orchestrator.graph.get_internal_agent", return_value=internal),
+            patch("app.services.orchestrator.graph.get_escalation_handler", return_value=escalation),
         ):
             graph = build_conversation_graph()
 

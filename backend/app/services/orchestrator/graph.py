@@ -1,16 +1,16 @@
-"""Complete LangGraph conversation graph — Wave 8.
+"""Complete LangGraph conversation graph — Wave 8 + Wave 15.
 
-Assembles all nodes (Waves 6-7) into a compiled StateGraph:
+Assembles all nodes into a compiled StateGraph:
 
     intent_detector ─(Router)──> faq_agent ──────────┐
                                > incentives_agent ────┤
+                               > internal_agent ──────┤
                                │                      ├─> response_validator -> feedback_collector -> END
                                > greeting_response ──────> END
                                > out_of_scope_response ──> END
                                > blocked_response ───────> END
                                > tracking_placeholder ───> END
-                               > escalation_placeholder ─> END
-                               > internal_placeholder ───> END
+                               > escalation_handler ──────> END
 
 Entry point: ``run_conversation()`` — called from the WhatsApp webhook handler.
 """
@@ -29,13 +29,13 @@ from app.services.orchestrator.faq_agent import get_faq_agent
 from app.services.orchestrator.feedback_collector import get_feedback_collector
 from app.services.orchestrator.incentives_agent import get_incentives_agent
 from app.services.orchestrator.intent import get_intent_detector
+from app.services.orchestrator.internal_agent import get_internal_agent
 from app.services.orchestrator.response_validator import get_response_validator
 from app.services.orchestrator.router import Router
+from app.services.orchestrator.escalation_handler import get_escalation_handler
 from app.services.orchestrator.simple_nodes import (
     BlockedResponseNode,
-    EscalationPlaceholder,
     GreetingNode,
-    InternalPlaceholder,
     OutOfScopeNode,
     TrackingPlaceholder,
 )
@@ -151,13 +151,14 @@ def build_conversation_graph() -> Any:
     response_validator = get_response_validator()
     feedback_collector = get_feedback_collector()
 
+    internal_agent = get_internal_agent()
+    escalation_handler = get_escalation_handler()
+
     # Simple nodes (no tenant needed)
     greeting_node = GreetingNode()
     out_of_scope_node = OutOfScopeNode()
     blocked_node = BlockedResponseNode()
     tracking_placeholder = TrackingPlaceholder()
-    escalation_placeholder = EscalationPlaceholder()
-    internal_placeholder = InternalPlaceholder()
 
     # Build graph
     graph = StateGraph(ConversationState)
@@ -200,12 +201,12 @@ def build_conversation_graph() -> Any:
         _wrap_simple_node(tracking_placeholder.handle, "tracking_placeholder"),
     )
     graph.add_node(
-        "escalation_placeholder",
-        _wrap_simple_node(escalation_placeholder.handle, "escalation_placeholder"),
+        "escalation_handler",
+        _wrap_tenant_node(escalation_handler.handle, "escalation_handler"),
     )
     graph.add_node(
-        "internal_placeholder",
-        _wrap_simple_node(internal_placeholder.handle, "internal_placeholder"),
+        "internal_agent",
+        _wrap_tenant_node(internal_agent.handle, "internal_agent"),
     )
 
     # ── Entry point ──
@@ -222,14 +223,15 @@ def build_conversation_graph() -> Any:
             "out_of_scope_response": "out_of_scope_response",
             "blocked_response": "blocked_response",
             "tracking_placeholder": "tracking_placeholder",
-            "escalation_placeholder": "escalation_placeholder",
-            "internal_placeholder": "internal_placeholder",
+            "escalation_handler": "escalation_handler",
+            "internal_agent": "internal_agent",
         },
     )
 
-    # ── Linear edges: FAQ and Incentives paths converge ──
+    # ── Linear edges: FAQ, Incentives, and Internal paths converge ──
     graph.add_edge("faq_agent", "response_validator")
     graph.add_edge("incentives_agent", "response_validator")
+    graph.add_edge("internal_agent", "response_validator")
     graph.add_edge("response_validator", "feedback_collector")
     graph.add_edge("feedback_collector", END)
 
@@ -238,8 +240,7 @@ def build_conversation_graph() -> Any:
     graph.add_edge("out_of_scope_response", END)
     graph.add_edge("blocked_response", END)
     graph.add_edge("tracking_placeholder", END)
-    graph.add_edge("escalation_placeholder", END)
-    graph.add_edge("internal_placeholder", END)
+    graph.add_edge("escalation_handler", END)
 
     return graph.compile()
 
@@ -302,6 +303,10 @@ async def run_conversation(
         "guard_message": None,
         "incentive_state": incentive_state or {},
         "error": None,
+        "is_internal_user": False,
+        "agent_type": "public",
+        "escalation_id": None,
+        "consecutive_low_confidence": 0,
     }
 
     try:
@@ -324,6 +329,7 @@ async def run_conversation(
             "chunk_ids": final_state.get("chunk_ids", []),
             "confidence": final_state.get("confidence", 0.0),
             "incentive_state": final_state.get("incentive_state", {}),
+            "agent_type": final_state.get("agent_type", "public"),
             "error": final_state.get("error"),
         }
 

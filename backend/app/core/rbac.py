@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
@@ -35,14 +35,16 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_current_admin(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> AdminTokenPayload:
     """Extract and verify admin from JWT Bearer token.
 
-    Also verifies that the admin account is still active in DB.
-    This prevents deactivated accounts from using existing tokens.
+    Also verifies that the admin account is still active in DB
+    and that the session is valid (IP unchanged, not superseded).
 
     Args:
+        request: Current HTTP request (for client IP extraction).
         credentials: Extracted from Authorization header by HTTPBearer.
 
     Returns:
@@ -54,8 +56,12 @@ async def get_current_admin(
     if credentials is None:
         raise AuthenticationError("Missing authentication token")
 
+    ip_address = request.client.host if request.client else None
+
     auth_service = AuthService()
-    payload = await auth_service.verify_access_token(credentials.credentials)
+    payload = await auth_service.verify_access_token(
+        credentials.credentials, ip_address=ip_address
+    )
 
     # Verify admin still active in DB (token could outlive deactivation)
     factory = get_session_factory()

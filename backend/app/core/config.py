@@ -93,6 +93,13 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = Field(default=30)
     jwt_refresh_token_expire_days: int = Field(default=7)
 
+    # --- KMS (Key Management Service) ---
+    kms_master_key: str = Field(
+        default="",
+        description="Hex-encoded 32 bytes (64 hex chars) for envelope encryption. "
+        "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\"",
+    )
+
     # --- Monitoring ---
     grafana_user: str = Field(default="admin")
     grafana_password: str = Field(default="admin")
@@ -146,6 +153,21 @@ class Settings(BaseSettings):
             msg = f"log_level must be one of {allowed}"
             raise ValueError(msg)
         return v.upper()
+
+    @field_validator("kms_master_key")
+    @classmethod
+    def validate_kms_master_key(cls, v: str) -> str:
+        if not v:
+            return v  # Empty allowed in dev
+        if len(v) != 64:
+            msg = "kms_master_key must be exactly 64 hex characters (32 bytes)"
+            raise ValueError(msg)
+        try:
+            bytes.fromhex(v)
+        except ValueError:
+            msg = "kms_master_key must be a valid hex string"
+            raise ValueError(msg) from None
+        return v
 
 
 # Singleton — importable partout

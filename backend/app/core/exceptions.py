@@ -138,3 +138,12 @@ class EmbeddingError(CRIBaseException):
 # --- Guardrails ---
 class GuardrailError(CRIBaseException):
     """Guardrail processing failed (internal error, not a blocked input)."""
+
+
+# --- Crypto / KMS ---
+class CRIEncryptionError(CRIBaseException):
+    """Encryption operation failed."""
+
+
+class CRIDecryptionError(CRIBaseException):
+    """Decryption failed — bad key, corrupt data, or tampered ciphertext."""

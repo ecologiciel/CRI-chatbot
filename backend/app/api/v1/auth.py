@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from sqlalchemy import select
 
@@ -33,17 +33,19 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=AuthTokenResponse)
-async def login(data: LoginRequest) -> AuthTokenResponse:
+async def login(data: LoginRequest, request: Request) -> AuthTokenResponse:
     """Authenticate admin and return JWT token pair.
 
     No tenant context required — admins table is in public schema.
+    Passes client IP for advanced session tracking (Phase 2).
 
     Raises:
         AuthenticationError (401): Invalid credentials.
         AccountLockedError (429): Too many failed attempts.
     """
     service = AuthService()
-    return await service.login(data.email, data.password)
+    ip_address = request.client.host if request.client else None
+    return await service.login(data.email, data.password, ip_address=ip_address)
 
 
 @router.post("/refresh", response_model=AuthTokenResponse)
@@ -105,7 +107,7 @@ async def logout(
         raise AuthenticationError("Invalid token: missing jti")
 
     service = AuthService()
-    await service.logout(jti)
+    await service.logout(jti, admin_id=admin.sub)
 
     logger.info("admin_logout", admin_id=admin.sub)
     return Response(status_code=204)

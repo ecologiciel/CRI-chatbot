@@ -30,7 +30,7 @@ class JWTManager:
         admin_id: uuid.UUID,
         role: str,
         tenant_id: uuid.UUID | None,
-    ) -> str:
+    ) -> tuple[str, str]:
         """Create a JWT access token.
 
         Args:
@@ -39,10 +39,11 @@ class JWTManager:
             tenant_id: Tenant UUID (None for super_admin).
 
         Returns:
-            Encoded JWT string.
+            Tuple of (encoded JWT string, jti).
         """
         settings = get_settings()
         now = datetime.now(timezone.utc)
+        jti = str(uuid.uuid4())
         payload = {
             "sub": str(admin_id),
             "role": role,
@@ -50,13 +51,14 @@ class JWTManager:
             "type": "access",
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(minutes=settings.jwt_access_token_expire_minutes)).timestamp()),
-            "jti": str(uuid.uuid4()),
+            "jti": jti,
         }
-        return jwt.encode(
+        token = jwt.encode(
             payload,
             settings.jwt_secret_key,
             algorithm=settings.jwt_algorithm,
         )
+        return token, jti
 
     @staticmethod
     async def create_refresh_token(admin_id: uuid.UUID) -> tuple[str, str]:

@@ -1,8 +1,9 @@
 """Atomic tenant provisioning with rollback on failure.
 
 Creates all per-tenant resources: PostgreSQL schema (cloned from
-tenant_template), Qdrant collection, Redis phone mapping, MinIO bucket.
-If any step fails, previously completed steps are rolled back.
+tenant_template), Qdrant collection, Redis phone mapping, MinIO bucket,
+KMS encryption key. If any step fails, previously completed steps are
+rolled back.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from qdrant_client.models import Distance, VectorParams
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 
+from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.exceptions import DuplicateTenantError, TenantProvisioningError
 from app.core.minio import get_minio
@@ -25,6 +27,7 @@ from app.core.redis import get_redis
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate
+from app.services.crypto.kms import KMSService
 
 logger = structlog.get_logger()
 
@@ -77,7 +80,7 @@ class TenantProvisioningService:
         """Full provisioning pipeline with automatic rollback.
 
         Steps: DB record → PG schema → Qdrant collection →
-               Redis mapping → MinIO bucket → activate.
+               Redis mapping → MinIO bucket → KMS key → activate.
 
         Args:
             data: Validated tenant creation payload.
@@ -123,7 +126,21 @@ class TenantProvisioningService:
             rollback_stack.append(("minio_bucket", lambda: self._delete_minio_bucket(data.slug)))
             log.info("step_completed", step="minio_bucket")
 
-            # Step 6: Activate tenant
+            # Step 6: Generate KMS encryption key (if master key configured)
+            settings = get_settings()
+            if settings.kms_master_key:
+                kms = KMSService(
+                    session_factory=get_session_factory(),
+                    redis_client=get_redis(),
+                    master_key_hex=settings.kms_master_key,
+                )
+                await kms.generate_tenant_key(tenant.id)
+                rollback_stack.append(
+                    ("kms_key", lambda: kms.delete_tenant_key(tenant.id, data.slug))
+                )
+                log.info("step_completed", step="kms_key")
+
+            # Step 7: Activate tenant
             await self._activate_tenant(tenant.id)
             log.info("tenant_provisioned", tenant_id=str(tenant.id))
 
@@ -188,21 +205,35 @@ class TenantProvisioningService:
         except Exception as exc:
             log.error("deprovision_step_failed", step="redis", error=str(exc))
 
-        # 4. Delete Qdrant collection
+        # 4. Delete KMS encryption keys
+        try:
+            settings = get_settings()
+            if settings.kms_master_key and tenant:
+                kms = KMSService(
+                    session_factory=get_session_factory(),
+                    redis_client=get_redis(),
+                    master_key_hex=settings.kms_master_key,
+                )
+                await kms.delete_tenant_key(tenant.id, slug)
+                log.info("step_completed", step="kms_key_deleted")
+        except Exception as exc:
+            log.error("deprovision_step_failed", step="kms", error=str(exc))
+
+        # 5. Delete Qdrant collection
         try:
             await self._delete_qdrant_collection(slug)
             log.info("step_completed", step="qdrant_removed")
         except Exception as exc:
             log.error("deprovision_step_failed", step="qdrant", error=str(exc))
 
-        # 5. Drop PostgreSQL schema
+        # 6. Drop PostgreSQL schema
         try:
             await self._drop_schema(slug)
             log.info("step_completed", step="schema_dropped")
         except Exception as exc:
             log.error("deprovision_step_failed", step="pg_schema", error=str(exc))
 
-        # 6. Delete tenant record
+        # 7. Delete tenant record
         try:
             factory = get_session_factory()
             async with factory() as session:

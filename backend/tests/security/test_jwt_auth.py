@@ -41,7 +41,7 @@ class TestJWTTokenSecurity:
         tenant_id = uuid.uuid4()
 
         with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings()):
-            token = JWTManager.create_access_token(
+            token, _jti = JWTManager.create_access_token(
                 admin_id=admin_id,
                 role=AdminRole.admin_tenant.value,
                 tenant_id=tenant_id,
@@ -58,7 +58,7 @@ class TestJWTTokenSecurity:
         admin_id = uuid.uuid4()
 
         with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings(jwt_secret_key="secret-A")):
-            token = JWTManager.create_access_token(
+            token, _jti = JWTManager.create_access_token(
                 admin_id=admin_id,
                 role=AdminRole.admin_tenant.value,
                 tenant_id=None,
@@ -73,7 +73,7 @@ class TestJWTTokenSecurity:
         admin_id = uuid.uuid4()
 
         with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings(jwt_access_token_expire_minutes=-1)):
-            token = JWTManager.create_access_token(
+            token, _jti = JWTManager.create_access_token(
                 admin_id=admin_id,
                 role=AdminRole.admin_tenant.value,
                 tenant_id=None,
@@ -111,7 +111,7 @@ class TestJWTTokenSecurity:
             patch("app.services.auth.service.get_session_factory") as mock_factory,
             patch("app.services.auth.service.get_redis", return_value=AsyncMock()),
         ):
-            access_token = JWTManager.create_access_token(
+            access_token, _jti = JWTManager.create_access_token(
                 admin_id=admin_id,
                 role=AdminRole.admin_tenant.value,
                 tenant_id=None,
@@ -125,7 +125,7 @@ class TestJWTTokenSecurity:
         admin_id = uuid.uuid4()
 
         with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings()):
-            token = JWTManager.create_access_token(
+            token, _jti = JWTManager.create_access_token(
                 admin_id=admin_id,
                 role=AdminRole.admin_tenant.value,
                 tenant_id=None,
@@ -218,6 +218,11 @@ class TestJWTTokenSecurity:
 
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="fake-token")
 
+        # Mock Request object with client IP
+        mock_request = MagicMock()
+        mock_request.client = MagicMock()
+        mock_request.client.host = "127.0.0.1"
+
         with (
             patch("app.core.rbac.AuthService") as MockAuthService,
             patch("app.core.rbac.get_session_factory", return_value=mock_factory),
@@ -227,4 +232,4 @@ class TestJWTTokenSecurity:
             MockAuthService.return_value = mock_auth
 
             with pytest.raises(AuthenticationError, match="no longer active"):
-                await get_current_admin(credentials=credentials)
+                await get_current_admin(request=mock_request, credentials=credentials)

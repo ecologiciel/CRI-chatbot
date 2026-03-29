@@ -242,6 +242,7 @@ _SINGLETON_VARS = {
     "app.services.orchestrator.intent": "_intent_detector",
     "app.services.orchestrator.faq_agent": "_faq_agent",
     "app.services.orchestrator.feedback_collector": "_feedback_collector",
+    "app.services.auth.session_manager": "_session_manager",
 }
 
 

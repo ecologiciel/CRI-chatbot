@@ -6,6 +6,7 @@ As new model files are added, import them here.
 
 from app.core.database import Base
 from app.models.admin import Admin
+from app.models.audit import AuditLog
 from app.models.base import TimestampMixin, UUIDMixin
 from app.models.campaign import Campaign, CampaignRecipient
 from app.models.contact import Contact
@@ -36,6 +37,7 @@ from app.models.feedback import Feedback, UnansweredQuestion
 from app.models.incitation import IncentiveCategory, IncentiveItem
 from app.models.kb import KBChunk, KBDocument
 from app.models.tenant import Tenant
+from app.models.tenant_key import TenantKey
 from app.models.whitelist import InternalWhitelist
 
 __all__ = [
@@ -45,6 +47,7 @@ __all__ = [
     "TimestampMixin",
     # Models
     "Admin",
+    "AuditLog",
     "Campaign",
     "CampaignRecipient",
     "Contact",
@@ -58,6 +61,7 @@ __all__ = [
     "KBDocument",
     "Message",
     "Tenant",
+    "TenantKey",
     "UnansweredQuestion",
     # Enums
     "AdminRole",

@@ -44,12 +44,18 @@ class AuthService:
         self.logger = logger.bind(service="auth")
         self.jwt = JWTManager()
 
-    async def login(self, email: str, password: str) -> AuthTokenResponse:
+    async def login(
+        self,
+        email: str,
+        password: str,
+        ip_address: str | None = None,
+    ) -> AuthTokenResponse:
         """Authenticate admin by email/password.
 
         Args:
             email: Admin email address.
             password: Plain-text password.
+            ip_address: Client IP (enables advanced session tracking).
 
         Returns:
             AuthTokenResponse with access + refresh tokens.
@@ -86,12 +92,25 @@ class AuthService:
             raise AuthenticationError("Invalid credentials")
 
         # 4. Success — generate tokens
-        access_token = JWTManager.create_access_token(
+        access_token, access_jti = JWTManager.create_access_token(
             admin_id=admin.id,
             role=admin.role.value,
             tenant_id=admin.tenant_id,
         )
         refresh_token, _jti = await JWTManager.create_refresh_token(admin_id=admin.id)
+
+        # 4b. Register advanced session (IP tracking, single session)
+        if ip_address:
+            from app.services.auth.session_manager import get_session_manager
+
+            session_mgr = get_session_manager()
+            session_result = await session_mgr.register_session(
+                admin_id=str(admin.id),
+                jti=access_jti,
+                ip_address=ip_address,
+            )
+            if session_result.get("ip_alert"):
+                log.warning("ip_change_alert_on_login", admin_id=str(admin.id))
 
         # 5. Reset attempts and update last_login
         await self._reset_attempts(email)
@@ -161,7 +180,7 @@ class AuthService:
             raise AuthenticationError("Admin account no longer active")
 
         # 6. Issue new token pair
-        access_token = JWTManager.create_access_token(
+        access_token, _access_jti = JWTManager.create_access_token(
             admin_id=admin.id,
             role=admin.role.value,
             tenant_id=admin.tenant_id,
@@ -177,31 +196,69 @@ class AuthService:
             expires_in=settings.jwt_access_token_expire_minutes * 60,
         )
 
-    async def verify_access_token(self, token: str) -> AdminTokenPayload:
+    async def verify_access_token(
+        self,
+        token: str,
+        ip_address: str | None = None,
+    ) -> AdminTokenPayload:
         """Verify an access token and return its payload.
+
+        When ``ip_address`` is provided, also validates the session
+        against Redis (JTI active, IP unchanged).
 
         Args:
             token: Encoded JWT access token.
+            ip_address: Client IP for session validation (optional).
 
         Returns:
             Validated AdminTokenPayload.
 
         Raises:
-            AuthenticationError: If token is invalid or not an access token.
+            AuthenticationError: If token is invalid, not an access token,
+                or session has been invalidated.
         """
         payload = JWTManager.verify_token(token)
         if payload.get("type") != "access":
             raise AuthenticationError("Invalid token type")
-        return AdminTokenPayload(**payload)
 
-    async def logout(self, refresh_token_jti: str) -> None:
-        """Invalidate a refresh token on logout.
+        payload_obj = AdminTokenPayload(**payload)
+
+        # Advanced session validation (Phase 2)
+        if ip_address:
+            from app.services.auth.session_manager import get_session_manager
+
+            session_mgr = get_session_manager()
+            is_valid = await session_mgr.validate_session(
+                admin_id=payload_obj.sub,
+                jti=payload_obj.jti,
+                ip_address=ip_address,
+            )
+            if not is_valid:
+                raise AuthenticationError("Session invalidated")
+
+        return payload_obj
+
+    async def logout(
+        self,
+        refresh_token_jti: str,
+        admin_id: str | None = None,
+    ) -> None:
+        """Invalidate refresh token and active session on logout.
 
         Args:
             refresh_token_jti: The jti of the refresh token to invalidate.
+            admin_id: UUID string of the admin (invalidates access session too).
         """
         await JWTManager.invalidate_refresh_token(refresh_token_jti)
-        self.logger.info("logout", jti=refresh_token_jti)
+
+        # Also invalidate the access token session (Phase 2)
+        if admin_id:
+            from app.services.auth.session_manager import get_session_manager
+
+            session_mgr = get_session_manager()
+            await session_mgr.invalidate_session(admin_id)
+
+        self.logger.info("logout", jti=refresh_token_jti, admin_id=admin_id)
 
     @staticmethod
     def hash_password(password: str) -> str:

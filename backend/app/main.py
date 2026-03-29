@@ -40,6 +40,7 @@ from app.core.exceptions import (
 )
 from app.core.arq import close_arq_pool, init_arq_pool
 from app.core.logging import setup_logging
+from app.core.audit_middleware import AuditMiddleware
 from app.core.middleware import TenantMiddleware
 from app.core.minio import init_minio
 from app.core.qdrant import close_qdrant, init_qdrant
@@ -112,6 +113,9 @@ def create_app() -> FastAPI:
 
     # --- Tenant resolution middleware ---
     app.add_middleware(TenantMiddleware)
+
+    # --- Audit trail middleware (runs after TenantMiddleware, before Prometheus) ---
+    app.add_middleware(AuditMiddleware)
 
     # --- Prometheus metrics ---
     Instrumentator(

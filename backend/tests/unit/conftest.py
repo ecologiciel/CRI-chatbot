@@ -244,6 +244,7 @@ _SINGLETON_VARS = {
     "app.services.orchestrator.feedback_collector": "_feedback_collector",
     "app.services.auth.session_manager": "_session_manager",
     "app.services.campaign.service": "_campaign_service",
+    "app.services.contact.segmentation": "_segmentation_service",
 }
 
 

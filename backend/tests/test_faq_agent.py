@@ -40,6 +40,7 @@ def _make_state(**overrides) -> ConversationState:
         "guard_message": None,
         "incentive_state": {},
         "error": None,
+        "consecutive_low_confidence": 0,
     }
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -248,3 +249,75 @@ class TestFAQAgent:
         gen_call = mock_generation.generate.call_args
         gen_request = gen_call[0][1]
         assert gen_request.language == "ar"
+
+
+class TestConsecutiveLowConfidence:
+    """Wave 17: FAQAgent consecutive_low_confidence counter tracking."""
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_increments_counter(self):
+        """Low confidence (< 0.5) → counter incremented."""
+        retrieval_result = _make_retrieval_result(confidence=0.3)
+        gen_response = _make_generation_response(confidence=0.3)
+
+        mock_retrieval = AsyncMock()
+        mock_retrieval.retrieve = AsyncMock(return_value=retrieval_result)
+        mock_generation = AsyncMock()
+        mock_generation.generate = AsyncMock(return_value=gen_response)
+
+        agent, _, _ = _make_faq_agent(mock_retrieval, mock_generation)
+        state = _make_state(consecutive_low_confidence=1)
+
+        result = await agent.handle(state, TEST_TENANT)
+
+        assert result["consecutive_low_confidence"] == 2
+
+    @pytest.mark.asyncio
+    async def test_high_confidence_resets_counter(self):
+        """High confidence (>= 0.5) → counter reset to 0."""
+        retrieval_result = _make_retrieval_result(confidence=0.85)
+        gen_response = _make_generation_response(confidence=0.85)
+
+        mock_retrieval = AsyncMock()
+        mock_retrieval.retrieve = AsyncMock(return_value=retrieval_result)
+        mock_generation = AsyncMock()
+        mock_generation.generate = AsyncMock(return_value=gen_response)
+
+        agent, _, _ = _make_faq_agent(mock_retrieval, mock_generation)
+        state = _make_state(consecutive_low_confidence=2)
+
+        result = await agent.handle(state, TEST_TENANT)
+
+        assert result["consecutive_low_confidence"] == 0
+
+    @pytest.mark.asyncio
+    async def test_no_chunks_increments_counter(self):
+        """No retrieval chunks → confidence 0.0 → counter incremented."""
+        retrieval_result = _make_retrieval_result(chunks=[], confidence=0.0)
+
+        mock_retrieval = AsyncMock()
+        mock_retrieval.retrieve = AsyncMock(return_value=retrieval_result)
+        mock_generation = AsyncMock()
+
+        agent, _, _ = _make_faq_agent(mock_retrieval, mock_generation)
+        state = _make_state(consecutive_low_confidence=0)
+
+        result = await agent.handle(state, TEST_TENANT)
+
+        assert result["consecutive_low_confidence"] == 1
+
+    @pytest.mark.asyncio
+    async def test_error_increments_counter(self):
+        """Retrieval error → counter incremented."""
+        mock_retrieval = AsyncMock()
+        mock_retrieval.retrieve = AsyncMock(
+            side_effect=RuntimeError("Qdrant down"),
+        )
+        mock_generation = AsyncMock()
+
+        agent, _, _ = _make_faq_agent(mock_retrieval, mock_generation)
+        state = _make_state(consecutive_low_confidence=1)
+
+        result = await agent.handle(state, TEST_TENANT)
+
+        assert result["consecutive_low_confidence"] == 2

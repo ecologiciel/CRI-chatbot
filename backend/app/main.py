@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1.auth import router as auth_router
+from app.api.v1.campaigns import router as campaigns_router
 from app.api.v1.contacts import router as contacts_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.escalation import router as escalation_router
@@ -22,6 +23,7 @@ from app.api.v1.kb import router as kb_router
 from app.api.v1.learning import router as learning_router
 from app.api.v1.tenant import router as tenant_router
 from app.api.v1.webhook import router as webhook_router
+from app.api.v1.whitelist import router as whitelist_router
 from app.api.ws.escalation_ws import escalation_ws_endpoint
 from app.core.config import get_settings
 from app.core.database import close_engine, get_engine
@@ -152,6 +154,7 @@ def create_app() -> FastAPI:
 
     # --- Routes ---
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(campaigns_router, prefix="/api/v1")
     app.include_router(contacts_router, prefix="/api/v1")
     app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(escalation_router, prefix="/api/v1")
@@ -161,6 +164,7 @@ def create_app() -> FastAPI:
     app.include_router(learning_router, prefix="/api/v1")
     app.include_router(tenant_router, prefix="/api/v1")
     app.include_router(webhook_router, prefix="/api/v1")
+    app.include_router(whitelist_router, prefix="/api/v1")
 
     # --- WebSocket routes ---
     app.add_api_websocket_route(

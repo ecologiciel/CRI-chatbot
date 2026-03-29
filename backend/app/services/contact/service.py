@@ -1,10 +1,13 @@
-"""ContactService — CRUD for contacts, WhatsApp auto-create, and search.
+"""ContactService — CRUD for contacts, WhatsApp auto-create, search, and CRM.
 
 Every inbound WhatsApp message triggers get_or_create: new numbers
 become contacts automatically; known numbers get progressive enrichment
 (name, language) from the WhatsApp profile and language detection.
 The back-office CRUD methods (list, get_detail, create, update, delete)
 are used by the contacts API.
+
+Wave 17 additions: batch tag update, opt-in change with CNDP audit,
+contact interaction history (conversations + campaigns).
 """
 
 from __future__ import annotations
@@ -17,9 +20,11 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import DuplicateResourceError, ResourceNotFoundError
 from app.core.tenant import TenantContext
+from app.models.campaign import Campaign, CampaignRecipient
 from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
 from app.models.enums import ContactSource, Language, OptInStatus
+from app.schemas.audit import AuditLogCreate
 from app.schemas.contact import ContactCreate, ContactUpdate
 
 logger = structlog.get_logger()
@@ -316,6 +321,223 @@ class ContactService:
                 select(func.count(Contact.id)),
             )
             return result.scalar_one()
+
+    # ── CRM enrichment (Wave 17) ──
+
+    async def batch_update_tags(
+        self,
+        tenant: TenantContext,
+        contact_ids: list[uuid.UUID],
+        *,
+        add_tags: list[str] | None = None,
+        remove_tags: list[str] | None = None,
+    ) -> int:
+        """Add and/or remove tags from multiple contacts atomically.
+
+        Loads current tags, computes the new tag set in Python
+        (set union for add, set difference for remove), and writes back.
+        Only contacts whose tags actually change are counted.
+
+        Args:
+            tenant: Tenant context for DB session.
+            contact_ids: Contact UUIDs (max 500).
+            add_tags: Tags to add to each contact.
+            remove_tags: Tags to remove from each contact.
+
+        Returns:
+            Number of contacts whose tags were modified.
+        """
+        add_set = set(add_tags) if add_tags else set()
+        remove_set = set(remove_tags) if remove_tags else set()
+        updated = 0
+
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(Contact).where(Contact.id.in_(contact_ids)),
+            )
+            contacts = result.scalars().all()
+
+            for contact in contacts:
+                existing = set(contact.tags or [])
+                new_tags = (existing | add_set) - remove_set
+                if new_tags != existing:
+                    # Assign a new list so SQLAlchemy detects the change
+                    contact.tags = sorted(new_tags)
+                    updated += 1
+
+        self._logger.info(
+            "tags_batch_updated",
+            tenant=tenant.slug,
+            requested=len(contact_ids),
+            found=len(contacts),
+            updated=updated,
+        )
+        return updated
+
+    async def change_opt_in_status(
+        self,
+        tenant: TenantContext,
+        contact_id: uuid.UUID,
+        *,
+        new_status: OptInStatus,
+        reason: str,
+        admin_id: uuid.UUID | None = None,
+    ) -> tuple[Contact, str]:
+        """Change a contact's opt-in status with CNDP-compliant audit logging.
+
+        Args:
+            tenant: Tenant context.
+            contact_id: Target contact UUID.
+            new_status: Desired OptInStatus.
+            reason: Human-readable reason for the change.
+            admin_id: Admin who initiated the change (None for system).
+
+        Returns:
+            Tuple of (updated contact, previous status value string).
+
+        Raises:
+            ResourceNotFoundError: If the contact does not exist.
+        """
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(Contact).where(Contact.id == contact_id),
+            )
+            contact = result.scalar_one_or_none()
+            if contact is None:
+                raise ResourceNotFoundError(
+                    f"Contact not found: {contact_id}",
+                    details={"contact_id": str(contact_id)},
+                )
+
+            previous = contact.opt_in_status.value
+            if contact.opt_in_status == new_status:
+                return contact, previous
+
+            contact.opt_in_status = new_status
+            await session.flush()
+
+        self._logger.info(
+            "opt_in_status_changed",
+            tenant=tenant.slug,
+            contact_id=str(contact_id),
+            previous=previous,
+            new=new_status.value,
+        )
+
+        # Fire-and-forget CNDP audit entry
+        try:
+            from app.services.audit.service import get_audit_service
+
+            await get_audit_service().log_action(
+                AuditLogCreate(
+                    tenant_slug=tenant.slug,
+                    user_id=admin_id,
+                    user_type="admin" if admin_id else "system",
+                    action="opt_in_change",
+                    resource_type="contact",
+                    resource_id=str(contact_id),
+                    details={
+                        "previous_status": previous,
+                        "new_status": new_status.value,
+                        "reason": reason,
+                    },
+                ),
+            )
+        except Exception:
+            self._logger.error("opt_in_audit_log_failed", exc_info=True)
+
+        return contact, previous
+
+    async def get_contact_history(
+        self,
+        tenant: TenantContext,
+        contact_id: uuid.UUID,
+    ) -> dict:
+        """Get full interaction history: conversations with message counts and campaigns.
+
+        Args:
+            tenant: Tenant context.
+            contact_id: Target contact UUID.
+
+        Returns:
+            Dict with conversations, campaigns, total_conversations, total_campaigns.
+
+        Raises:
+            ResourceNotFoundError: If the contact does not exist.
+        """
+        async with tenant.db_session() as session:
+            # Verify contact exists
+            exists = await session.execute(
+                select(Contact.id).where(Contact.id == contact_id),
+            )
+            if exists.scalar_one_or_none() is None:
+                raise ResourceNotFoundError(
+                    f"Contact not found: {contact_id}",
+                    details={"contact_id": str(contact_id)},
+                )
+
+            # Conversations with message count and last message timestamp
+            conv_result = await session.execute(
+                select(
+                    Conversation.id,
+                    Conversation.status,
+                    Conversation.agent_type,
+                    Conversation.started_at,
+                    Conversation.ended_at,
+                    func.count(Message.id).label("message_count"),
+                    func.max(Message.timestamp).label("last_message_at"),
+                )
+                .outerjoin(Message, Message.conversation_id == Conversation.id)
+                .where(Conversation.contact_id == contact_id)
+                .group_by(Conversation.id)
+                .order_by(Conversation.started_at.desc()),
+            )
+            conversations = [
+                {
+                    "id": row.id,
+                    "status": row.status,
+                    "agent_type": row.agent_type,
+                    "message_count": row.message_count,
+                    "started_at": row.started_at,
+                    "ended_at": row.ended_at,
+                    "last_message_at": row.last_message_at,
+                }
+                for row in conv_result.all()
+            ]
+
+            # Campaign participations
+            camp_result = await session.execute(
+                select(
+                    CampaignRecipient.campaign_id,
+                    Campaign.name.label("campaign_name"),
+                    CampaignRecipient.status,
+                    CampaignRecipient.sent_at,
+                    CampaignRecipient.delivered_at,
+                    CampaignRecipient.read_at,
+                )
+                .join(Campaign, Campaign.id == CampaignRecipient.campaign_id)
+                .where(CampaignRecipient.contact_id == contact_id)
+                .order_by(CampaignRecipient.created_at.desc()),
+            )
+            campaigns = [
+                {
+                    "campaign_id": row.campaign_id,
+                    "campaign_name": row.campaign_name,
+                    "status": row.status,
+                    "sent_at": row.sent_at,
+                    "delivered_at": row.delivered_at,
+                    "read_at": row.read_at,
+                }
+                for row in camp_result.all()
+            ]
+
+        return {
+            "contact_id": contact_id,
+            "conversations": conversations,
+            "campaigns": campaigns,
+            "total_conversations": len(conversations),
+            "total_campaigns": len(campaigns),
+        }
 
     # ── WhatsApp language detection ──
 

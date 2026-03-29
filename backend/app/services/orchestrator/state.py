@@ -60,6 +60,7 @@ class ConversationState(TypedDict, total=False):
     agent_type: str  # "public" or "internal"
     escalation_id: str | None  # UUID of escalation record if created
     consecutive_low_confidence: int  # consecutive low-confidence RAG responses
+    conversation_id: str | None  # DB conversation UUID (passed from handler)
 
 
 class IntentType:

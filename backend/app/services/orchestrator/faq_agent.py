@@ -17,6 +17,10 @@ from app.services.rag.retrieval import RetrievalService, get_retrieval_service
 
 logger = structlog.get_logger()
 
+# Matches EscalationService.LOW_CONFIDENCE_THRESHOLD — kept local to avoid
+# circular imports (graph → escalation → … → graph).
+_LOW_CONFIDENCE_THRESHOLD = 0.5
+
 
 class FAQAgent:
     """LangGraph node: handle FAQ queries via the RAG pipeline.
@@ -70,6 +74,9 @@ class FAQAgent:
                 updates["confidence"] = 0.0
                 updates["chunk_ids"] = []
                 updates["retrieved_chunks"] = []
+                updates["consecutive_low_confidence"] = (
+                    state.get("consecutive_low_confidence", 0) + 1
+                )
                 self._logger.info(
                     "faq_no_chunks",
                     tenant=tenant.slug,
@@ -100,6 +107,12 @@ class FAQAgent:
             updates["response"] = gen_response.answer
             updates["chunk_ids"] = gen_response.chunk_ids
             updates["confidence"] = gen_response.confidence
+            if gen_response.confidence < _LOW_CONFIDENCE_THRESHOLD:
+                updates["consecutive_low_confidence"] = (
+                    state.get("consecutive_low_confidence", 0) + 1
+                )
+            else:
+                updates["consecutive_low_confidence"] = 0
             updates["retrieved_chunks"] = [
                 {
                     "chunk_id": c.chunk_id,
@@ -129,6 +142,9 @@ class FAQAgent:
             )
             updates["confidence"] = 0.0
             updates["chunk_ids"] = []
+            updates["consecutive_low_confidence"] = (
+                state.get("consecutive_low_confidence", 0) + 1
+            )
 
         return updates  # type: ignore[return-value]
 

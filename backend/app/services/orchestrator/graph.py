@@ -1,16 +1,24 @@
-"""Complete LangGraph conversation graph — Wave 8 + Wave 15.
+"""Complete LangGraph conversation graph — Wave 8 + Wave 15 + Wave 17.
 
 Assembles all nodes into a compiled StateGraph:
 
-    intent_detector ─(Router)──> faq_agent ──────────┐
-                               > incentives_agent ────┤
-                               > internal_agent ──────┤
-                               │                      ├─> response_validator -> feedback_collector -> END
+    intent_detector ─(Router)──> faq_agent ──(auto-escalation?)──> escalation_handler ──> END
+                               │                    └──────────> response_validator ─┐
+                               > incentives_agent ──────────────> response_validator ─┤
+                               > internal_agent ────────────────> response_validator ─┘
+                               │                                        ↓
+                               │                                feedback_collector ──(feedback-escalation?)──> escalation_handler ──> END
+                               │                                        └────────────────────────────────────> END
                                > greeting_response ──────> END
                                > out_of_scope_response ──> END
                                > blocked_response ───────> END
                                > tracking_placeholder ───> END
                                > escalation_handler ──────> END
+
+Wave 17 additions:
+- ``check_auto_escalation``: faq_agent → escalation_handler on 2+ consecutive low-confidence
+- ``check_feedback_escalation``: feedback_collector → escalation_handler on agent-request keywords
+- ``conversation_id`` threaded from handler through state to escalation_handler
 
 Entry point: ``run_conversation()`` — called from the WhatsApp webhook handler.
 """
@@ -135,6 +143,55 @@ def _wrap_simple_node(
 
 
 # ---------------------------------------------------------------------------
+# Conditional-edge routing functions (pure, read-only)
+# ---------------------------------------------------------------------------
+
+
+def check_auto_escalation(state: ConversationState) -> str:
+    """Route faq_agent output: escalate on consecutive low confidence.
+
+    FAQAgent already incremented ``consecutive_low_confidence`` in its
+    return dict.  LangGraph merges that into state before calling this
+    function, so it reads the up-to-date value.
+
+    Returns:
+        ``"escalation_handler"`` if consecutive failures >= 2,
+        otherwise ``"response_validator"``.
+    """
+    consecutive = state.get("consecutive_low_confidence", 0)
+    if consecutive >= 2:
+        return "escalation_handler"
+    return "response_validator"
+
+
+def check_feedback_escalation(state: ConversationState) -> str:
+    """Route feedback_collector output: escalate on agent-request keywords.
+
+    Safety net for when IntentDetector misclassifies an escalation
+    request as FAQ.  Only triggers when the query contains escalation
+    keywords AND the RAG confidence is low (< 0.5).
+
+    Returns:
+        ``"escalation_handler"`` or the LangGraph ``END`` sentinel.
+    """
+    query = (state.get("query") or "").lower()
+    escalation_keywords = [
+        # Français
+        "parler", "agent", "humain", "conseiller",
+        # English
+        "talk", "human", "advisor",
+        # Arabe
+        "\u0645\u0648\u0638\u0641",   # موظف
+        "\u0645\u0633\u062a\u0634\u0627\u0631",  # مستشار
+        "\u0627\u0644\u062a\u062d\u062f\u062b",  # التحدث
+    ]
+    if any(kw in query for kw in escalation_keywords):
+        if state.get("confidence", 1.0) < 0.5:
+            return "escalation_handler"
+    return END
+
+
+# ---------------------------------------------------------------------------
 # Graph construction
 # ---------------------------------------------------------------------------
 
@@ -228,12 +285,30 @@ def build_conversation_graph() -> Any:
         },
     )
 
-    # ── Linear edges: FAQ, Incentives, and Internal paths converge ──
-    graph.add_edge("faq_agent", "response_validator")
+    # ── FAQ → conditional auto-escalation check ──
+    graph.add_conditional_edges(
+        "faq_agent",
+        check_auto_escalation,
+        {
+            "escalation_handler": "escalation_handler",
+            "response_validator": "response_validator",
+        },
+    )
+
+    # ── Incentives & Internal → response_validator (no auto-escalation) ──
     graph.add_edge("incentives_agent", "response_validator")
     graph.add_edge("internal_agent", "response_validator")
     graph.add_edge("response_validator", "feedback_collector")
-    graph.add_edge("feedback_collector", END)
+
+    # ── Feedback → conditional feedback-escalation check ──
+    graph.add_conditional_edges(
+        "feedback_collector",
+        check_feedback_escalation,
+        {
+            "escalation_handler": "escalation_handler",
+            END: END,
+        },
+    )
 
     # ── Simple nodes → END ──
     graph.add_edge("greeting_response", END)
@@ -270,6 +345,7 @@ async def run_conversation(
     query: str,
     conversation_history: list[dict] | None = None,
     incentive_state: dict | None = None,
+    conversation_id: str | None = None,
 ) -> dict:
     """Run a user message through the conversation graph.
 
@@ -307,6 +383,7 @@ async def run_conversation(
         "agent_type": "public",
         "escalation_id": None,
         "consecutive_low_confidence": 0,
+        "conversation_id": conversation_id,
     }
 
     try:

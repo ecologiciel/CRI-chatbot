@@ -14,7 +14,9 @@ from pathlib import PurePosixPath
 
 import structlog
 from openpyxl import Workbook, load_workbook
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import Select, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.exceptions import ValidationError
@@ -281,15 +283,73 @@ class ContactImportExportService:
         wb.close()
         return rows
 
+    # ── Filtered export (Wave 17) ──
+
+    @staticmethod
+    def _build_filtered_query(
+        *,
+        search: str | None = None,
+        opt_in_status: OptInStatus | None = None,
+        language: Language | None = None,
+        tags: list[str] | None = None,
+        source: ContactSource | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> Select[tuple[Contact]]:
+        """Build a filtered ``select(Contact)`` for export.
+
+        When all params are None the query returns all contacts (backward
+        compatible with pre-Wave-17 behaviour).
+        """
+        base = select(Contact)
+        if search:
+            pattern = f"%{search}%"
+            base = base.where(
+                or_(
+                    Contact.name.ilike(pattern),
+                    Contact.phone.ilike(pattern),
+                    Contact.cin.ilike(pattern),
+                ),
+            )
+        if opt_in_status is not None:
+            base = base.where(Contact.opt_in_status == opt_in_status)
+        if language is not None:
+            base = base.where(Contact.language == language)
+        if tags:
+            for tag in tags:
+                base = base.where(Contact.tags.contains([tag]))
+        if source is not None:
+            base = base.where(Contact.source == source)
+        if created_after is not None:
+            base = base.where(Contact.created_at >= created_after)
+        if created_before is not None:
+            base = base.where(Contact.created_at <= created_before)
+        return base.order_by(Contact.created_at.desc())
+
     async def export_to_xlsx(
         self,
         tenant: TenantContext,
+        *,
+        search: str | None = None,
+        opt_in_status: OptInStatus | None = None,
+        language: Language | None = None,
+        tags: list[str] | None = None,
+        source: ContactSource | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
     ) -> bytes:
-        """Export all contacts to Excel bytes."""
+        """Export contacts to Excel bytes, optionally filtered."""
+        query = self._build_filtered_query(
+            search=search,
+            opt_in_status=opt_in_status,
+            language=language,
+            tags=tags,
+            source=source,
+            created_after=created_after,
+            created_before=created_before,
+        )
         async with tenant.db_session() as session:
-            result = await session.execute(
-                select(Contact).order_by(Contact.created_at.desc()),
-            )
+            result = await session.execute(query)
             contacts = result.scalars().all()
 
         wb = Workbook(write_only=True)
@@ -315,12 +375,27 @@ class ContactImportExportService:
     async def export_to_csv(
         self,
         tenant: TenantContext,
+        *,
+        search: str | None = None,
+        opt_in_status: OptInStatus | None = None,
+        language: Language | None = None,
+        tags: list[str] | None = None,
+        source: ContactSource | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
     ) -> str:
-        """Export all contacts to CSV string."""
+        """Export contacts to CSV string, optionally filtered."""
+        query = self._build_filtered_query(
+            search=search,
+            opt_in_status=opt_in_status,
+            language=language,
+            tags=tags,
+            source=source,
+            created_after=created_after,
+            created_before=created_before,
+        )
         async with tenant.db_session() as session:
-            result = await session.execute(
-                select(Contact).order_by(Contact.created_at.desc()),
-            )
+            result = await session.execute(query)
             contacts = result.scalars().all()
 
         buffer = io.StringIO()

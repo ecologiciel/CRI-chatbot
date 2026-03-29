@@ -25,6 +25,7 @@ from app.models.enums import (
 )
 from app.schemas.feedback import FeedbackCreate
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
+from app.services.contact.segmentation import SegmentationService, get_segmentation_service
 from app.services.contact.service import get_contact_service
 from app.services.conversation.service import get_conversation_service
 from app.services.feedback.service import get_feedback_service
@@ -129,6 +130,22 @@ class MessageHandler:
             # 6. Extract content from the message
             content, media_url, msg_type = await self._extract_content(tenant, msg)
 
+            # 6.5 STOP command opt-out (CNDP §9.9)
+            if content and SegmentationService.is_stop_command(content):
+                seg = get_segmentation_service()
+                opted_out = await seg.process_stop_command(tenant, phone)
+                if opted_out:
+                    lang = contact.language.value if contact.language else "fr"
+                    stop_msgs = {
+                        "fr": "Vous avez été désinscrit. Vous ne recevrez plus de messages.",
+                        "ar": "تم إلغاء اشتراكك. لن تتلقى المزيد من الرسائل.",
+                        "en": "You have been unsubscribed. You will no longer receive messages.",
+                    }
+                    await self._sender.send_text(
+                        tenant, phone, stop_msgs.get(lang, stop_msgs["fr"]),
+                    )
+                return
+
             # 7. Feedback routing — interactive buttons starting with "feedback_"
             if self._is_feedback_reply(msg):
                 await self._handle_feedback(tenant, msg, conversation.id, phone)
@@ -177,6 +194,7 @@ class MessageHandler:
                 query=content or "",
                 conversation_history=history,
                 incentive_state=incentive_state,
+                conversation_id=str(conversation.id),
             )
 
             response_text = result.get("response", "")

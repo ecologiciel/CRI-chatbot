@@ -105,10 +105,16 @@ class EscalationHandler:
                         "response": PromptTemplates.get_message("no_answer", language),
                     }
 
-            # Step 3: Look up active conversation
-            conversation_id = await self._service.lookup_active_conversation(
-                tenant, phone,
-            )
+            # Step 3: Look up active conversation (prefer state, fallback to DB)
+            conversation_id_str = state.get("conversation_id")
+            if conversation_id_str:
+                import uuid as _uuid
+
+                conversation_id = _uuid.UUID(conversation_id_str)
+            else:
+                conversation_id = await self._service.lookup_active_conversation(
+                    tenant, phone,
+                )
             if conversation_id is None:
                 self._logger.error(
                     "escalation_no_active_conversation",

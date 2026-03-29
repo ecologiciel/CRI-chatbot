@@ -14,6 +14,8 @@ from app.core.tenant import TenantContext
 from app.services.orchestrator.graph import (
     _serialize_tenant,
     build_conversation_graph,
+    check_auto_escalation,
+    check_feedback_escalation,
     run_conversation,
 )
 from app.services.orchestrator.state import ConversationState, IntentType
@@ -55,6 +57,7 @@ def _make_state(**overrides) -> ConversationState:
         "agent_type": "public",
         "escalation_id": None,
         "consecutive_low_confidence": 0,
+        "conversation_id": None,
     }
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -81,15 +84,24 @@ def _mock_faq_agent(
     chunk_ids: list | None = None,
     confidence: float = 0.85,
 ):
-    """Create mock FAQAgent that returns a canned response."""
+    """Create mock FAQAgent that returns a canned response.
+
+    Mirrors the real FAQAgent's consecutive_low_confidence tracking:
+    increments the counter when confidence < 0.5, resets to 0 otherwise.
+    """
     agent = AsyncMock()
 
     async def handle(state, tenant):
+        if confidence < 0.5:
+            counter = state.get("consecutive_low_confidence", 0) + 1
+        else:
+            counter = 0
         return {
             "response": response,
             "chunk_ids": chunk_ids or ["chunk_1", "chunk_2"],
             "confidence": confidence,
             "retrieved_chunks": [{"chunk_id": "chunk_1", "content": "...", "score": 0.9}],
+            "consecutive_low_confidence": counter,
         }
 
     agent.handle = handle
@@ -407,3 +419,154 @@ class TestConversationGraph:
         # IncentivesAgent mock updates incentive_state
         assert result["incentive_state"]["current_category_id"] == "industrie"
         assert result["incentive_state"]["navigation_path"] == ["root"]
+
+    # ── Wave 17: Auto-escalation after FAQ ──
+
+    @pytest.mark.asyncio
+    async def test_graph_faq_auto_escalation(self):
+        """FAQ with 2 consecutive low-confidence → escalation_handler → END."""
+        graph, _mocks = _build_graph_with_mocks(
+            intent=IntentType.FAQ,
+            faq_confidence=0.3,
+        )
+        # Second consecutive failure (FAQAgent will increment to 2)
+        state = _make_state(
+            query="Quelle est la procédure ?",
+            consecutive_low_confidence=1,
+        )
+
+        result = await graph.ainvoke(state)
+
+        assert result["intent"] == IntentType.FAQ
+        assert result["escalation_id"] == "esc-mock-id"
+        assert "conseiller" in result["response"]
+
+    @pytest.mark.asyncio
+    async def test_graph_faq_single_failure_no_escalation(self):
+        """FAQ with 1 low-confidence → response_validator (no escalation yet)."""
+        graph, _mocks = _build_graph_with_mocks(
+            intent=IntentType.FAQ,
+            faq_confidence=0.3,
+        )
+        # First failure (counter starts at 0, FAQAgent increments to 1)
+        state = _make_state(
+            query="Quelle est la procédure ?",
+            consecutive_low_confidence=0,
+        )
+
+        result = await graph.ainvoke(state)
+
+        assert result["intent"] == IntentType.FAQ
+        assert result.get("escalation_id") is None
+        assert result["consecutive_low_confidence"] == 1
+
+    @pytest.mark.asyncio
+    async def test_graph_faq_high_confidence_resets_counter(self):
+        """FAQ with high confidence → counter resets to 0."""
+        graph, _mocks = _build_graph_with_mocks(
+            intent=IntentType.FAQ,
+            faq_confidence=0.85,
+        )
+        state = _make_state(
+            query="Comment créer une SARL ?",
+            consecutive_low_confidence=1,
+        )
+
+        result = await graph.ainvoke(state)
+
+        assert result["consecutive_low_confidence"] == 0
+        assert result.get("escalation_id") is None
+
+    @pytest.mark.asyncio
+    async def test_graph_feedback_escalation_keywords(self):
+        """FAQ query with agent keywords + low confidence → feedback-escalation."""
+        graph, _mocks = _build_graph_with_mocks(
+            intent=IntentType.FAQ,
+            faq_confidence=0.3,
+        )
+        # First failure, but query contains escalation keywords
+        state = _make_state(
+            query="cette réponse n'est pas utile, parler à un agent",
+            consecutive_low_confidence=0,
+        )
+
+        result = await graph.ainvoke(state)
+
+        # Single failure → no auto-escalation (counter=1 < 2),
+        # but feedback-escalation triggers on keywords + low confidence
+        assert result["escalation_id"] == "esc-mock-id"
+        assert "conseiller" in result["response"]
+
+
+# ---------------------------------------------------------------------------
+# Wave 17: Routing function unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestAutoEscalationRouting:
+    """Unit tests for check_auto_escalation routing function."""
+
+    def test_triggers_on_two_consecutive_failures(self):
+        """consecutive_low_confidence >= 2 → 'escalation_handler'."""
+        result = check_auto_escalation({"consecutive_low_confidence": 2})
+        assert result == "escalation_handler"
+
+    def test_triggers_on_more_than_two(self):
+        """consecutive_low_confidence > 2 → still 'escalation_handler'."""
+        result = check_auto_escalation({"consecutive_low_confidence": 5})
+        assert result == "escalation_handler"
+
+    def test_no_trigger_below_threshold(self):
+        """consecutive_low_confidence < 2 → 'response_validator'."""
+        result = check_auto_escalation({"consecutive_low_confidence": 1})
+        assert result == "response_validator"
+
+    def test_no_trigger_at_zero(self):
+        """consecutive_low_confidence = 0 → 'response_validator'."""
+        result = check_auto_escalation({"consecutive_low_confidence": 0})
+        assert result == "response_validator"
+
+    def test_default_when_missing(self):
+        """Missing field → defaults to 0 → 'response_validator'."""
+        result = check_auto_escalation({})
+        assert result == "response_validator"
+
+
+class TestFeedbackEscalationRouting:
+    """Unit tests for check_feedback_escalation routing function."""
+
+    def test_triggers_on_french_keywords_low_confidence(self):
+        """French escalation keywords + low confidence → 'escalation_handler'."""
+        state = {"query": "je veux parler à un agent", "confidence": 0.3}
+        result = check_feedback_escalation(state)
+        assert result == "escalation_handler"
+
+    def test_triggers_on_arabic_keywords(self):
+        """Arabic keywords + low confidence → 'escalation_handler'."""
+        state = {"query": "أريد التحدث مع موظف", "confidence": 0.2}
+        result = check_feedback_escalation(state)
+        assert result == "escalation_handler"
+
+    def test_triggers_on_english_keywords(self):
+        """English keywords + low confidence → 'escalation_handler'."""
+        state = {"query": "talk to a human agent", "confidence": 0.4}
+        result = check_feedback_escalation(state)
+        assert result == "escalation_handler"
+
+    def test_no_trigger_without_keywords(self):
+        """No escalation keywords → END."""
+        state = {"query": "merci beaucoup", "confidence": 0.3}
+        result = check_feedback_escalation(state)
+        assert result == "__end__"
+
+    def test_no_trigger_with_high_confidence(self):
+        """Keywords present but high confidence → END (safety: don't escalate good answers)."""
+        state = {"query": "parler à un agent", "confidence": 0.85}
+        result = check_feedback_escalation(state)
+        assert result == "__end__"
+
+    def test_no_trigger_empty_query(self):
+        """Empty query → END."""
+        state = {"query": "", "confidence": 0.3}
+        result = check_feedback_escalation(state)
+        assert result == "__end__"

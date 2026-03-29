@@ -51,6 +51,10 @@ class DuplicateResourceError(CRIBaseException):
     """Resource already exists (unique constraint violation)."""
 
 
+class EscalationConflictError(CRIBaseException):
+    """Escalation state conflict (e.g., assigning an already-resolved escalation)."""
+
+
 # --- WhatsApp ---
 class WhatsAppError(CRIBaseException):
     """Base WhatsApp error."""

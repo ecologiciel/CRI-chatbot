@@ -747,6 +747,232 @@ class EscalationService:
 
         return items, total
 
+    # ------------------------------------------------------------------
+    # Single escalation lookup
+    # ------------------------------------------------------------------
+
+    async def get_escalation_by_id(
+        self,
+        escalation_id: uuid.UUID,
+        tenant: TenantContext,
+    ) -> Escalation | None:
+        """Fetch a single escalation by ID within the tenant schema.
+
+        Args:
+            escalation_id: Escalation UUID.
+            tenant: Tenant context.
+
+        Returns:
+            Escalation object or None if not found.
+        """
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(Escalation).where(Escalation.id == escalation_id),
+            )
+            return result.scalar_one_or_none()
+
+    # ------------------------------------------------------------------
+    # Filtered list
+    # ------------------------------------------------------------------
+
+    async def get_escalations(
+        self,
+        tenant: TenantContext,
+        *,
+        status: EscalationStatus | None = None,
+        priority: EscalationPriority | None = None,
+        assigned_to: uuid.UUID | None = None,
+        page: int = 1,
+        size: int = 20,
+    ) -> tuple[list[Escalation], int]:
+        """List escalations with optional filters.
+
+        Ordered by priority (high first) then by creation date (oldest first).
+
+        Args:
+            tenant: Tenant context.
+            status: Filter by status.
+            priority: Filter by priority.
+            assigned_to: Filter by assigned admin UUID.
+            page: Page number (1-indexed).
+            size: Items per page.
+
+        Returns:
+            Tuple of (escalation_list, total_count).
+        """
+        priority_order = case(
+            (Escalation.priority == EscalationPriority.high, 0),
+            (Escalation.priority == EscalationPriority.medium, 1),
+            (Escalation.priority == EscalationPriority.low, 2),
+            else_=3,
+        )
+
+        async with tenant.db_session() as session:
+            base = select(Escalation)
+
+            if status is not None:
+                base = base.where(Escalation.status == status)
+            if priority is not None:
+                base = base.where(Escalation.priority == priority)
+            if assigned_to is not None:
+                base = base.where(Escalation.assigned_to == assigned_to)
+
+            # Count
+            count_result = await session.execute(
+                select(func.count()).select_from(base.subquery()),
+            )
+            total = count_result.scalar_one()
+
+            # Paginated data
+            offset = (page - 1) * size
+            data_result = await session.execute(
+                base.order_by(priority_order, Escalation.created_at.asc())
+                .offset(offset)
+                .limit(size),
+            )
+            items = list(data_result.scalars().all())
+
+        return items, total
+
+    # ------------------------------------------------------------------
+    # Dashboard stats
+    # ------------------------------------------------------------------
+
+    async def get_escalation_stats(
+        self,
+        tenant: TenantContext,
+    ) -> dict:
+        """Compute escalation statistics for the dashboard.
+
+        Args:
+            tenant: Tenant context.
+
+        Returns:
+            Dict matching EscalationStats schema fields.
+        """
+        active_statuses = [
+            EscalationStatus.pending,
+            EscalationStatus.assigned,
+            EscalationStatus.in_progress,
+        ]
+
+        async with tenant.db_session() as session:
+            # --- Counts ---
+            pending_result = await session.execute(
+                select(func.count()).where(
+                    Escalation.status.in_([
+                        EscalationStatus.pending,
+                        EscalationStatus.assigned,
+                    ]),
+                ),
+            )
+            total_pending = pending_result.scalar_one()
+
+            in_progress_result = await session.execute(
+                select(func.count()).where(
+                    Escalation.status == EscalationStatus.in_progress,
+                ),
+            )
+            total_in_progress = in_progress_result.scalar_one()
+
+            # --- Average wait time (pending/assigned) ---
+            wait_result = await session.execute(
+                select(
+                    func.avg(
+                        func.extract(
+                            "epoch",
+                            func.now() - Escalation.created_at,
+                        ),
+                    ),
+                ).where(
+                    Escalation.status.in_([
+                        EscalationStatus.pending,
+                        EscalationStatus.assigned,
+                    ]),
+                ),
+            )
+            avg_wait = wait_result.scalar_one()
+
+            # --- Average resolution time (resolved) ---
+            resolution_result = await session.execute(
+                select(
+                    func.avg(
+                        func.extract(
+                            "epoch",
+                            Escalation.resolved_at - Escalation.created_at,
+                        ),
+                    ),
+                ).where(Escalation.status == EscalationStatus.resolved),
+            )
+            avg_resolution = resolution_result.scalar_one()
+
+            # --- Breakdown by trigger (active only) ---
+            trigger_result = await session.execute(
+                select(
+                    Escalation.trigger_type,
+                    func.count(),
+                ).where(
+                    Escalation.status.in_(active_statuses),
+                ).group_by(Escalation.trigger_type),
+            )
+            by_trigger = {
+                row[0].value if hasattr(row[0], "value") else str(row[0]): row[1]
+                for row in trigger_result.all()
+            }
+
+            # --- Breakdown by priority (active only) ---
+            priority_result = await session.execute(
+                select(
+                    Escalation.priority,
+                    func.count(),
+                ).where(
+                    Escalation.status.in_(active_statuses),
+                ).group_by(Escalation.priority),
+            )
+            by_priority = {
+                row[0].value if hasattr(row[0], "value") else str(row[0]): row[1]
+                for row in priority_result.all()
+            }
+
+        return {
+            "total_pending": total_pending,
+            "total_in_progress": total_in_progress,
+            "avg_wait_seconds": round(avg_wait, 1) if avg_wait is not None else None,
+            "avg_resolution_seconds": round(avg_resolution, 1) if avg_resolution is not None else None,
+            "by_trigger": by_trigger,
+            "by_priority": by_priority,
+        }
+
+    # ------------------------------------------------------------------
+    # Conversation messages
+    # ------------------------------------------------------------------
+
+    async def get_conversation_messages(
+        self,
+        conversation_id: uuid.UUID,
+        tenant: TenantContext,
+        *,
+        limit: int = 50,
+    ) -> list[Message]:
+        """Fetch messages for a conversation (for escalation context view).
+
+        Args:
+            conversation_id: Conversation UUID.
+            tenant: Tenant context.
+            limit: Max messages to return.
+
+        Returns:
+            List of Message objects ordered by timestamp ascending.
+        """
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .order_by(Message.timestamp.asc())
+                .limit(limit),
+            )
+            return list(result.scalars().all())
+
 
 # ---------------------------------------------------------------------------
 # Singleton

@@ -36,6 +36,7 @@ AUDIT_EXCLUDED_PREFIXES: tuple[str, ...] = (
     "/openapi.json",
     "/redoc",
     "/metrics",
+    "/ws/",  # WebSocket connections are not auditable HTTP requests
 )
 
 _METHOD_ACTION_MAP: dict[str, str] = {

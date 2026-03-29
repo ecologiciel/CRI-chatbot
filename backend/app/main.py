@@ -15,11 +15,14 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.api.v1.auth import router as auth_router
 from app.api.v1.contacts import router as contacts_router
 from app.api.v1.dashboard import router as dashboard_router
+from app.api.v1.escalation import router as escalation_router
 from app.api.v1.feedback import router as feedback_router
 from app.api.v1.health import router as health_router
 from app.api.v1.kb import router as kb_router
+from app.api.v1.learning import router as learning_router
 from app.api.v1.tenant import router as tenant_router
 from app.api.v1.webhook import router as webhook_router
+from app.api.ws.escalation_ws import escalation_ws_endpoint
 from app.core.config import get_settings
 from app.core.database import close_engine, get_engine
 from app.core.exceptions import (
@@ -29,6 +32,7 @@ from app.core.exceptions import (
     CRIBaseException,
     DuplicateResourceError,
     DuplicateTenantError,
+    EscalationConflictError,
     EmbeddingError,
     GeminiError,
     RateLimitExceededError,
@@ -150,11 +154,18 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(contacts_router, prefix="/api/v1")
     app.include_router(dashboard_router, prefix="/api/v1")
+    app.include_router(escalation_router, prefix="/api/v1")
     app.include_router(feedback_router, prefix="/api/v1")
     app.include_router(health_router, prefix="/api/v1", tags=["health"])
     app.include_router(kb_router, prefix="/api/v1")
+    app.include_router(learning_router, prefix="/api/v1")
     app.include_router(tenant_router, prefix="/api/v1")
     app.include_router(webhook_router, prefix="/api/v1")
+
+    # --- WebSocket routes ---
+    app.add_api_websocket_route(
+        "/ws/escalations/{tenant_slug}", escalation_ws_endpoint,
+    )
 
     return app
 
@@ -170,6 +181,7 @@ def _get_status_code(exc: CRIBaseException) -> int:
         ResourceNotFoundError: 404,
         DuplicateResourceError: 409,
         DuplicateTenantError: 409,
+        EscalationConflictError: 409,
         ValidationError: 422,
         AccountLockedError: 429,
         RateLimitExceededError: 429,

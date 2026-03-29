@@ -34,6 +34,7 @@ TENANT_EXCLUDED_PREFIXES: tuple[str, ...] = (
     "/api/v1/webhook/",
     "/api/v1/auth/",
     "/api/v1/tenants",
+    "/ws/",  # WebSocket endpoints handle tenant resolution internally
 )
 
 

@@ -88,13 +88,20 @@ jobs:
 
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          timeout: 120s
           script: |
             cd /opt/cri-platform
+            echo "--- Syncing repository ---"
+            git fetch origin main
+            git reset --hard origin/main
+            chmod +x scripts/deploy.sh
+            echo "--- Running deploy script ---"
             ./scripts/deploy.sh ${{ github.sha }}
 
       - name: Notify deployment status

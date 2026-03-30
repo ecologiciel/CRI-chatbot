@@ -226,6 +226,42 @@ export class ApiClient {
     return this.request<void>(path, { method: "DELETE" });
   }
 
+  async download(
+    path: string,
+    params?: Record<string, string | number | undefined>,
+  ): Promise<Blob> {
+    let queryString = "";
+    if (params) {
+      const filtered = Object.entries(params).filter(
+        ([, v]) => v !== undefined,
+      );
+      if (filtered.length > 0) {
+        queryString =
+          "?" +
+          new URLSearchParams(
+            filtered.map(([k, v]) => [k, String(v)]),
+          ).toString();
+      }
+    }
+    const url = `${this.config.baseUrl}${API_PREFIX}${path}${queryString}`;
+    const headers: Record<string, string> = {};
+    const token = this.config.getAccessToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+      const tenantId = extractTenantIdFromJWT(token);
+      if (tenantId) headers["X-Tenant-ID"] = tenantId;
+    }
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      throw new ApiError(
+        response.status,
+        "DownloadError",
+        `Download failed with status ${response.status}`,
+      );
+    }
+    return response.blob();
+  }
+
   async upload<T>(path: string, formData: FormData): Promise<T> {
     return this.request<T>(path, {
       method: "POST",

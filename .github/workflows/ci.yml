@@ -44,7 +44,8 @@ jobs:
         run: ruff format --check backend/
 
       - name: Mypy type check
-        run: mypy backend/app/ --ignore-missing-imports
+        run: mypy app/ --ignore-missing-imports
+        working-directory: backend
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4

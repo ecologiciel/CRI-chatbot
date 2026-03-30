@@ -24,6 +24,7 @@ miniopy-async==1.21.1
 
 # AI / LLM
 google-genai>=1.0.0
+google-api-core>=2.0.0
 tenacity>=9.0.0
 tiktoken>=0.7.0
 langchain==0.3.14

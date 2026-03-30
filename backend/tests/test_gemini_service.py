@@ -149,7 +149,9 @@ async def test_generate_retries_on_rate_limit(gemini_service, mock_redis):
     )
 
     # Disable retry wait for test speed
-    service._generate_with_retry.retry.wait = lambda *a, **kw: 0
+    from tenacity import wait_none
+
+    service._generate_with_retry.retry.wait = wait_none()
 
     request = GeminiRequest(contents="Test retry")
     response = await service.generate(request, TEST_TENANT)

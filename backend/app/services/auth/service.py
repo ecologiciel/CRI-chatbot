@@ -7,11 +7,12 @@ token rotation (single-use).
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime
 
+import bcrypt as _bcrypt
 import structlog
-from passlib.context import CryptContext
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -24,8 +25,8 @@ from app.services.auth.jwt import JWTManager
 
 logger = structlog.get_logger()
 
-# Thread-safe singleton — bcrypt with cost factor 12
-_crypt_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+# Bcrypt cost factor
+_BCRYPT_ROUNDS = 12
 
 # Rate limiting constants
 MAX_LOGIN_ATTEMPTS = 5
@@ -259,6 +260,11 @@ class AuthService:
         self.logger.info("logout", jti=refresh_token_jti, admin_id=admin_id)
 
     @staticmethod
+    def _prehash(password: str) -> bytes:
+        """SHA-256 pre-hash to safely handle passwords > 72 bytes for bcrypt."""
+        return hashlib.sha256(password.encode("utf-8")).hexdigest().encode("utf-8")
+
+    @staticmethod
     def hash_password(password: str) -> str:
         """Hash a password with bcrypt (cost factor 12).
 
@@ -268,7 +274,10 @@ class AuthService:
         Returns:
             Bcrypt hash string.
         """
-        return _crypt_ctx.hash(password)
+        return _bcrypt.hashpw(
+            AuthService._prehash(password),
+            _bcrypt.gensalt(rounds=_BCRYPT_ROUNDS),
+        ).decode("utf-8")
 
     @staticmethod
     def verify_password(plain: str, hashed: str) -> bool:
@@ -281,7 +290,10 @@ class AuthService:
         Returns:
             True if password matches.
         """
-        return _crypt_ctx.verify(plain, hashed)
+        return _bcrypt.checkpw(
+            AuthService._prehash(plain),
+            hashed.encode("utf-8"),
+        )
 
     # ── Rate limiting helpers ──
 

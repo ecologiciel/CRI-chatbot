@@ -4,10 +4,11 @@ Tests login lockout (AuthService), webhook rate limit (WhatsAppWebhookService),
 and user message rate limit (MessageHandler).
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-from app.core.exceptions import AccountLockedError, RateLimitExceededError
+import pytest
+
+from app.core.exceptions import RateLimitExceededError
 from app.services.whatsapp.webhook import WhatsAppWebhookService
 
 
@@ -94,9 +95,11 @@ class TestWebhookRateLimiting:
         mock_redis.incr = AsyncMock(return_value=51)
         mock_redis.expire = AsyncMock()
 
-        with patch("app.services.whatsapp.webhook.get_redis", return_value=mock_redis):
-            with pytest.raises(RateLimitExceededError):
-                await WhatsAppWebhookService._check_rate_limit("alpha")
+        with (
+            patch("app.services.whatsapp.webhook.get_redis", return_value=mock_redis),
+            pytest.raises(RateLimitExceededError),
+        ):
+            await WhatsAppWebhookService._check_rate_limit("alpha")
 
     @pytest.mark.asyncio
     async def test_webhook_expire_set_on_first(self):

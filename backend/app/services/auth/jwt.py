@@ -8,7 +8,7 @@ deleted on use (rotation).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from jose import ExpiredSignatureError, JWTError, jwt
@@ -42,7 +42,7 @@ class JWTManager:
             Tuple of (encoded JWT string, jti).
         """
         settings = get_settings()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jti = str(uuid.uuid4())
         payload = {
             "sub": str(admin_id),
@@ -50,7 +50,9 @@ class JWTManager:
             "tenant_id": str(tenant_id) if tenant_id else None,
             "type": "access",
             "iat": int(now.timestamp()),
-            "exp": int((now + timedelta(minutes=settings.jwt_access_token_expire_minutes)).timestamp()),
+            "exp": int(
+                (now + timedelta(minutes=settings.jwt_access_token_expire_minutes)).timestamp()
+            ),
             "jti": jti,
         }
         token = jwt.encode(
@@ -71,7 +73,7 @@ class JWTManager:
             Tuple of (encoded JWT string, jti).
         """
         settings = get_settings()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jti = str(uuid.uuid4())
         ttl_seconds = settings.jwt_refresh_token_expire_days * 86400
 
@@ -120,10 +122,10 @@ class JWTManager:
                 algorithms=[settings.jwt_algorithm],
             )
             return payload
-        except ExpiredSignatureError:
-            raise AuthenticationError("Token has expired")
-        except JWTError:
-            raise AuthenticationError("Invalid token")
+        except ExpiredSignatureError as err:
+            raise AuthenticationError("Token has expired") from err
+        except JWTError as err:
+            raise AuthenticationError("Invalid token") from err
 
     @staticmethod
     async def invalidate_refresh_token(jti: str) -> None:

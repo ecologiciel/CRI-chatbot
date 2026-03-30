@@ -44,7 +44,6 @@ def _make_client(sdk_response=None):
 
 
 class TestGenerate:
-
     @pytest.mark.asyncio
     async def test_generate_success(self, tenant_context):
         sdk_resp = make_mock_gemini_response(text="Bonjour", input_tokens=15, output_tokens=8)
@@ -76,7 +75,6 @@ class TestGenerate:
 
 
 class TestGenerateSimple:
-
     @pytest.mark.asyncio
     async def test_generate_simple_returns_text(self, tenant_context):
         client = _make_client(sdk_response=make_mock_gemini_response(text="  SARL  "))
@@ -88,7 +86,6 @@ class TestGenerateSimple:
 
 
 class TestClassifyIntent:
-
     @pytest.mark.asyncio
     async def test_classify_intent_lowercases(self, tenant_context):
         client = _make_client(sdk_response=make_mock_gemini_response(text="  FAQ  "))
@@ -100,7 +97,6 @@ class TestClassifyIntent:
 
 
 class TestRetryExhaustion:
-
     @pytest.mark.asyncio
     async def test_retry_exhaustion_raises_gemini_error(self, tenant_context):
         client = _make_client()
@@ -113,14 +109,17 @@ class TestRetryExhaustion:
 
 
 class TestGetTenantUsage:
-
     @pytest.mark.asyncio
     async def test_get_tenant_usage_returns_cost_snapshot(self, tenant_context):
         redis = _make_redis()
-        redis.hgetall = AsyncMock(return_value={
-            "input_tokens": "1000", "output_tokens": "500",
-            "embedding_tokens": "200", "request_count": "50",
-        })
+        redis.hgetall = AsyncMock(
+            return_value={
+                "input_tokens": "1000",
+                "output_tokens": "500",
+                "embedding_tokens": "200",
+                "request_count": "50",
+            }
+        )
         with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=redis):
             service = GeminiService(_make_settings())
             result = await service.get_tenant_usage(tenant_context, month="2026-03")

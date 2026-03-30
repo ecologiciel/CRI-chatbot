@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.schemas.rag import GenerationResponse, RetrievedChunk, RetrievalResult
+from app.schemas.rag import GenerationResponse, RetrievalResult, RetrievedChunk
 from app.services.orchestrator.faq_agent import FAQAgent
 from tests.unit.conftest import make_conversation_state
 
@@ -13,8 +13,10 @@ def _make_chunks(count=3, score=0.85):
     """Create RetrievedChunk instances."""
     return [
         RetrievedChunk(
-            chunk_id=f"chunk-{i}", document_id=f"doc-{i}",
-            content=f"Chunk {i} text about entreprise.", score=score,
+            chunk_id=f"chunk-{i}",
+            document_id=f"doc-{i}",
+            content=f"Chunk {i} text about entreprise.",
+            score=score,
             metadata={"title": "Test"},
         )
         for i in range(count)
@@ -47,16 +49,27 @@ def _make_agent(
 
     mock_generation = AsyncMock()
     mock_generation.generate = AsyncMock(
-        return_value=generation_response or GenerationResponse(
+        return_value=generation_response
+        or GenerationResponse(
             answer="Voici la procédure pour créer une SARL.",
-            language="fr", chunk_ids=["chunk-0", "chunk-1", "chunk-2"],
-            confidence=0.85, is_confident=True, disclaimer=None,
-            model="gemini-2.5-flash", input_tokens=50, output_tokens=30,
-            total_tokens=80, latency_ms=200.0,
+            language="fr",
+            chunk_ids=["chunk-0", "chunk-1", "chunk-2"],
+            confidence=0.85,
+            is_confident=True,
+            disclaimer=None,
+            model="gemini-2.5-flash",
+            input_tokens=50,
+            output_tokens=30,
+            total_tokens=80,
+            latency_ms=200.0,
         ),
     )
 
-    return FAQAgent(retrieval=mock_retrieval, generation=mock_generation), mock_retrieval, mock_generation
+    return (
+        FAQAgent(retrieval=mock_retrieval, generation=mock_generation),
+        mock_retrieval,
+        mock_generation,
+    )
 
 
 class TestFAQSuccess:
@@ -67,7 +80,8 @@ class TestFAQSuccess:
         """FAQ response sets response, chunk_ids, confidence in state."""
         agent, _, _ = _make_agent()
         state = make_conversation_state(
-            query="Comment créer une SARL?", language="fr",
+            query="Comment créer une SARL?",
+            language="fr",
         )
 
         result = await agent.handle(state, tenant_context)
@@ -84,7 +98,8 @@ class TestNoChunks:
     async def test_no_chunks_returns_no_answer(self, tenant_context):
         """Empty retrieval: no_answer message, generation NOT called."""
         agent, _, generation = _make_agent(
-            retrieval_chunks=[], retrieval_confidence=0.0,
+            retrieval_chunks=[],
+            retrieval_confidence=0.0,
         )
         state = make_conversation_state(query="Topic inconnu")
 
@@ -119,11 +134,10 @@ class TestHistoryTruncation:
     async def test_history_truncated_to_5(self, tenant_context):
         """10 messages in state → only last 5 sent to generation."""
         agent, _, generation = _make_agent()
-        messages = [
-            {"role": "user", "content": f"msg-{i}"} for i in range(10)
-        ]
+        messages = [{"role": "user", "content": f"msg-{i}"} for i in range(10)]
         state = make_conversation_state(
-            query="Latest question", messages=messages,
+            query="Latest question",
+            messages=messages,
         )
 
         await agent.handle(state, tenant_context)

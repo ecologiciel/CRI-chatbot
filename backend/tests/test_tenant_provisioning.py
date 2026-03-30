@@ -9,7 +9,6 @@ from app.core.exceptions import DuplicateTenantError, TenantProvisioningError
 from app.models.enums import TenantStatus
 from app.services.tenant.provisioning import TenantProvisioningService
 
-
 # --- Factories ---
 
 
@@ -106,7 +105,9 @@ class TestProvisionTenantSuccess:
         mock_session.refresh = AsyncMock(side_effect=fake_refresh)
 
         with (
-            patch("app.services.tenant.provisioning.get_session_factory", return_value=mock_factory),
+            patch(
+                "app.services.tenant.provisioning.get_session_factory", return_value=mock_factory
+            ),
             patch("app.services.tenant.provisioning.get_redis", return_value=mock_redis),
             patch("app.services.tenant.provisioning.get_qdrant", return_value=mock_qdrant),
             patch("app.services.tenant.provisioning.get_minio", return_value=mock_minio),
@@ -202,7 +203,9 @@ class TestProvisionRollback:
         original_mock_session.refresh = AsyncMock(side_effect=fake_refresh)
 
         with (
-            patch("app.services.tenant.provisioning.get_session_factory", return_value=mock_factory),
+            patch(
+                "app.services.tenant.provisioning.get_session_factory", return_value=mock_factory
+            ),
             patch("app.services.tenant.provisioning.get_qdrant", return_value=mock_qdrant),
             patch("app.services.tenant.provisioning.get_redis", return_value=AsyncMock()),
             patch("app.services.tenant.provisioning.get_minio", return_value=AsyncMock()),
@@ -253,7 +256,9 @@ class TestDeprovisionTenant:
         mock_minio.list_objects = MagicMock(return_value=EmptyAsyncIter())
 
         with (
-            patch("app.services.tenant.provisioning.get_session_factory", return_value=mock_factory),
+            patch(
+                "app.services.tenant.provisioning.get_session_factory", return_value=mock_factory
+            ),
             patch("app.services.tenant.provisioning.get_redis", return_value=mock_redis),
             patch("app.services.tenant.provisioning.get_qdrant", return_value=mock_qdrant),
             patch("app.services.tenant.provisioning.get_minio", return_value=mock_minio),

@@ -49,7 +49,8 @@ class TestNewSession:
         with patch(_REDIS_PATCH, return_value=redis):
             manager = WhatsAppSessionManager()
             session = await manager.get_or_create_session(
-                tenant_context, "+212600000001",
+                tenant_context,
+                "+212600000001",
             )
 
         assert session.is_active is True
@@ -76,7 +77,8 @@ class TestExistingSession:
         with patch(_REDIS_PATCH, return_value=redis):
             manager = WhatsAppSessionManager()
             session = await manager.get_or_create_session(
-                tenant_context, "+212600000001",
+                tenant_context,
+                "+212600000001",
             )
 
         assert session.message_count == 4
@@ -95,7 +97,8 @@ class TestExpiredSession:
         with patch(_REDIS_PATCH, return_value=redis):
             manager = WhatsAppSessionManager()
             session = await manager.get_session(
-                tenant_context, "+212600000001",
+                tenant_context,
+                "+212600000001",
             )
 
         assert session.is_active is False
@@ -133,7 +136,8 @@ class TestDedup:
         with patch(_REDIS_PATCH, return_value=redis):
             manager = WhatsAppSessionManager()
             is_dup = await manager.is_duplicate_message(
-                tenant_context, "wamid.new123",
+                tenant_context,
+                "wamid.new123",
             )
 
         assert is_dup is False
@@ -146,7 +150,8 @@ class TestDedup:
         with patch(_REDIS_PATCH, return_value=redis):
             manager = WhatsAppSessionManager()
             is_dup = await manager.is_duplicate_message(
-                tenant_context, "wamid.existing456",
+                tenant_context,
+                "wamid.existing456",
             )
 
         assert is_dup is True

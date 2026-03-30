@@ -6,10 +6,6 @@ for different tenants, with no collisions possible.
 
 import uuid
 
-import pytest
-
-from app.core.tenant import TenantContext
-
 from .conftest import make_tenant
 
 

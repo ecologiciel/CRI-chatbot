@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -45,10 +45,10 @@ class EscalationRead(BaseModel):
     def compute_wait_time(self) -> EscalationRead:
         """Compute wait time for escalations not yet resolved."""
         if self.status in {EscalationStatus.pending, EscalationStatus.assigned}:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             created = self.created_at
             if created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
+                created = created.replace(tzinfo=UTC)
             self.wait_time_seconds = int((now - created).total_seconds())
         return self
 

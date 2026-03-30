@@ -6,8 +6,6 @@ derived from its slug, with no possibility of cross-tenant overlap.
 
 import pytest
 
-from app.core.tenant import TenantContext
-
 from .conftest import make_tenant
 
 
@@ -21,8 +19,18 @@ class TestQdrantCollectionIsolation:
 
     def test_no_collection_overlap_many_tenants(self):
         """10 distinct tenants produce 10 unique collection names."""
-        slugs = ["rabat", "tanger", "casa", "marrakech", "fes",
-                 "agadir", "oujda", "kenitra", "tetouan", "meknes"]
+        slugs = [
+            "rabat",
+            "tanger",
+            "casa",
+            "marrakech",
+            "fes",
+            "agadir",
+            "oujda",
+            "kenitra",
+            "tetouan",
+            "meknes",
+        ]
         collections = {make_tenant(s).qdrant_collection for s in slugs}
         assert len(collections) == 10
 

@@ -58,9 +58,7 @@ async def upload_document(
     category: str | None = Form(default=None, max_length=100),
     language: str = Form(default="fr", pattern=r"^(fr|ar|en)$"),
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> KBDocumentResponse:
     """Upload a file to the knowledge base.
 
@@ -127,7 +125,9 @@ async def upload_document(
     try:
         pool = get_arq_pool()
         await pool.enqueue_job(
-            "ingest_document_task", tenant.slug, str(doc_id),
+            "ingest_document_task",
+            tenant.slug,
+            str(doc_id),
         )
         log.info("document_upload_enqueued", document_id=str(doc_id))
     except Exception as exc:
@@ -231,9 +231,7 @@ async def get_document(
 async def delete_document(
     document_id: uuid.UUID,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> Response:
     """Delete a document, its chunks (DB + Qdrant), and MinIO file."""
     from app.services.rag.ingestion import get_ingestion_service
@@ -242,9 +240,7 @@ async def delete_document(
 
     # 1. Fetch document
     async with tenant.db_session() as session:
-        result = await session.execute(
-            select(KBDocument).where(KBDocument.id == document_id)
-        )
+        result = await session.execute(select(KBDocument).where(KBDocument.id == document_id))
         doc = result.scalar_one_or_none()
 
     if doc is None:
@@ -269,9 +265,7 @@ async def delete_document(
 
     # 4. Delete KBDocument record
     async with tenant.db_session() as session:
-        await session.execute(
-            delete(KBDocument).where(KBDocument.id == document_id)
-        )
+        await session.execute(delete(KBDocument).where(KBDocument.id == document_id))
 
     log.info("document_deleted")
     return Response(status_code=204)
@@ -290,9 +284,7 @@ async def delete_document(
 async def reindex_document(
     document_id: uuid.UUID,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> KBDocumentResponse:
     """Re-process a document: delete existing chunks and re-ingest.
 
@@ -302,9 +294,7 @@ async def reindex_document(
     log = logger.bind(tenant=tenant.slug, document_id=str(document_id), admin_id=admin.sub)
 
     async with tenant.db_session() as session:
-        result = await session.execute(
-            select(KBDocument).where(KBDocument.id == document_id)
-        )
+        result = await session.execute(select(KBDocument).where(KBDocument.id == document_id))
         doc = result.scalar_one_or_none()
 
         if doc is None:
@@ -329,7 +319,9 @@ async def reindex_document(
     # Enqueue reindex task
     pool = get_arq_pool()
     await pool.enqueue_job(
-        "reindex_document_task", tenant.slug, str(document_id),
+        "reindex_document_task",
+        tenant.slug,
+        str(document_id),
     )
     log.info("reindex_enqueued")
 

@@ -91,7 +91,12 @@ def test_campaign_stats_schema():
     from app.schemas.campaign import CampaignStats
 
     s = CampaignStats(
-        total=100, sent=80, delivered=70, read=50, failed=5, pending=15,
+        total=100,
+        sent=80,
+        delivered=70,
+        read=50,
+        failed=5,
+        pending=15,
     )
     assert s.total == 100
     assert s.sent == 80

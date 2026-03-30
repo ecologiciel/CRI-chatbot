@@ -1,7 +1,6 @@
 """Tests for AuthService and JWTManager — login, refresh, rate limiting."""
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,7 +9,6 @@ from app.core.exceptions import AccountLockedError, AuthenticationError
 from app.models.enums import AdminRole
 from app.services.auth.jwt import JWTManager
 from app.services.auth.service import AuthService
-
 
 # --- Factories ---
 

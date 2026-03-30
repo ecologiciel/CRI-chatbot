@@ -9,7 +9,6 @@ from app.core.exceptions import GeminiError
 from app.core.tenant import TenantContext
 from app.schemas.ai import GeminiRequest, GeminiResponse
 
-
 # --- Fixtures ---
 
 TEST_TENANT = TenantContext(
@@ -34,7 +33,9 @@ def _make_settings(**overrides):
     return settings
 
 
-def _make_mock_response(text="Hello world", input_tokens=10, output_tokens=5, finish_reason_name="STOP"):
+def _make_mock_response(
+    text="Hello world", input_tokens=10, output_tokens=5, finish_reason_name="STOP"
+):
     """Create a mock Gemini API response."""
     usage = MagicMock()
     usage.prompt_token_count = input_tokens
@@ -95,9 +96,7 @@ async def test_generate_success(gemini_service, mock_redis):
     """generate() returns a valid GeminiResponse with correct fields."""
     service, mock_client = gemini_service
 
-    mock_response = _make_mock_response(
-        text="Bienvenue au CRI", input_tokens=15, output_tokens=8
-    )
+    mock_response = _make_mock_response(text="Bienvenue au CRI", input_tokens=15, output_tokens=8)
     mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
     request = GeminiRequest(contents="Bonjour, comment investir?")
@@ -118,9 +117,7 @@ async def test_generate_with_overrides(gemini_service, mock_redis):
     """Custom temperature and max_output_tokens are passed to the SDK config."""
     service, mock_client = gemini_service
 
-    mock_client.aio.models.generate_content = AsyncMock(
-        return_value=_make_mock_response()
-    )
+    mock_client.aio.models.generate_content = AsyncMock(return_value=_make_mock_response())
 
     request = GeminiRequest(
         contents="Test prompt",
@@ -165,9 +162,7 @@ async def test_generate_raises_gemini_error_after_exhaustion(gemini_service, moc
     """3x failure → GeminiError raised."""
     service, mock_client = gemini_service
 
-    mock_client.aio.models.generate_content = AsyncMock(
-        side_effect=Exception("API down")
-    )
+    mock_client.aio.models.generate_content = AsyncMock(side_effect=Exception("API down"))
 
     request = GeminiRequest(contents="Test failure")
     with pytest.raises(GeminiError, match="Gemini generation failed"):

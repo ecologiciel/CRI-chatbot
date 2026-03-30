@@ -7,13 +7,12 @@ with audit logging.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Callable
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import Select, func, select
-from sqlalchemy.orm import aliased
 
 from app.core.exceptions import ValidationError
 from app.core.tenant import TenantContext
@@ -26,14 +25,16 @@ from app.schemas.contacts_extended import SegmentInfo
 logger = structlog.get_logger()
 
 # Keywords that trigger CNDP opt-out (entire message must match).
-STOP_KEYWORDS: frozenset[str] = frozenset({
-    "stop",
-    "arreter",
-    "arrêter",
-    "desabonner",
-    "désabonner",
-    "unsubscribe",
-})
+STOP_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "stop",
+        "arreter",
+        "arrêter",
+        "desabonner",
+        "désabonner",
+        "unsubscribe",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -80,12 +81,12 @@ def _build_segment_definitions() -> dict[str, _SegmentDef]:
         return select(Contact).where(Contact.cin.is_(None))
 
     def _new_30d() -> Select[tuple[Contact]]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        cutoff = datetime.now(UTC) - timedelta(days=30)
         return select(Contact).where(Contact.created_at >= cutoff)
 
     def _inactive_90d() -> Select[tuple[Contact]]:
         """Contacts whose last message is older than 90 days or who have none."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+        cutoff = datetime.now(UTC) - timedelta(days=90)
         # Subquery: contacts who have at least one message after cutoff
         active_subq = (
             select(Conversation.contact_id)
@@ -98,16 +99,66 @@ def _build_segment_definitions() -> dict[str, _SegmentDef]:
         return select(Contact).where(Contact.id.notin_(active_subq))
 
     defs: list[_SegmentDef] = [
-        _SegmentDef("opted_in", "Opt-in actif", "Opted in", "Contacts ayant accepté les communications", _opted_in),
-        _SegmentDef("opted_out", "Désinscrits", "Opted out", "Contacts ayant refusé les communications", _opted_out),
-        _SegmentDef("pending", "En attente", "Pending", "Contacts sans statut de consentement confirmé", _pending),
-        _SegmentDef("from_whatsapp", "Via WhatsApp", "From WhatsApp", "Contacts créés automatiquement depuis WhatsApp", _from_whatsapp),
-        _SegmentDef("from_import", "Importés", "Imported", "Contacts importés depuis fichier Excel/CSV", _from_import),
-        _SegmentDef("from_manual", "Création manuelle", "Manual", "Contacts créés manuellement dans le back-office", _from_manual),
-        _SegmentDef("has_cin", "CIN renseigné", "Has CIN", "Contacts dont le CIN est renseigné", _has_cin),
+        _SegmentDef(
+            "opted_in",
+            "Opt-in actif",
+            "Opted in",
+            "Contacts ayant accepté les communications",
+            _opted_in,
+        ),
+        _SegmentDef(
+            "opted_out",
+            "Désinscrits",
+            "Opted out",
+            "Contacts ayant refusé les communications",
+            _opted_out,
+        ),
+        _SegmentDef(
+            "pending",
+            "En attente",
+            "Pending",
+            "Contacts sans statut de consentement confirmé",
+            _pending,
+        ),
+        _SegmentDef(
+            "from_whatsapp",
+            "Via WhatsApp",
+            "From WhatsApp",
+            "Contacts créés automatiquement depuis WhatsApp",
+            _from_whatsapp,
+        ),
+        _SegmentDef(
+            "from_import",
+            "Importés",
+            "Imported",
+            "Contacts importés depuis fichier Excel/CSV",
+            _from_import,
+        ),
+        _SegmentDef(
+            "from_manual",
+            "Création manuelle",
+            "Manual",
+            "Contacts créés manuellement dans le back-office",
+            _from_manual,
+        ),
+        _SegmentDef(
+            "has_cin", "CIN renseigné", "Has CIN", "Contacts dont le CIN est renseigné", _has_cin
+        ),
         _SegmentDef("no_cin", "CIN manquant", "No CIN", "Contacts sans CIN", _no_cin),
-        _SegmentDef("new_30d", "Nouveaux (30j)", "New (30d)", "Contacts créés dans les 30 derniers jours", _new_30d),
-        _SegmentDef("inactive_90d", "Inactifs (90j)", "Inactive (90d)", "Contacts sans interaction depuis 90 jours", _inactive_90d),
+        _SegmentDef(
+            "new_30d",
+            "Nouveaux (30j)",
+            "New (30d)",
+            "Contacts créés dans les 30 derniers jours",
+            _new_30d,
+        ),
+        _SegmentDef(
+            "inactive_90d",
+            "Inactifs (90j)",
+            "Inactive (90d)",
+            "Contacts sans interaction depuis 90 jours",
+            _inactive_90d,
+        ),
     ]
     return {d.key: d for d in defs}
 
@@ -190,10 +241,7 @@ class SegmentationService:
             # Paginated results
             offset = (page - 1) * page_size
             data_query = (
-                base_query
-                .order_by(Contact.created_at.desc())
-                .offset(offset)
-                .limit(page_size)
+                base_query.order_by(Contact.created_at.desc()).offset(offset).limit(page_size)
             )
             contacts = (await session.execute(data_query)).scalars().all()
 

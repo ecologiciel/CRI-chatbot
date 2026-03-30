@@ -26,16 +26,14 @@ class Tenant(UUIDMixin, TimestampMixin, Base):
     )
 
     # Identity
-    name: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="Nom complet du CRI"
-    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False, comment="Nom complet du CRI")
     slug: Mapped[str] = mapped_column(
-        String(50), unique=True, nullable=False,
+        String(50),
+        unique=True,
+        nullable=False,
         comment="Identifiant unique de routage multi-tenant",
     )
-    region: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="Region couverte"
-    )
+    region: Mapped[str] = mapped_column(String(255), nullable=False, comment="Region couverte")
 
     # Branding
     logo_url: Mapped[str | None] = mapped_column(
@@ -47,7 +45,9 @@ class Tenant(UUIDMixin, TimestampMixin, Base):
 
     # WhatsApp configuration (SENSITIVE — never expose in public APIs)
     whatsapp_config: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, default=None,
+        JSONB,
+        nullable=True,
+        default=None,
         comment="phone_number_id, access_token, verify_token, templates",
     )
 
@@ -61,13 +61,22 @@ class Tenant(UUIDMixin, TimestampMixin, Base):
 
     # Limits
     max_contacts: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=20_000, server_default="20000",
+        Integer,
+        nullable=False,
+        default=20_000,
+        server_default="20000",
     )
     max_messages_per_year: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=100_000, server_default="100000",
+        Integer,
+        nullable=False,
+        default=100_000,
+        server_default="100000",
     )
     max_admins: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=10, server_default="10",
+        Integer,
+        nullable=False,
+        default=10,
+        server_default="10",
     )
 
     def __repr__(self) -> str:

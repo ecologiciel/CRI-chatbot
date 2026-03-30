@@ -14,7 +14,6 @@ from app.core.exceptions import RetrievalError
 from app.core.tenant import TenantContext
 from app.schemas.rag import RetrievalResult, RetrievedChunk
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -73,29 +72,58 @@ class TestRetrieveSuccess:
         """Successful retrieval returns RetrievalResult with chunks and confidence."""
         doc_id = str(uuid.uuid4())
         mock_qdrant = AsyncMock()
-        mock_qdrant.search = AsyncMock(return_value=[
-            _make_scored_point("p1", 0.95, {
-                "document_id": doc_id, "content": "Incitations fiscales pour l'industrie.",
-                "title": "Guide Investissement", "language": "fr",
-                "related_laws": ["Loi 47-18"], "applicable_sectors": ["industrie"],
-                "legal_forms": [], "regions": ["RSK"], "summary": "Incitations",
-                "chunk_index": 0,
-            }),
-            _make_scored_point("p2", 0.88, {
-                "document_id": doc_id, "content": "Exonération TVA zones d'accélération.",
-                "title": "Guide Investissement", "language": "fr",
-                "related_laws": [], "applicable_sectors": ["industrie"],
-                "legal_forms": ["SARL"], "regions": [], "summary": "TVA",
-                "chunk_index": 1,
-            }),
-            _make_scored_point("p3", 0.82, {
-                "document_id": doc_id, "content": "Procédure de création d'entreprise.",
-                "title": "Guide Création", "language": "fr",
-                "related_laws": [], "applicable_sectors": [],
-                "legal_forms": ["SA"], "regions": ["RSK"], "summary": "Création",
-                "chunk_index": 0,
-            }),
-        ])
+        mock_qdrant.search = AsyncMock(
+            return_value=[
+                _make_scored_point(
+                    "p1",
+                    0.95,
+                    {
+                        "document_id": doc_id,
+                        "content": "Incitations fiscales pour l'industrie.",
+                        "title": "Guide Investissement",
+                        "language": "fr",
+                        "related_laws": ["Loi 47-18"],
+                        "applicable_sectors": ["industrie"],
+                        "legal_forms": [],
+                        "regions": ["RSK"],
+                        "summary": "Incitations",
+                        "chunk_index": 0,
+                    },
+                ),
+                _make_scored_point(
+                    "p2",
+                    0.88,
+                    {
+                        "document_id": doc_id,
+                        "content": "Exonération TVA zones d'accélération.",
+                        "title": "Guide Investissement",
+                        "language": "fr",
+                        "related_laws": [],
+                        "applicable_sectors": ["industrie"],
+                        "legal_forms": ["SARL"],
+                        "regions": [],
+                        "summary": "TVA",
+                        "chunk_index": 1,
+                    },
+                ),
+                _make_scored_point(
+                    "p3",
+                    0.82,
+                    {
+                        "document_id": doc_id,
+                        "content": "Procédure de création d'entreprise.",
+                        "title": "Guide Création",
+                        "language": "fr",
+                        "related_laws": [],
+                        "applicable_sectors": [],
+                        "legal_forms": ["SA"],
+                        "regions": ["RSK"],
+                        "summary": "Création",
+                        "chunk_index": 0,
+                    },
+                ),
+            ]
+        )
 
         service, _, mock_embedder = _make_retrieval_service(mock_qdrant=mock_qdrant)
 
@@ -190,11 +218,13 @@ class TestConfidenceScoring:
     async def test_high_scores_confident(self):
         """High similarity scores → is_confident=True."""
         mock_qdrant = AsyncMock()
-        mock_qdrant.search = AsyncMock(return_value=[
-            _make_scored_point("p1", 0.95, {"document_id": "d1", "content": "A"}),
-            _make_scored_point("p2", 0.92, {"document_id": "d1", "content": "B"}),
-            _make_scored_point("p3", 0.90, {"document_id": "d1", "content": "C"}),
-        ])
+        mock_qdrant.search = AsyncMock(
+            return_value=[
+                _make_scored_point("p1", 0.95, {"document_id": "d1", "content": "A"}),
+                _make_scored_point("p2", 0.92, {"document_id": "d1", "content": "B"}),
+                _make_scored_point("p3", 0.90, {"document_id": "d1", "content": "C"}),
+            ]
+        )
 
         service, _, _ = _make_retrieval_service(mock_qdrant=mock_qdrant)
         result = await service.retrieve(TEST_TENANT, "High confidence query")
@@ -207,11 +237,13 @@ class TestConfidenceScoring:
     async def test_low_scores_not_confident(self):
         """Low similarity scores → is_confident=False."""
         mock_qdrant = AsyncMock()
-        mock_qdrant.search = AsyncMock(return_value=[
-            _make_scored_point("p1", 0.40, {"document_id": "d1", "content": "X"}),
-            _make_scored_point("p2", 0.30, {"document_id": "d1", "content": "Y"}),
-            _make_scored_point("p3", 0.20, {"document_id": "d1", "content": "Z"}),
-        ])
+        mock_qdrant.search = AsyncMock(
+            return_value=[
+                _make_scored_point("p1", 0.40, {"document_id": "d1", "content": "X"}),
+                _make_scored_point("p2", 0.30, {"document_id": "d1", "content": "Y"}),
+                _make_scored_point("p3", 0.20, {"document_id": "d1", "content": "Z"}),
+            ]
+        )
 
         service, _, _ = _make_retrieval_service(mock_qdrant=mock_qdrant)
         result = await service.retrieve(TEST_TENANT, "Low confidence query")
@@ -224,9 +256,11 @@ class TestConfidenceScoring:
     async def test_custom_threshold(self):
         """Custom confidence threshold works correctly."""
         mock_qdrant = AsyncMock()
-        mock_qdrant.search = AsyncMock(return_value=[
-            _make_scored_point("p1", 0.65, {"document_id": "d1", "content": "A"}),
-        ])
+        mock_qdrant.search = AsyncMock(
+            return_value=[
+                _make_scored_point("p1", 0.65, {"document_id": "d1", "content": "A"}),
+            ]
+        )
 
         service, _, _ = _make_retrieval_service(mock_qdrant=mock_qdrant)
 
@@ -235,9 +269,11 @@ class TestConfidenceScoring:
         assert result.is_confident is False
 
         # With lower threshold (0.5) → confident
-        mock_qdrant.search = AsyncMock(return_value=[
-            _make_scored_point("p1", 0.65, {"document_id": "d1", "content": "A"}),
-        ])
+        mock_qdrant.search = AsyncMock(
+            return_value=[
+                _make_scored_point("p1", 0.65, {"document_id": "d1", "content": "A"}),
+            ]
+        )
         result = await service.retrieve(TEST_TENANT, "Query", confidence_threshold=0.5)
         assert result.is_confident is True
 
@@ -269,9 +305,7 @@ class TestRetrieveError:
     async def test_embedding_error_raises_retrieval_error(self):
         """Embedding failure → RetrievalError."""
         mock_embedder = MagicMock()
-        mock_embedder.embed_single = AsyncMock(
-            side_effect=Exception("Embedding API down")
-        )
+        mock_embedder.embed_single = AsyncMock(side_effect=Exception("Embedding API down"))
 
         service, _, _ = _make_retrieval_service(mock_embedder=mock_embedder)
 

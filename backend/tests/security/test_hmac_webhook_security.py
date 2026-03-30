@@ -8,7 +8,7 @@ import hashlib
 import hmac as hmac_mod
 import json
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -48,7 +48,9 @@ class TestHmacEdgeCases:
     async def test_hmac_body_tampered_after_signing(self):
         """Signing body A but sending body B produces 403."""
         original_body = json.dumps({"object": "whatsapp_business_account", "entry": []}).encode()
-        tampered_body = json.dumps({"object": "whatsapp_business_account", "entry": [{"evil": True}]}).encode()
+        tampered_body = json.dumps(
+            {"object": "whatsapp_business_account", "entry": [{"evil": True}]}
+        ).encode()
         signature = _sign(original_body)
 
         async with AsyncClient(
@@ -96,7 +98,9 @@ class TestHmacEdgeCases:
 
         with (
             patch("app.services.whatsapp.webhook.get_settings") as mock_settings,
-            patch("app.services.whatsapp.webhook.hmac.compare_digest", return_value=True) as mock_compare,
+            patch(
+                "app.services.whatsapp.webhook.hmac.compare_digest", return_value=True
+            ) as mock_compare,
         ):
             mock_settings.return_value = MagicMock(whatsapp_app_secret=secret)
             WhatsAppWebhookService._validate_hmac_signature(body, sig)

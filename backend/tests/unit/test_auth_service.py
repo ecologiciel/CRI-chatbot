@@ -1,14 +1,12 @@
 """Unit tests for AuthService — password hashing, login, refresh, verify, logout."""
 
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.core.exceptions import AccountLockedError, AuthenticationError
-from app.models.enums import AdminRole
 from app.services.auth.service import AuthService
-from tests.unit.conftest import TEST_ADMIN_ID, TEST_TENANT_ID, make_admin_orm, make_session_factory
+from tests.unit.conftest import TEST_ADMIN_ID, make_admin_orm, make_session_factory
 
 _SESSION_FACTORY_PATCH = "app.services.auth.service.get_session_factory"
 _REDIS_PATCH = "app.services.auth.service.get_redis"

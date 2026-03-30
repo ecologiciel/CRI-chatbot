@@ -20,11 +20,9 @@ os.environ.setdefault("WHATSAPP_APP_SECRET", "test_app_secret")
 
 from app.core.tenant import TenantContext
 from app.services.whatsapp.session import (
-    DEFAULT_ANNUAL_LIMIT,
     DEDUP_TTL,
+    DEFAULT_ANNUAL_LIMIT,
     SESSION_TTL,
-    QuotaInfo,
-    SessionInfo,
     WhatsAppSessionManager,
 )
 
@@ -50,11 +48,13 @@ def _make_tenant_context(**overrides) -> TenantContext:
 
 def _make_session_json(message_count: int = 1) -> str:
     """Create a session JSON string as stored in Redis."""
-    return json.dumps({
-        "started_at": "2026-03-26T10:00:00+00:00",
-        "last_message_at": "2026-03-26T10:00:00+00:00",
-        "message_count": message_count,
-    })
+    return json.dumps(
+        {
+            "started_at": "2026-03-26T10:00:00+00:00",
+            "last_message_at": "2026-03-26T10:00:00+00:00",
+            "message_count": message_count,
+        }
+    )
 
 
 class TestSessionManagement:
@@ -167,9 +167,7 @@ class TestSessionManagement:
         with patch("app.services.whatsapp.session.get_redis", return_value=mock_redis):
             await manager.close_session(tenant, TEST_PHONE)
 
-        mock_redis.delete.assert_called_once_with(
-            f"rabat:wa_session:{TEST_PHONE}"
-        )
+        mock_redis.delete.assert_called_once_with(f"rabat:wa_session:{TEST_PHONE}")
 
 
 class TestQuotaTracking:
@@ -300,7 +298,10 @@ class TestDeduplication:
 
         # Verify SET NX with correct TTL
         mock_redis.set.assert_called_once_with(
-            "rabat:dedup:wamid.test123", "1", ex=DEDUP_TTL, nx=True,
+            "rabat:dedup:wamid.test123",
+            "1",
+            ex=DEDUP_TTL,
+            nx=True,
         )
 
     @pytest.mark.asyncio

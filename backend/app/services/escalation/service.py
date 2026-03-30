@@ -70,8 +70,7 @@ TRANSITION_MESSAGES: dict[str, str] = {
         "\u0644\u062d\u0638\u0627\u062a. \U0001f64f"
     ),
     "en": (
-        "A CRI advisor will take over to better assist you. "
-        "Please wait a moment. \U0001f64f"
+        "A CRI advisor will take over to better assist you. " "Please wait a moment. \U0001f64f"
     ),
 }
 
@@ -153,7 +152,8 @@ class EscalationService:
     # ------------------------------------------------------------------
 
     async def detect_escalation(
-        self, state: dict,
+        self,
+        state: dict,
     ) -> EscalationTrigger | None:
         """Analyze conversation state for escalation triggers.
 
@@ -192,9 +192,15 @@ class EscalationService:
         # 4. Negative feedback + request to talk to agent
         query = (state.get("query") or "").lower()
         negative_keywords = [
-            "parler", "agent", "humain", "conseiller",
-            "talk", "human", "advisor",
-            "\u0645\u0648\u0638\u0641", "\u0645\u0633\u062a\u0634\u0627\u0631",
+            "parler",
+            "agent",
+            "humain",
+            "conseiller",
+            "talk",
+            "human",
+            "advisor",
+            "\u0645\u0648\u0638\u0641",
+            "\u0645\u0633\u062a\u0634\u0627\u0631",
             "\u0627\u0644\u062a\u062d\u062f\u062b",
         ]
         if any(kw in query for kw in negative_keywords):
@@ -214,7 +220,9 @@ class EscalationService:
     # ------------------------------------------------------------------
 
     async def lookup_active_conversation(
-        self, tenant: TenantContext, phone: str,
+        self,
+        tenant: TenantContext,
+        phone: str,
     ) -> uuid.UUID | None:
         """Find the active conversation for a phone number.
 
@@ -231,10 +239,12 @@ class EscalationService:
                 .join(Contact, Conversation.contact_id == Contact.id)
                 .where(
                     Contact.phone == phone,
-                    Conversation.status.in_([
-                        ConversationStatus.active,
-                        ConversationStatus.escalated,
-                    ]),
+                    Conversation.status.in_(
+                        [
+                            ConversationStatus.active,
+                            ConversationStatus.escalated,
+                        ]
+                    ),
                 )
                 .order_by(Conversation.started_at.desc())
                 .limit(1),
@@ -280,7 +290,8 @@ class EscalationService:
         context_summary = None
         try:
             context_summary = await self.generate_context_summary(
-                conversation_id, tenant,
+                conversation_id,
+                tenant,
             )
         except Exception as exc:
             self._logger.warning(
@@ -860,10 +871,12 @@ class EscalationService:
             # --- Counts ---
             pending_result = await session.execute(
                 select(func.count()).where(
-                    Escalation.status.in_([
-                        EscalationStatus.pending,
-                        EscalationStatus.assigned,
-                    ]),
+                    Escalation.status.in_(
+                        [
+                            EscalationStatus.pending,
+                            EscalationStatus.assigned,
+                        ]
+                    ),
                 ),
             )
             total_pending = pending_result.scalar_one()
@@ -885,10 +898,12 @@ class EscalationService:
                         ),
                     ),
                 ).where(
-                    Escalation.status.in_([
-                        EscalationStatus.pending,
-                        EscalationStatus.assigned,
-                    ]),
+                    Escalation.status.in_(
+                        [
+                            EscalationStatus.pending,
+                            EscalationStatus.assigned,
+                        ]
+                    ),
                 ),
             )
             avg_wait = wait_result.scalar_one()
@@ -911,9 +926,11 @@ class EscalationService:
                 select(
                     Escalation.trigger_type,
                     func.count(),
-                ).where(
+                )
+                .where(
                     Escalation.status.in_(active_statuses),
-                ).group_by(Escalation.trigger_type),
+                )
+                .group_by(Escalation.trigger_type),
             )
             by_trigger = {
                 row[0].value if hasattr(row[0], "value") else str(row[0]): row[1]
@@ -925,9 +942,11 @@ class EscalationService:
                 select(
                     Escalation.priority,
                     func.count(),
-                ).where(
+                )
+                .where(
                     Escalation.status.in_(active_statuses),
-                ).group_by(Escalation.priority),
+                )
+                .group_by(Escalation.priority),
             )
             by_priority = {
                 row[0].value if hasattr(row[0], "value") else str(row[0]): row[1]
@@ -938,7 +957,9 @@ class EscalationService:
             "total_pending": total_pending,
             "total_in_progress": total_in_progress,
             "avg_wait_seconds": round(avg_wait, 1) if avg_wait is not None else None,
-            "avg_resolution_seconds": round(avg_resolution, 1) if avg_resolution is not None else None,
+            "avg_resolution_seconds": round(avg_resolution, 1)
+            if avg_resolution is not None
+            else None,
             "by_trigger": by_trigger,
             "by_priority": by_priority,
         }

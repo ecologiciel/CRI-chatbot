@@ -109,7 +109,9 @@ class IngestionService:
         try:
             # 1. Set status → indexing
             await self._update_document_status(
-                tenant, document_id, KBDocumentStatus.indexing,
+                tenant,
+                document_id,
+                KBDocumentStatus.indexing,
             )
 
             # 2. Content hash for dedup
@@ -119,7 +121,9 @@ class IngestionService:
             if await self._is_duplicate(tenant, document_id, content_hash):
                 log.info("ingestion_skipped_duplicate", content_hash=content_hash)
                 await self._update_document_status(
-                    tenant, document_id, KBDocumentStatus.indexed,
+                    tenant,
+                    document_id,
+                    KBDocumentStatus.indexed,
                     content_hash=content_hash,
                 )
                 return 0
@@ -130,27 +134,40 @@ class IngestionService:
 
             # 5. Enrich metadata via Gemini (best-effort)
             metadata_list = await self._enrich_metadata(
-                [c.content for c in chunk_results], tenant,
+                [c.content for c in chunk_results],
+                tenant,
             )
 
             # 6. Generate embeddings for all chunks
             vectors = await self._embedder.embed_batch(
-                [c.content for c in chunk_results], tenant,
+                [c.content for c in chunk_results],
+                tenant,
             )
 
             # 7. Upsert into Qdrant
             point_ids = await self._index_qdrant(
-                tenant, chunk_results, vectors, metadata_list, document_id, title,
+                tenant,
+                chunk_results,
+                vectors,
+                metadata_list,
+                document_id,
+                title,
             )
 
             # 8. Save KBChunk records in tenant DB
             await self._save_chunks_db(
-                tenant, document_id, chunk_results, metadata_list, point_ids,
+                tenant,
+                document_id,
+                chunk_results,
+                metadata_list,
+                point_ids,
             )
 
             # 9. Update document status → indexed
             await self._update_document_status(
-                tenant, document_id, KBDocumentStatus.indexed,
+                tenant,
+                document_id,
+                KBDocumentStatus.indexed,
                 chunk_count=len(chunk_results),
                 content_hash=content_hash,
             )
@@ -180,7 +197,9 @@ class IngestionService:
 
             # Set document status to error
             await self._update_document_status(
-                tenant, document_id, KBDocumentStatus.error,
+                tenant,
+                document_id,
+                KBDocumentStatus.error,
                 error_message=str(exc),
             )
 
@@ -213,9 +232,7 @@ class IngestionService:
                     KBChunk.document_id == document_id,
                 )
             )
-            point_ids = [
-                row[0] for row in result.fetchall() if row[0] is not None
-            ]
+            point_ids = [row[0] for row in result.fetchall() if row[0] is not None]
 
         # 2. Delete from Qdrant
         if point_ids:
@@ -227,14 +244,14 @@ class IngestionService:
 
         # 3. Delete chunks from DB
         async with tenant.db_session() as session:
-            await session.execute(
-                delete(KBChunk).where(KBChunk.document_id == document_id)
-            )
+            await session.execute(delete(KBChunk).where(KBChunk.document_id == document_id))
             await session.commit()
 
         # 4. Reset document status
         await self._update_document_status(
-            tenant, document_id, KBDocumentStatus.pending,
+            tenant,
+            document_id,
+            KBDocumentStatus.pending,
             chunk_count=0,
         )
 
@@ -285,9 +302,7 @@ class IngestionService:
 
         async with tenant.db_session() as session:
             await session.execute(
-                update(KBDocument)
-                .where(KBDocument.id == document_id)
-                .values(**values)
+                update(KBDocument).where(KBDocument.id == document_id).values(**values)
             )
             await session.commit()
 
@@ -373,7 +388,7 @@ class IngestionService:
                 # Pad if Gemini returned fewer items than expected
                 while len(result) < len(batch):
                     result.append({})
-                return result[:len(batch)]
+                return result[: len(batch)]
             else:
                 # Single object — wrap and pad
                 try:
@@ -383,7 +398,7 @@ class IngestionService:
                     result = [{}]
                 while len(result) < len(batch):
                     result.append({})
-                return result[:len(batch)]
+                return result[: len(batch)]
 
         except Exception as exc:
             self._logger.warning(
@@ -417,7 +432,7 @@ class IngestionService:
         point_ids: list[str] = []
         points: list[PointStruct] = []
 
-        for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
+        for i, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=False)):
             point_id = str(uuid.uuid4())
             point_ids.append(point_id)
 
@@ -436,11 +451,13 @@ class IngestionService:
                 "summary": metadata.get("summary", ""),
             }
 
-            points.append(PointStruct(
-                id=point_id,
-                vector=vector,
-                payload=payload,
-            ))
+            points.append(
+                PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload=payload,
+                )
+            )
 
         # Upsert in batches of 100
         batch_size = 100

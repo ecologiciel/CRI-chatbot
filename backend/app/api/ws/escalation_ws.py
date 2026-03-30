@@ -22,6 +22,7 @@ Close codes:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime
 
@@ -34,7 +35,7 @@ from app.core.exceptions import (
     TenantNotFoundError,
 )
 from app.core.redis import get_redis
-from app.core.tenant import TenantContext, TenantResolver
+from app.core.tenant import TenantResolver
 from app.models.enums import AdminRole
 from app.schemas.auth import AdminTokenPayload
 from app.services.auth.jwt import JWTManager
@@ -45,6 +46,7 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 # Authentication helpers
 # ---------------------------------------------------------------------------
+
 
 def _authenticate_token(token: str) -> AdminTokenPayload:
     """Verify JWT token and return admin payload.
@@ -66,16 +68,19 @@ def _authenticate_token(token: str) -> AdminTokenPayload:
     return AdminTokenPayload(**payload)
 
 
-_WS_ALLOWED_ROLES: frozenset[str] = frozenset({
-    AdminRole.supervisor.value,
-    AdminRole.admin_tenant.value,
-    AdminRole.super_admin.value,
-})
+_WS_ALLOWED_ROLES: frozenset[str] = frozenset(
+    {
+        AdminRole.supervisor.value,
+        AdminRole.admin_tenant.value,
+        AdminRole.super_admin.value,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # WebSocket connection manager
 # ---------------------------------------------------------------------------
+
 
 class EscalationWSManager:
     """Manages active WebSocket connections per tenant slug.
@@ -154,6 +159,7 @@ ws_manager = EscalationWSManager()
 # WebSocket endpoint
 # ---------------------------------------------------------------------------
 
+
 async def escalation_ws_endpoint(
     websocket: WebSocket,
     tenant_slug: str,
@@ -185,7 +191,7 @@ async def escalation_ws_endpoint(
 
     # --- Resolve tenant ---
     try:
-        tenant: TenantContext = await TenantResolver.from_slug(tenant_slug)
+        await TenantResolver.from_slug(tenant_slug)
     except (TenantNotFoundError, TenantInactiveError):
         await websocket.close(code=4004, reason="Invalid or inactive tenant")
         return
@@ -252,10 +258,8 @@ async def escalation_ws_endpoint(
         )
         for task in pending:
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
     except WebSocketDisconnect:
         pass
     finally:

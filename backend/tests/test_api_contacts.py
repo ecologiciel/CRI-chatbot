@@ -7,7 +7,7 @@ and patched TenantResolver for middleware bypass.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,7 +18,6 @@ from app.core.tenant import TenantContext
 from app.main import app
 from app.models.enums import AdminRole, ContactSource, Language, OptInStatus
 from app.schemas.auth import AdminTokenPayload
-
 
 # ---------------------------------------------------------------------------
 # Factories
@@ -33,9 +32,7 @@ TEST_TENANT = TenantContext(
 )
 
 
-def _make_admin_payload(
-    role: str = AdminRole.admin_tenant.value, **overrides
-) -> AdminTokenPayload:
+def _make_admin_payload(role: str = AdminRole.admin_tenant.value, **overrides) -> AdminTokenPayload:
     defaults = {
         "sub": str(uuid.uuid4()),
         "role": role,
@@ -61,8 +58,8 @@ def _make_contact_orm(contact_id: uuid.UUID | None = None, **overrides) -> Magic
         "tags": ["investisseur"],
         "source": ContactSource.whatsapp,
         "metadata_": {},
-        "created_at": datetime(2025, 6, 1, tzinfo=timezone.utc),
-        "updated_at": datetime(2025, 6, 1, tzinfo=timezone.utc),
+        "created_at": datetime(2025, 6, 1, tzinfo=UTC),
+        "updated_at": datetime(2025, 6, 1, tzinfo=UTC),
         "conversations": [],
     }
     defaults.update(overrides)
@@ -89,7 +86,11 @@ def _mock_tenant_db_session(
     else:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = scalar_one_or_none
-        mock_result.scalar_one.return_value = scalar_one if scalar_one is not None else (scalar_one_or_none if scalar_one_or_none is not None else 0)
+        mock_result.scalar_one.return_value = (
+            scalar_one
+            if scalar_one is not None
+            else (scalar_one_or_none if scalar_one_or_none is not None else 0)
+        )
 
         if scalars_all is not None:
             mock_scalars = MagicMock()
@@ -255,8 +256,8 @@ class TestCreateContact:
             obj.opt_in_status = getattr(obj, "opt_in_status", OptInStatus.pending)
             obj.tags = getattr(obj, "tags", [])
             obj.source = getattr(obj, "source", ContactSource.manual)
-            obj.created_at = datetime(2025, 6, 1, tzinfo=timezone.utc)
-            obj.updated_at = datetime(2025, 6, 1, tzinfo=timezone.utc)
+            obj.created_at = datetime(2025, 6, 1, tzinfo=UTC)
+            obj.updated_at = datetime(2025, 6, 1, tzinfo=UTC)
 
         mock_session.refresh = AsyncMock(side_effect=fake_refresh)
 
@@ -413,9 +414,7 @@ class TestImportContacts:
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch(
-                    "app.api.v1.contacts.get_import_export_service"
-                ) as mock_ie_svc,
+                patch("app.api.v1.contacts.get_import_export_service") as mock_ie_svc,
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_service = MagicMock()
@@ -495,16 +494,12 @@ class TestExportContacts:
         _setup_overrides(role=AdminRole.supervisor.value)
 
         mock_service = MagicMock()
-        mock_service.export_to_csv = AsyncMock(
-            return_value="phone,name\n+212612345678,Test\n"
-        )
+        mock_service.export_to_csv = AsyncMock(return_value="phone,name\n+212612345678,Test\n")
 
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch(
-                    "app.api.v1.contacts.get_import_export_service"
-                ) as mock_ie_svc,
+                patch("app.api.v1.contacts.get_import_export_service") as mock_ie_svc,
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_ie_svc.return_value = mock_service

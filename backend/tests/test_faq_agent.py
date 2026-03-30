@@ -11,7 +11,6 @@ from app.services.orchestrator.faq_agent import FAQAgent
 from app.services.orchestrator.state import ConversationState
 from app.services.rag.prompts import PromptTemplates
 
-
 # --- Fixtures ---
 
 TEST_TENANT = TenantContext(

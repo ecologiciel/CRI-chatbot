@@ -55,8 +55,10 @@ async def list_feedback(
     tenant: TenantContext = Depends(get_current_tenant),
     admin: AdminTokenPayload = Depends(
         require_role(
-            AdminRole.super_admin, AdminRole.admin_tenant,
-            AdminRole.supervisor, AdminRole.viewer,
+            AdminRole.super_admin,
+            AdminRole.admin_tenant,
+            AdminRole.supervisor,
+            AdminRole.viewer,
         ),
     ),
     page: int = Query(default=1, ge=1),
@@ -66,7 +68,10 @@ async def list_feedback(
     """List feedback entries (paginated, filterable by rating)."""
     svc = get_feedback_service()
     items, total = await svc.list_feedback(
-        tenant, page=page, page_size=page_size, rating=rating,
+        tenant,
+        page=page,
+        page_size=page_size,
+        rating=rating,
     )
     return FeedbackList(
         items=[FeedbackResponse.model_validate(f) for f in items],
@@ -81,8 +86,10 @@ async def get_feedback_stats(
     tenant: TenantContext = Depends(get_current_tenant),
     admin: AdminTokenPayload = Depends(
         require_role(
-            AdminRole.super_admin, AdminRole.admin_tenant,
-            AdminRole.supervisor, AdminRole.viewer,
+            AdminRole.super_admin,
+            AdminRole.admin_tenant,
+            AdminRole.supervisor,
+            AdminRole.viewer,
         ),
     ),
 ) -> dict:
@@ -96,8 +103,10 @@ async def list_unanswered_questions(
     tenant: TenantContext = Depends(get_current_tenant),
     admin: AdminTokenPayload = Depends(
         require_role(
-            AdminRole.super_admin, AdminRole.admin_tenant,
-            AdminRole.supervisor, AdminRole.viewer,
+            AdminRole.super_admin,
+            AdminRole.admin_tenant,
+            AdminRole.supervisor,
+            AdminRole.viewer,
         ),
     ),
     page: int = Query(default=1, ge=1),
@@ -107,7 +116,10 @@ async def list_unanswered_questions(
     """List unanswered questions for supervised learning review."""
     svc = get_feedback_service()
     items, total = await svc.list_unanswered_questions(
-        tenant, page=page, page_size=page_size, status=status,
+        tenant,
+        page=page,
+        page_size=page_size,
+        status=status,
     )
     return UnansweredQuestionList(
         items=[UnansweredQuestionResponse.model_validate(q) for q in items],
@@ -132,6 +144,9 @@ async def update_unanswered_question(
     """Review an unanswered question: approve, reject, or edit the proposed answer."""
     svc = get_feedback_service()
     question = await svc.update_unanswered_question(
-        tenant, question_id, data, admin_id=uuid.UUID(admin.sub),
+        tenant,
+        question_id,
+        data,
+        admin_id=uuid.UUID(admin.sub),
     )
     return UnansweredQuestionResponse.model_validate(question)

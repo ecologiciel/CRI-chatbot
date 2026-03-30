@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from sqlalchemy import cast, func, insert, select, update
+from sqlalchemy import cast, func, insert, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql.expression import Select
 from sqlalchemy.types import Text as SAText
@@ -158,7 +158,8 @@ class CampaignService:
 
             if "audience_filter" in update_fields:
                 campaign.audience_count = await self._count_audience(
-                    tenant, campaign.audience_filter,
+                    tenant,
+                    campaign.audience_filter,
                 )
 
             await session.flush()
@@ -618,7 +619,7 @@ class CampaignService:
             field_path = variable_mapping[position]
 
             if field_path.startswith("custom:"):
-                value = field_path[len("custom:"):]
+                value = field_path[len("custom:") :]
             else:
                 value = field_resolvers.get(field_path, "")
 

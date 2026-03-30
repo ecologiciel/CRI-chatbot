@@ -128,8 +128,7 @@ class PromptTemplates:
                 "les services du CRI."
             ),
             "ar": (
-                "هذا السؤال خارج نطاق اختصاصي. "
-                "أنا متخصص في إجراءات الاستثمار وخدمات المركز."
+                "هذا السؤال خارج نطاق اختصاصي. " "أنا متخصص في إجراءات الاستثمار وخدمات المركز."
             ),
             "en": (
                 "This question is outside my area of expertise. "
@@ -141,14 +140,8 @@ class PromptTemplates:
                 "Bonjour ! Je suis l'assistant virtuel du CRI. "
                 "Comment puis-je vous aider aujourd'hui ?"
             ),
-            "ar": (
-                "مرحباً! أنا المساعد الافتراضي للمركز الجهوي للاستثمار. "
-                "كيف يمكنني مساعدتكم؟"
-            ),
-            "en": (
-                "Hello! I'm the CRI virtual assistant. "
-                "How can I help you today?"
-            ),
+            "ar": ("مرحباً! أنا المساعد الافتراضي للمركز الجهوي للاستثمار. " "كيف يمكنني مساعدتكم؟"),
+            "en": ("Hello! I'm the CRI virtual assistant. " "How can I help you today?"),
         },
         "feedback_request": {
             "fr": "Cette réponse vous a-t-elle été utile ?",
@@ -171,10 +164,7 @@ class PromptTemplates:
             "en": "I'm connecting you with an advisor. Please wait.",
         },
         "rate_limit_user": {
-            "fr": (
-                "Veuillez patienter quelques instants avant "
-                "d'envoyer un nouveau message."
-            ),
+            "fr": ("Veuillez patienter quelques instants avant " "d'envoyer un nouveau message."),
             "ar": "يرجى الانتظار لحظات قبل إرسال رسالة جديدة.",
             "en": "Please wait a moment before sending another message.",
         },
@@ -183,10 +173,7 @@ class PromptTemplates:
                 "Le service de messagerie a atteint sa limite. "
                 "Veuillez contacter le CRI au 05 37 77 64 00."
             ),
-            "ar": (
-                "وصلت خدمة الرسائل إلى حدها الأقصى. "
-                "يرجى الاتصال بالمركز الجهوي للاستثمار."
-            ),
+            "ar": ("وصلت خدمة الرسائل إلى حدها الأقصى. " "يرجى الاتصال بالمركز الجهوي للاستثمار."),
             "en": (
                 "The messaging service has reached its limit. "
                 "Please contact the CRI at 05 37 77 64 00."
@@ -246,10 +233,10 @@ class PromptTemplates:
         chunk_parts: list[str] = []
         for chunk in chunks:
             title = chunk.metadata.get("title", "Document")
-            chunk_parts.append(
-                f"[Source: {title} | score: {chunk.score:.2f}]\n{chunk.content}"
-            )
-        chunks_text = "\n\n---\n\n".join(chunk_parts) if chunk_parts else "Aucun contexte disponible."
+            chunk_parts.append(f"[Source: {title} | score: {chunk.score:.2f}]\n{chunk.content}")
+        chunks_text = (
+            "\n\n---\n\n".join(chunk_parts) if chunk_parts else "Aucun contexte disponible."
+        )
 
         # Format conversation history with localized role labels
         if history:

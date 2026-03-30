@@ -8,11 +8,10 @@ import gzip
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # --- Import ---
 
@@ -47,7 +46,7 @@ class TestJsonSerialization:
         """datetime objects should serialize to ISO format."""
         from app.workers.archive import _json_default
 
-        dt = datetime(2026, 3, 15, 14, 30, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 3, 15, 14, 30, 0, tzinfo=UTC)
         assert _json_default(dt) == "2026-03-15T14:30:00+00:00"
 
     def test_json_default_raises_for_unknown(self):
@@ -65,7 +64,7 @@ class TestJsonSerialization:
             {
                 "id": uuid.uuid4(),
                 "action": "create",
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
                 "details": {"key": "value"},
             }
         ]
@@ -188,7 +187,7 @@ def _make_audit_log_row(**overrides):
         "ip_address": "10.0.0.1",
         "user_agent": "Mozilla/5.0",
         "details": {"key": "value"},
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     defaults.update(overrides)
     mock = MagicMock()

@@ -249,7 +249,8 @@ async def reinject_learning_task(
     async with tenant.db_session() as session:
         # Get or create synthetic document
         learning_doc = await _get_or_create_learning_document(
-            session, tenant_slug,
+            session,
+            tenant_slug,
         )
         next_index = await _next_chunk_index(session, learning_doc.id)
 

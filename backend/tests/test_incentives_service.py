@@ -2,7 +2,7 @@
 
 import uuid
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -12,7 +12,6 @@ from app.services.incitations.service import (
     MAX_BUTTONS,
     IncentivesService,
 )
-
 
 # --- Fixtures ---
 
@@ -82,7 +81,9 @@ def _make_item(
     item.conditions = conditions
     item.legal_reference = legal_reference
     item.eligibility_criteria = eligibility_criteria or {}
-    item.documents_required = documents_required if documents_required is not None else ["CIN", "Statuts"]
+    item.documents_required = (
+        documents_required if documents_required is not None else ["CIN", "Statuts"]
+    )
     item.order_index = order_index
     item.is_active = is_active
     item.category_id = category_id or uuid.uuid4()
@@ -149,10 +150,7 @@ class TestFormatting:
 
     def test_categories_to_buttons_3(self, service):
         """3 categories → 3 WhatsApp buttons."""
-        cats = [
-            _make_category(name_fr=f"Cat {i}", order_index=i)
-            for i in range(3)
-        ]
+        cats = [_make_category(name_fr=f"Cat {i}", order_index=i) for i in range(3)]
         buttons = service._categories_to_buttons(cats, "fr")
 
         assert len(buttons) == 3
@@ -175,10 +173,7 @@ class TestFormatting:
 
     def test_categories_to_list(self, service):
         """5 categories → list format with sections."""
-        cats = [
-            _make_category(name_fr=f"Cat {i}", description_fr=f"Desc {i}")
-            for i in range(5)
-        ]
+        cats = [_make_category(name_fr=f"Cat {i}", description_fr=f"Desc {i}") for i in range(5)]
         sections = service._categories_to_list(cats, "fr")
 
         assert len(sections) == 1
@@ -189,10 +184,7 @@ class TestFormatting:
 
     def test_items_to_buttons(self, service):
         """2 items → 2 WhatsApp buttons."""
-        items = [
-            _make_item(title_fr=f"Item {i}")
-            for i in range(2)
-        ]
+        items = [_make_item(title_fr=f"Item {i}") for i in range(2)]
         buttons = service._items_to_buttons(items, "fr")
 
         assert len(buttons) == 2

@@ -5,10 +5,10 @@ and that KB operations use the correct tenant bucket.
 """
 
 import uuid
-
-import pytest
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core.rbac import get_current_admin
@@ -19,8 +19,8 @@ from app.schemas.auth import AdminTokenPayload
 
 from .conftest import make_tenant
 
-
 # --- Helpers ---
+
 
 def _make_admin_payload(role: str = AdminRole.admin_tenant.value) -> AdminTokenPayload:
     return AdminTokenPayload(
@@ -70,7 +70,7 @@ class TestMinioBucketIsolation:
     @pytest.mark.asyncio
     async def test_kb_upload_uses_tenant_bucket(self, tenant_alpha):
         """POST /kb/documents stores files in the tenant's MinIO bucket."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         mock_minio = MagicMock()
         mock_minio.put_object = AsyncMock()
@@ -79,8 +79,8 @@ class TestMinioBucketIsolation:
             """Simulate DB refresh setting server defaults."""
             obj.id = obj.id or uuid.uuid4()
             obj.chunk_count = 0
-            obj.created_at = datetime.now(timezone.utc)
-            obj.updated_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
+            obj.updated_at = datetime.now(UTC)
             obj.error_message = None
             obj.source_url = None
             obj.content_hash = None

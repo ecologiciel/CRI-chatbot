@@ -11,13 +11,13 @@ import pytest
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("REDIS_PASSWORD", "test")
 
-from app.core.exceptions import GenerationError, GeminiError
+from app.core.exceptions import GeminiError, GenerationError
 from app.core.tenant import TenantContext
 from app.schemas.ai import GeminiResponse
 from app.schemas.rag import (
     GenerationRequest,
-    RetrievedChunk,
     RetrievalResult,
+    RetrievedChunk,
 )
 from app.services.rag.prompts import PromptTemplates
 
@@ -373,9 +373,7 @@ class TestGenerationError:
     async def test_gemini_failure_raises_generation_error(self):
         """GeminiError during generation is wrapped in GenerationError."""
         mock_gemini = MagicMock()
-        mock_gemini.generate = AsyncMock(
-            side_effect=GeminiError("API quota exceeded")
-        )
+        mock_gemini.generate = AsyncMock(side_effect=GeminiError("API quota exceeded"))
         service, _, _, _ = _make_generation_service(mock_gemini=mock_gemini)
 
         request = GenerationRequest(query="Test question", language="fr")

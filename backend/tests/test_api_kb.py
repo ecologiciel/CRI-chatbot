@@ -7,7 +7,7 @@ and patched TenantResolver for middleware bypass.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,7 +18,6 @@ from app.core.tenant import TenantContext
 from app.main import app
 from app.models.enums import AdminRole, KBDocumentStatus
 from app.schemas.auth import AdminTokenPayload
-
 
 # ---------------------------------------------------------------------------
 # Factories
@@ -33,9 +32,7 @@ TEST_TENANT = TenantContext(
 )
 
 
-def _make_admin_payload(
-    role: str = AdminRole.admin_tenant.value, **overrides
-) -> AdminTokenPayload:
+def _make_admin_payload(role: str = AdminRole.admin_tenant.value, **overrides) -> AdminTokenPayload:
     defaults = {
         "sub": str(uuid.uuid4()),
         "role": role,
@@ -69,8 +66,8 @@ def _make_document_orm(
         "status": status,
         "error_message": None,
         "metadata_": {},
-        "created_at": datetime(2025, 6, 1, tzinfo=timezone.utc),
-        "updated_at": datetime(2025, 6, 1, tzinfo=timezone.utc),
+        "created_at": datetime(2025, 6, 1, tzinfo=UTC),
+        "updated_at": datetime(2025, 6, 1, tzinfo=UTC),
         "chunks": [],
     }
     defaults.update(overrides)
@@ -148,7 +145,9 @@ class TestUploadDocument:
 
         async def fake_refresh(obj):
             obj.id = doc_orm.id
-            obj.title = obj.title if hasattr(obj, "title") and isinstance(obj.title, str) else "Test"
+            obj.title = (
+                obj.title if hasattr(obj, "title") and isinstance(obj.title, str) else "Test"
+            )
             obj.status = KBDocumentStatus.pending
             obj.source_url = None
             obj.category = getattr(obj, "category", None)
@@ -158,26 +157,24 @@ class TestUploadDocument:
             obj.file_size = getattr(obj, "file_size", 0)
             obj.chunk_count = 0
             obj.error_message = None
-            obj.created_at = datetime(2025, 6, 1, tzinfo=timezone.utc)
-            obj.updated_at = datetime(2025, 6, 1, tzinfo=timezone.utc)
+            obj.created_at = datetime(2025, 6, 1, tzinfo=UTC)
+            obj.updated_at = datetime(2025, 6, 1, tzinfo=UTC)
 
         mock_session.refresh = AsyncMock(side_effect=fake_refresh)
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
                 patch("app.api.v1.kb.get_minio", return_value=mock_minio),
                 patch("app.api.v1.kb.get_arq_pool", return_value=mock_arq),
                 patch("app.api.v1.kb.get_settings") as mock_settings,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_settings.return_value.kb_max_file_size_bytes = 10 * 1024 * 1024
                 mock_settings.return_value.kb_max_file_size_mb = 10
 
@@ -207,14 +204,10 @@ class TestUploadDocument:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch("app.api.v1.kb.get_settings") as mock_settings,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_settings.return_value.kb_max_file_size_bytes = 100
                 mock_settings.return_value.kb_max_file_size_mb = 0
 
@@ -241,14 +234,10 @@ class TestUploadDocument:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch("app.api.v1.kb.get_settings") as mock_settings,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_settings.return_value.kb_max_file_size_bytes = 10 * 1024 * 1024
 
                 async with AsyncClient(
@@ -273,12 +262,8 @@ class TestUploadDocument:
         _setup_overrides(role=AdminRole.viewer.value)
 
         try:
-            with patch(
-                "app.core.middleware.TenantResolver"
-            ) as MockResolver:
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+            with patch("app.core.middleware.TenantResolver") as MockResolver:
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),
@@ -325,16 +310,14 @@ class TestListDocuments:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),
@@ -376,16 +359,14 @@ class TestListDocuments:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),
@@ -420,7 +401,7 @@ class TestGetDocument:
             chunk_index=0,
             qdrant_point_id="point-1",
             token_count=50,
-            created_at=datetime(2025, 6, 1, tzinfo=timezone.utc),
+            created_at=datetime(2025, 6, 1, tzinfo=UTC),
         )
         doc = _make_document_orm(doc_id=doc_id, chunks=[chunk_mock])
 
@@ -428,16 +409,14 @@ class TestGetDocument:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),
@@ -465,16 +444,14 @@ class TestGetDocument:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),
@@ -509,18 +486,16 @@ class TestDeleteDocument:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
                 patch("app.api.v1.kb.get_minio", return_value=mock_minio),
                 patch("app.services.rag.ingestion.get_ingestion_service") as mock_ing,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_ing.return_value.delete_document = AsyncMock()
 
                 async with AsyncClient(
@@ -548,16 +523,14 @@ class TestDeleteDocument:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),
@@ -596,17 +569,15 @@ class TestReindexDocument:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
                 patch("app.api.v1.kb.get_arq_pool", return_value=mock_arq),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),
@@ -621,7 +592,9 @@ class TestReindexDocument:
 
         assert response.status_code == 202
         mock_arq.enqueue_job.assert_called_once_with(
-            "reindex_document_task", TEST_TENANT.slug, str(doc_id),
+            "reindex_document_task",
+            TEST_TENANT.slug,
+            str(doc_id),
         )
 
     @pytest.mark.asyncio
@@ -635,16 +608,14 @@ class TestReindexDocument:
 
         try:
             with (
-                patch(
-                    "app.core.middleware.TenantResolver"
-                ) as MockResolver,
+                patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),

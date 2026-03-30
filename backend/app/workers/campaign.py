@@ -18,9 +18,12 @@ from arq.connections import RedisSettings
 from sqlalchemy import func, select, text, update
 
 from app.core.config import get_settings
+from app.core.tenant import TenantContext
 from app.models.campaign import Campaign, CampaignRecipient
 from app.models.contact import Contact
 from app.models.enums import CampaignStatus, RecipientStatus
+from app.services.campaign.service import CampaignService
+from app.services.whatsapp.session import WhatsAppSessionManager
 
 logger = structlog.get_logger()
 
@@ -91,7 +94,7 @@ async def send_campaign_task(
     """
     from app.core.redis import get_redis
     from app.core.tenant import TenantResolver
-    from app.services.campaign.service import CampaignService, get_campaign_service
+    from app.services.campaign.service import get_campaign_service
     from app.services.whatsapp.session import WhatsAppSessionManager
 
     cid = uuid.UUID(campaign_id)
@@ -140,9 +143,7 @@ async def send_campaign_task(
             log.info("campaign_paused_by_flag")
             async with tenant.db_session() as session:
                 await session.execute(
-                    update(Campaign)
-                    .where(Campaign.id == cid)
-                    .values(status=CampaignStatus.paused),
+                    update(Campaign).where(Campaign.id == cid).values(status=CampaignStatus.paused),
                 )
             paused = True
             break
@@ -168,10 +169,16 @@ async def send_campaign_task(
         batch_sent = 0
         batch_failed = 0
 
-        async def _send_one(recipient: CampaignRecipient) -> bool:
+        async def _send_one(
+            recipient: CampaignRecipient, semaphore: asyncio.Semaphore = semaphore
+        ) -> bool:
             async with semaphore:
                 return await _send_single_recipient(
-                    tenant, campaign, recipient, service, session_mgr,
+                    tenant,
+                    campaign,
+                    recipient,
+                    service,
+                    session_mgr,
                 )
 
         results = await asyncio.gather(
@@ -250,11 +257,11 @@ async def send_campaign_task(
 
 
 async def _send_single_recipient(
-    tenant: "TenantContext",
+    tenant: TenantContext,
     campaign: Campaign,
     recipient: CampaignRecipient,
-    service: "CampaignService",
-    session_mgr: "WhatsAppSessionManager",
+    service: CampaignService,
+    session_mgr: WhatsAppSessionManager,
 ) -> bool:
     """Send a template message to one recipient and update their status.
 
@@ -284,7 +291,9 @@ async def _send_single_recipient(
         if contact is None:
             log.warning("recipient_contact_missing", contact_id=str(recipient.contact_id))
             await _update_recipient_status(
-                tenant, recipient.id, RecipientStatus.failed,
+                tenant,
+                recipient.id,
+                RecipientStatus.failed,
                 error_message="Contact not found",
             )
             return False
@@ -303,7 +312,9 @@ async def _send_single_recipient(
 
         # Update recipient: sent
         await _update_recipient_status(
-            tenant, recipient.id, RecipientStatus.sent,
+            tenant,
+            recipient.id,
+            RecipientStatus.sent,
             wamid=wamid,
         )
 
@@ -315,14 +326,16 @@ async def _send_single_recipient(
     except Exception as exc:
         log.error("campaign_send_failed", error=str(exc))
         await _update_recipient_status(
-            tenant, recipient.id, RecipientStatus.failed,
+            tenant,
+            recipient.id,
+            RecipientStatus.failed,
             error_message=str(exc)[:500],
         )
         return False
 
 
 async def _update_recipient_status(
-    tenant: "TenantContext",
+    tenant: TenantContext,
     recipient_id: uuid.UUID,
     status: RecipientStatus,
     *,
@@ -339,14 +352,12 @@ async def _update_recipient_status(
 
     async with tenant.db_session() as session:
         await session.execute(
-            update(CampaignRecipient)
-            .where(CampaignRecipient.id == recipient_id)
-            .values(**values),
+            update(CampaignRecipient).where(CampaignRecipient.id == recipient_id).values(**values),
         )
 
 
 async def _update_stats_delta(
-    tenant: "TenantContext",
+    tenant: TenantContext,
     campaign_id: uuid.UUID,
     sent_delta: int,
     failed_delta: int,
@@ -374,7 +385,7 @@ async def _update_stats_delta(
 
 
 async def _reconcile_stats(
-    tenant: "TenantContext",
+    tenant: TenantContext,
     campaign_id: uuid.UUID,
 ) -> None:
     """Rebuild campaign stats from actual recipient statuses.

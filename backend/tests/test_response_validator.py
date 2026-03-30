@@ -1,20 +1,18 @@
 """Tests for ResponseValidator and FeedbackCollector."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from app.core.tenant import TenantContext
 from app.services.guardrails.output_guard import OutputGuardResult
 from app.services.orchestrator.feedback_collector import (
-    FEEDBACK_BUTTONS,
     FeedbackCollector,
 )
 from app.services.orchestrator.response_validator import ResponseValidator
 from app.services.orchestrator.state import ConversationState, IntentType
 from app.services.rag.prompts import PromptTemplates
-
 
 # --- Fixtures ---
 
@@ -83,7 +81,9 @@ class TestResponseValidator:
 
         assert result["response"] == "Pour créer une SARL, il faut..."
         mock_guard.check.assert_awaited_once_with(
-            "Pour créer une SARL, il faut...", 0.9, "fr",
+            "Pour créer une SARL, il faut...",
+            0.9,
+            "fr",
         )
 
     @pytest.mark.asyncio

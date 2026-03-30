@@ -32,13 +32,17 @@ class Admin(UUIDMixin, TimestampMixin, Base):
     )
 
     email: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True,
+        String(255),
+        nullable=False,
+        unique=True,
     )
     password_hash: Mapped[str] = mapped_column(
-        String(255), nullable=False,
+        String(255),
+        nullable=False,
     )
     full_name: Mapped[str] = mapped_column(
-        String(255), nullable=False,
+        String(255),
+        nullable=False,
     )
     role: Mapped[AdminRole] = mapped_column(
         Enum(AdminRole, name="adminrole", schema="public"),
@@ -53,10 +57,14 @@ class Admin(UUIDMixin, TimestampMixin, Base):
         comment="Null for super_admin (cross-tenant access)",
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=text("true"),
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
     )
     last_login: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     # Relationships

@@ -10,7 +10,6 @@ from app.core.exceptions import TenantInactiveError, TenantNotFoundError
 from app.core.tenant import TenantContext
 from app.main import app
 
-
 # --- Fixtures ---
 
 TEST_TENANT_ID = uuid.uuid4()
@@ -83,10 +82,12 @@ class TestTenantContext:
 
         mock_factory = MagicMock(return_value=mock_session)
 
-        with patch("app.core.tenant.get_session_factory", return_value=mock_factory):
-            with pytest.raises(RuntimeError, match="test error"):
-                async with ctx.db_session():
-                    raise RuntimeError("test error")
+        with (
+            patch("app.core.tenant.get_session_factory", return_value=mock_factory),
+            pytest.raises(RuntimeError, match="test error"),
+        ):
+            async with ctx.db_session():
+                raise RuntimeError("test error")
 
         mock_session.rollback.assert_called_once()
         mock_session.commit.assert_not_called()

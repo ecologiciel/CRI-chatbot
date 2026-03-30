@@ -12,7 +12,8 @@ class ContactCreate(BaseModel):
     """Schema for creating a new contact."""
 
     phone: str = Field(
-        ..., pattern=r"^\+[1-9]\d{6,14}$",
+        ...,
+        pattern=r"^\+[1-9]\d{6,14}$",
         description="Phone in E.164 format, e.g. +212612345678",
     )
     name: str | None = Field(default=None, max_length=255)
@@ -27,6 +28,7 @@ class ContactCreate(BaseModel):
         """Validate Moroccan CIN format if provided."""
         if v is not None:
             import re
+
             if not re.match(r"^[A-Z]{1,2}\d{5,6}$", v):
                 msg = "CIN must match Moroccan format: 1-2 uppercase letters + 5-6 digits"
                 raise ValueError(msg)
@@ -48,6 +50,7 @@ class ContactUpdate(BaseModel):
     def validate_cin(cls, v: str | None) -> str | None:
         if v is not None:
             import re
+
             if not re.match(r"^[A-Z]{1,2}\d{5,6}$", v):
                 msg = "CIN must match Moroccan format: 1-2 uppercase letters + 5-6 digits"
                 raise ValueError(msg)

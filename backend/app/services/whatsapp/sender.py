@@ -30,7 +30,10 @@ class WhatsAppSenderService:
     """Sends messages to WhatsApp users via Meta Cloud API."""
 
     async def send_text(
-        self, tenant: TenantContext, to: str, body: str,
+        self,
+        tenant: TenantContext,
+        to: str,
+        body: str,
     ) -> str:
         """Send a text message.
 
@@ -68,9 +71,7 @@ class WhatsAppSenderService:
             ValueError: If more than 3 buttons are provided.
         """
         if len(buttons) > MAX_BUTTONS:
-            raise ValueError(
-                f"WhatsApp allows at most {MAX_BUTTONS} buttons, got {len(buttons)}"
-            )
+            raise ValueError(f"WhatsApp allows at most {MAX_BUTTONS} buttons, got {len(buttons)}")
 
         interactive = {
             "type": "button",
@@ -147,7 +148,9 @@ class WhatsAppSenderService:
         return self._extract_wamid(response)
 
     async def mark_as_read(
-        self, tenant: TenantContext, message_id: str,
+        self,
+        tenant: TenantContext,
+        message_id: str,
     ) -> None:
         """Mark a received message as read (sends blue ticks).
 
@@ -186,7 +189,9 @@ class WhatsAppSenderService:
     # ------------------------------------------------------------------
 
     async def _send_request(
-        self, tenant: TenantContext, payload: dict[str, Any],
+        self,
+        tenant: TenantContext,
+        payload: dict[str, Any],
     ) -> dict[str, Any]:
         """POST a message payload to Meta Cloud API.
 

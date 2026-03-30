@@ -55,7 +55,14 @@ _FK_CONSTRAINTS: list[tuple[str, str, str, str, str, str]] = [
     ("messages", "fk_msg_conversation", "conversation_id", "conversations", "id", "CASCADE"),
     ("kb_chunks", "fk_chunk_document", "document_id", "kb_documents", "id", "CASCADE"),
     ("feedback", "fk_feedback_message", "message_id", "messages", "id", "CASCADE"),
-    ("incentive_categories", "fk_category_parent", "parent_id", "incentive_categories", "id", "CASCADE"),
+    (
+        "incentive_categories",
+        "fk_category_parent",
+        "parent_id",
+        "incentive_categories",
+        "id",
+        "CASCADE",
+    ),
     ("incentive_items", "fk_item_category", "category_id", "incentive_categories", "id", "CASCADE"),
 ]
 
@@ -109,7 +116,9 @@ class TenantProvisioningService:
 
             # Step 3: Create Qdrant collection
             await self._create_qdrant_collection(data.slug)
-            rollback_stack.append(("qdrant_collection", lambda: self._delete_qdrant_collection(data.slug)))
+            rollback_stack.append(
+                ("qdrant_collection", lambda: self._delete_qdrant_collection(data.slug))
+            )
             log.info("step_completed", step="qdrant_collection")
 
             # Step 4: Redis phone mapping (if WhatsApp config provided)
@@ -154,9 +163,7 @@ class TenantProvisioningService:
         except Exception as exc:
             log.error("provisioning_failed", error=str(exc))
             await self._rollback(rollback_stack, data.slug)
-            raise TenantProvisioningError(
-                f"Provisioning failed for {data.slug}: {exc}"
-            ) from exc
+            raise TenantProvisioningError(f"Provisioning failed for {data.slug}: {exc}") from exc
 
     async def deprovision_tenant(self, slug: str) -> None:
         """Remove all resources for a tenant.
@@ -173,9 +180,7 @@ class TenantProvisioningService:
         try:
             factory = get_session_factory()
             async with factory() as session:
-                result = await session.execute(
-                    select(Tenant).where(Tenant.slug == slug)
-                )
+                result = await session.execute(select(Tenant).where(Tenant.slug == slug))
                 tenant = result.scalar_one_or_none()
                 if tenant:
                     tenant.status = TenantStatus.inactive
@@ -237,9 +242,7 @@ class TenantProvisioningService:
         try:
             factory = get_session_factory()
             async with factory() as session:
-                await session.execute(
-                    delete(Tenant).where(Tenant.slug == slug)
-                )
+                await session.execute(delete(Tenant).where(Tenant.slug == slug))
                 await session.commit()
             log.info("step_completed", step="record_deleted")
         except Exception as exc:
@@ -254,9 +257,7 @@ class TenantProvisioningService:
         factory = get_session_factory()
         async with factory() as session:
             # Check for existing slug
-            existing = await session.execute(
-                select(Tenant.id).where(Tenant.slug == data.slug)
-            )
+            existing = await session.execute(select(Tenant.id).where(Tenant.slug == data.slug))
             if existing.scalar_one_or_none():
                 raise DuplicateTenantError(data.slug)
 
@@ -350,13 +351,15 @@ class TenantProvisioningService:
     async def _create_redis_mapping(self, tenant: Tenant, phone_number_id: str) -> None:
         """Map phone_number_id → tenant data in Redis for webhook resolution."""
         redis = get_redis()
-        mapping_data = json.dumps({
-            "id": str(tenant.id),
-            "slug": tenant.slug,
-            "name": tenant.name,
-            "status": TenantStatus.active.value,
-            "whatsapp_config": tenant.whatsapp_config,
-        })
+        mapping_data = json.dumps(
+            {
+                "id": str(tenant.id),
+                "slug": tenant.slug,
+                "name": tenant.name,
+                "status": TenantStatus.active.value,
+                "whatsapp_config": tenant.whatsapp_config,
+            }
+        )
         await redis.set(
             f"phone_mapping:{phone_number_id}",
             mapping_data,
@@ -375,9 +378,7 @@ class TenantProvisioningService:
         factory = get_session_factory()
         async with factory() as session:
             await session.execute(
-                update(Tenant)
-                .where(Tenant.id == tenant_id)
-                .values(status=TenantStatus.active)
+                update(Tenant).where(Tenant.id == tenant_id).values(status=TenantStatus.active)
             )
             await session.commit()
 
@@ -400,9 +401,7 @@ class TenantProvisioningService:
     async def _delete_tenant_record(self, tenant_id: uuid.UUID) -> None:
         factory = get_session_factory()
         async with factory() as session:
-            await session.execute(
-                delete(Tenant).where(Tenant.id == tenant_id)
-            )
+            await session.execute(delete(Tenant).where(Tenant.id == tenant_id))
             await session.commit()
 
     async def _drop_schema(self, slug: str) -> None:

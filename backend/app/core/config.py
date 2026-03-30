@@ -57,33 +57,19 @@ class Settings(BaseSettings):
     gemini_model: str = Field(
         default="gemini-2.5-flash", description="Gemini model ID for generation"
     )
-    gemini_max_output_tokens: int = Field(
-        default=2048, description="Max output tokens per request"
-    )
-    gemini_temperature: float = Field(
-        default=0.3, description="Sampling temperature (0.0-2.0)"
-    )
-    gemini_timeout: float = Field(
-        default=30.0, description="Request timeout in seconds"
-    )
-    embedding_model: str = Field(
-        default="text-embedding-004", description="Google embedding model"
-    )
-    embedding_dimension: int = Field(
-        default=768, description="Embedding vector dimension"
-    )
-    embedding_batch_size: int = Field(
-        default=100, description="Max texts per batch embed call"
-    )
+    gemini_max_output_tokens: int = Field(default=2048, description="Max output tokens per request")
+    gemini_temperature: float = Field(default=0.3, description="Sampling temperature (0.0-2.0)")
+    gemini_timeout: float = Field(default=30.0, description="Request timeout in seconds")
+    embedding_model: str = Field(default="text-embedding-004", description="Google embedding model")
+    embedding_dimension: int = Field(default=768, description="Embedding vector dimension")
+    embedding_batch_size: int = Field(default=100, description="Max texts per batch embed call")
     # TODO Phase 2: embedding_fallback_model for local multilingual-e5-large
 
     # --- WhatsApp ---
     whatsapp_app_secret: str = Field(
         default="", description="Meta App Secret for HMAC webhook validation"
     )
-    whatsapp_verify_token: str = Field(
-        default="", description="Webhook verification token"
-    )
+    whatsapp_verify_token: str = Field(default="", description="Webhook verification token")
 
     # --- JWT Auth ---
     jwt_secret_key: str = Field(
@@ -97,7 +83,7 @@ class Settings(BaseSettings):
     kms_master_key: str = Field(
         default="",
         description="Hex-encoded 32 bytes (64 hex chars) for envelope encryption. "
-        "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\"",
+        'Generate with: python -c "import secrets; print(secrets.token_hex(32))"',
     )
 
     # --- Monitoring ---
@@ -105,9 +91,7 @@ class Settings(BaseSettings):
     grafana_password: str = Field(default="admin")
 
     # --- Knowledge Base ---
-    kb_max_file_size_mb: int = Field(
-        default=10, description="Max KB upload file size in MB"
-    )
+    kb_max_file_size_mb: int = Field(default=10, description="Max KB upload file size in MB")
 
     # --- CORS ---
     backoffice_url: str = Field(default="http://localhost:3000")
@@ -117,6 +101,7 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         """Async PostgreSQL connection string."""
         from urllib.parse import quote_plus
+
         return (
             f"postgresql+asyncpg://{quote_plus(self.postgres_user)}:{quote_plus(self.postgres_password)}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -126,6 +111,7 @@ class Settings(BaseSettings):
     def database_url_sync(self) -> str:
         """Sync PostgreSQL URL for Alembic migrations."""
         from urllib.parse import quote_plus
+
         return (
             f"postgresql://{quote_plus(self.postgres_user)}:{quote_plus(self.postgres_password)}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

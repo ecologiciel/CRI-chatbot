@@ -22,7 +22,7 @@ import hashlib
 import io
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from arq.connections import RedisSettings
@@ -88,7 +88,7 @@ async def _ensure_bucket(minio, bucket_name: str) -> None:  # noqa: ANN001
 
 def _previous_week_boundaries() -> tuple[datetime, datetime]:
     """Return (monday_00:00, sunday_23:59:59) of the previous ISO week."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # Monday of the current week
     current_monday = now - timedelta(days=now.weekday())
     current_monday = current_monday.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -143,10 +143,7 @@ async def archive_audit_logs(ctx: dict) -> dict:
 
     # 2. Convert ORM objects to dicts
     columns = AuditLog.__table__.columns
-    records = [
-        {col.name: getattr(row, col.name) for col in columns}
-        for row in rows
-    ]
+    records = [{col.name: getattr(row, col.name) for col in columns} for row in rows]
 
     # 3. Serialize to JSON
     json_str = json.dumps(records, default=_json_default, ensure_ascii=False)

@@ -9,9 +9,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.enums import UnansweredStatus
-
 
 # ---------------------------------------------------------------------------
 # Import tests
@@ -56,56 +56,46 @@ class TestRouteDefinitions:
 
     def test_list_questions_route(self):
         routes = self._get_routes()
-        assert any(
-            "/learning/questions" == path and "GET" in methods
-            for path, methods in routes
-        )
+        assert any(path == "/learning/questions" and "GET" in methods for path, methods in routes)
 
     def test_get_question_route(self):
         routes = self._get_routes()
         assert any(
-            "/learning/questions/{question_id}" == path and "GET" in methods
+            path == "/learning/questions/{question_id}" and "GET" in methods
             for path, methods in routes
         )
 
     def test_generate_route(self):
         routes = self._get_routes()
         assert any(
-            "/learning/questions/{question_id}/generate" == path
-            and "POST" in methods
+            path == "/learning/questions/{question_id}/generate" and "POST" in methods
             for path, methods in routes
         )
 
     def test_approve_route(self):
         routes = self._get_routes()
         assert any(
-            "/learning/questions/{question_id}/approve" == path
-            and "POST" in methods
+            path == "/learning/questions/{question_id}/approve" and "POST" in methods
             for path, methods in routes
         )
 
     def test_reject_route(self):
         routes = self._get_routes()
         assert any(
-            "/learning/questions/{question_id}/reject" == path
-            and "POST" in methods
+            path == "/learning/questions/{question_id}/reject" and "POST" in methods
             for path, methods in routes
         )
 
     def test_edit_route(self):
         routes = self._get_routes()
         assert any(
-            "/learning/questions/{question_id}/edit" == path
-            and "POST" in methods
+            path == "/learning/questions/{question_id}/edit" and "POST" in methods
             for path, methods in routes
         )
 
     def test_stats_route(self):
         routes = self._get_routes()
-        assert any(
-            "/learning/stats" == path and "GET" in methods
-            for path, methods in routes
-        )
+        assert any(path == "/learning/stats" and "GET" in methods for path, methods in routes)
 
     def test_total_route_count(self):
         """7 endpoints total: list, get, generate, approve, reject, edit, stats."""
@@ -159,7 +149,7 @@ class TestSchemaImports:
     def test_edit_request_rejects_empty_answer(self):
         from app.schemas.learning import EditRequest
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EditRequest(proposed_answer="")
 
     def test_learning_stats_response(self):

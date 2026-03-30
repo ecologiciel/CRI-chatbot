@@ -7,7 +7,7 @@ Each module defines its own exceptions (e.g., TenantNotFoundError in services/te
 from typing import Any
 
 
-class CRIBaseException(Exception):
+class CRIBaseException(Exception):  # noqa: N818
     """Base exception for all CRI platform errors."""
 
     def __init__(self, message: str = "", details: dict[str, Any] | None = None) -> None:

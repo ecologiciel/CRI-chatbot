@@ -47,28 +47,20 @@ class PIIMaskResult:
 _CIN_RE = re.compile(r"\b[A-Z]{1,2}\d{5,6}\b")
 
 # Moroccan IBAN: MA + 2 check digits + 24 alphanumeric (checked before phone)
-_IBAN_RE = re.compile(
-    r"\bMA\d{2}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}\b"
-)
+_IBAN_RE = re.compile(r"\bMA\d{2}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}\b")
 
 # Moroccan phone: +212 or 0 prefix, then 6 or 7, then 8 digits
 # Handles: +212612345678, +212 6 12 34 56 78, 0612345678, 06-12-34-56-78
-_PHONE_RE = re.compile(
-    r"(?:\+212[\s.-]?|0)[67][\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}\b"
-)
+_PHONE_RE = re.compile(r"(?:\+212[\s.-]?|0)[67][\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}\b")
 
 # Standard email
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
 # Amounts in dirhams: digits followed by MAD, DH, or dirhams
-_AMOUNT_RE = re.compile(
-    r"\b\d[\d\s.,]*\s*(?:MAD|DH|dirhams?)\b", re.IGNORECASE
-)
+_AMOUNT_RE = re.compile(r"\b\d[\d\s.,]*\s*(?:MAD|DH|dirhams?)\b", re.IGNORECASE)
 
 # CRI dossier/file numbers: RC-12345, INV-2024-001, DOS-20240001, DSR/12345
-_DOSSIER_RE = re.compile(
-    r"\b(?:RC|INV|DOS|DSR|D)[-/]\d{4,}(?:[-/]\d+)*\b", re.IGNORECASE
-)
+_DOSSIER_RE = re.compile(r"\b(?:RC|INV|DOS|DSR|D)[-/]\d{4,}(?:[-/]\d+)*\b", re.IGNORECASE)
 
 # Ordered list: (regex, type_label). Order matters for overlap resolution.
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [

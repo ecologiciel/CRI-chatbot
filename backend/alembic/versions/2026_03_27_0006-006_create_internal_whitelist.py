@@ -11,9 +11,10 @@ Creates:
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "006"
 down_revision: str = "005"
@@ -27,61 +28,83 @@ def upgrade() -> None:
     op.create_table(
         "internal_whitelist",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column(
-            "phone", sa.String(20), nullable=False,
+            "phone",
+            sa.String(20),
+            nullable=False,
             comment="E.164 format, e.g. +212612345678",
         ),
         sa.Column(
-            "label", sa.String(255), nullable=True,
+            "label",
+            sa.String(255),
+            nullable=True,
             comment="Optional display label (e.g. employee name or department)",
         ),
         sa.Column(
-            "note", sa.Text(), nullable=True,
+            "note",
+            sa.Text(),
+            nullable=True,
             comment="Admin note about why this number was whitelisted",
         ),
         sa.Column(
-            "is_active", sa.Boolean(),
-            server_default=sa.text("true"), nullable=False,
+            "is_active",
+            sa.Boolean(),
+            server_default=sa.text("true"),
+            nullable=False,
         ),
         sa.Column(
-            "added_by", postgresql.UUID(as_uuid=True), nullable=True,
+            "added_by",
+            postgresql.UUID(as_uuid=True),
+            nullable=True,
         ),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["added_by"], ["public.admins.id"], ondelete="SET NULL",
+            ["added_by"],
+            ["public.admins.id"],
+            ondelete="SET NULL",
         ),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
         "ix_internal_whitelist_phone",
-        "internal_whitelist", ["phone"],
+        "internal_whitelist",
+        ["phone"],
         unique=True,
         schema=TENANT_SCHEMA,
     )
     op.create_index(
         "ix_internal_whitelist_phone_active",
-        "internal_whitelist", ["phone", "is_active"],
+        "internal_whitelist",
+        ["phone", "is_active"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
         "ix_internal_whitelist_added_by",
-        "internal_whitelist", ["added_by"],
+        "internal_whitelist",
+        ["added_by"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
         "ix_internal_whitelist_is_active",
-        "internal_whitelist", ["is_active"],
+        "internal_whitelist",
+        ["is_active"],
         schema=TENANT_SCHEMA,
     )
 

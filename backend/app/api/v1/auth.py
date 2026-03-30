@@ -72,9 +72,7 @@ async def get_me(
     """
     factory = get_session_factory()
     async with factory() as session:
-        result = await session.execute(
-            select(Admin).where(Admin.id == uuid.UUID(admin.sub))
-        )
+        result = await session.execute(select(Admin).where(Admin.id == uuid.UUID(admin.sub)))
         db_admin = result.scalar_one_or_none()
 
     if not db_admin:

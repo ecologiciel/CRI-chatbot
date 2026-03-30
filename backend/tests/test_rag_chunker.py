@@ -12,7 +12,6 @@ from app.core.exceptions import ChunkingError
 from app.schemas.rag import ChunkResult
 from app.services.rag.chunker import ChunkingService
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

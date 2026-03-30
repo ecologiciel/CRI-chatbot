@@ -28,12 +28,17 @@ class TestSafeInput:
         guard, gemini = _make_guard()
         gemini.generate = AsyncMock(
             return_value=GeminiResponse(
-                text="oui", input_tokens=5, output_tokens=2,
-                total_tokens=7, model="gemini-2.5-flash", latency_ms=50.0,
+                text="oui",
+                input_tokens=5,
+                output_tokens=2,
+                total_tokens=7,
+                model="gemini-2.5-flash",
+                latency_ms=50.0,
             ),
         )
         result = await guard.check(
-            "Comment créer une entreprise au Maroc?", tenant_context,
+            "Comment créer une entreprise au Maroc?",
+            tenant_context,
         )
 
         assert result.is_safe is True
@@ -89,8 +94,12 @@ class TestLengthCheck:
         guard, gemini = _make_guard()
         gemini.generate = AsyncMock(
             return_value=GeminiResponse(
-                text="oui", input_tokens=5, output_tokens=2,
-                total_tokens=7, model="gemini-2.5-flash", latency_ms=50.0,
+                text="oui",
+                input_tokens=5,
+                output_tokens=2,
+                total_tokens=7,
+                model="gemini-2.5-flash",
+                latency_ms=50.0,
             ),
         )
         result = await guard.check("x" * 2000, tenant_context)
@@ -107,8 +116,12 @@ class TestTopicClassification:
         guard, gemini = _make_guard()
         gemini.generate = AsyncMock(
             return_value=GeminiResponse(
-                text="non", input_tokens=5, output_tokens=2,
-                total_tokens=7, model="gemini-2.5-flash", latency_ms=50.0,
+                text="non",
+                input_tokens=5,
+                output_tokens=2,
+                total_tokens=7,
+                model="gemini-2.5-flash",
+                latency_ms=50.0,
             ),
         )
         result = await guard.check("Quelle est la météo?", tenant_context)

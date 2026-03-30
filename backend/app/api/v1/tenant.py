@@ -116,19 +116,16 @@ async def get_tenant(
     """
     # Access control: non-super_admin can only access their own tenant
     is_super_admin = AdminRole(admin.role) == AdminRole.super_admin
-    if not is_super_admin:
-        if admin.tenant_id is None or uuid.UUID(admin.tenant_id) != tenant_id:
-            raise AuthorizationError(
-                "Cannot access this tenant",
-                details={"tenant_id": str(tenant_id)},
-            )
+    if not is_super_admin and (admin.tenant_id is None or uuid.UUID(admin.tenant_id) != tenant_id):
+        raise AuthorizationError(
+            "Cannot access this tenant",
+            details={"tenant_id": str(tenant_id)},
+        )
 
     # Fetch tenant
     factory = get_session_factory()
     async with factory() as session:
-        result = await session.execute(
-            select(Tenant).where(Tenant.id == tenant_id)
-        )
+        result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
         tenant = result.scalar_one_or_none()
 
     if not tenant:
@@ -160,9 +157,7 @@ async def update_tenant(
     """
     factory = get_session_factory()
     async with factory() as session:
-        result = await session.execute(
-            select(Tenant).where(Tenant.id == tenant_id)
-        )
+        result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
         tenant = result.scalar_one_or_none()
 
         if not tenant:
@@ -209,9 +204,7 @@ async def delete_tenant(
     # Resolve slug from ID (deprovision_tenant takes slug)
     factory = get_session_factory()
     async with factory() as session:
-        result = await session.execute(
-            select(Tenant.slug).where(Tenant.id == tenant_id)
-        )
+        result = await session.execute(select(Tenant.slug).where(Tenant.id == tenant_id))
         slug = result.scalar_one_or_none()
 
     if not slug:

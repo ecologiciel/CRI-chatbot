@@ -9,9 +9,6 @@ because audit_logs lives in the public schema.
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime
-
 import structlog
 from sqlalchemy import func, select, text
 
@@ -123,9 +120,7 @@ class AuditService:
             # --- Paginated data (most recent first) ---
             offset = (page - 1) * page_size
             data_result = await session.execute(
-                base.order_by(AuditLog.created_at.desc())
-                .offset(offset)
-                .limit(page_size),
+                base.order_by(AuditLog.created_at.desc()).offset(offset).limit(page_size),
             )
             items = list(data_result.scalars().all())
 

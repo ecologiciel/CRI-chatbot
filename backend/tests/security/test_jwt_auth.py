@@ -57,31 +57,44 @@ class TestJWTTokenSecurity:
         """Token signed with key A, verified with key B → AuthenticationError."""
         admin_id = uuid.uuid4()
 
-        with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings(jwt_secret_key="secret-A")):
+        with patch(
+            "app.services.auth.jwt.get_settings",
+            return_value=_mock_settings(jwt_secret_key="secret-A"),
+        ):
             token, _jti = JWTManager.create_access_token(
                 admin_id=admin_id,
                 role=AdminRole.admin_tenant.value,
                 tenant_id=None,
             )
 
-        with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings(jwt_secret_key="secret-B")):
-            with pytest.raises(AuthenticationError, match="Invalid token"):
-                JWTManager.verify_token(token)
+        with (
+            patch(
+                "app.services.auth.jwt.get_settings",
+                return_value=_mock_settings(jwt_secret_key="secret-B"),
+            ),
+            pytest.raises(AuthenticationError, match="Invalid token"),
+        ):
+            JWTManager.verify_token(token)
 
     def test_expired_token_rejected(self):
         """Expired token raises AuthenticationError."""
         admin_id = uuid.uuid4()
 
-        with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings(jwt_access_token_expire_minutes=-1)):
+        with patch(
+            "app.services.auth.jwt.get_settings",
+            return_value=_mock_settings(jwt_access_token_expire_minutes=-1),
+        ):
             token, _jti = JWTManager.create_access_token(
                 admin_id=admin_id,
                 role=AdminRole.admin_tenant.value,
                 tenant_id=None,
             )
 
-        with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings()):
-            with pytest.raises(AuthenticationError, match="Token has expired"):
-                JWTManager.verify_token(token)
+        with (
+            patch("app.services.auth.jwt.get_settings", return_value=_mock_settings()),
+            pytest.raises(AuthenticationError, match="Token has expired"),
+        ):
+            JWTManager.verify_token(token)
 
     @pytest.mark.asyncio
     async def test_refresh_used_as_access_rejected(self):
@@ -108,7 +121,7 @@ class TestJWTTokenSecurity:
         with (
             patch("app.services.auth.jwt.get_settings", return_value=_mock_settings()),
             patch("app.services.auth.service.get_settings", return_value=_mock_settings()),
-            patch("app.services.auth.service.get_session_factory") as mock_factory,
+            patch("app.services.auth.service.get_session_factory"),
             patch("app.services.auth.service.get_redis", return_value=AsyncMock()),
         ):
             access_token, _jti = JWTManager.create_access_token(
@@ -138,14 +151,16 @@ class TestJWTTokenSecurity:
         payload_data = json.loads(base64.urlsafe_b64decode(payload_b64))
         payload_data["role"] = "super_admin"
         # Re-encode without re-signing
-        tampered_payload = base64.urlsafe_b64encode(
-            json.dumps(payload_data).encode()
-        ).rstrip(b"=").decode()
+        tampered_payload = (
+            base64.urlsafe_b64encode(json.dumps(payload_data).encode()).rstrip(b"=").decode()
+        )
         tampered_token = f"{parts[0]}.{tampered_payload}.{parts[2]}"
 
-        with patch("app.services.auth.jwt.get_settings", return_value=_mock_settings()):
-            with pytest.raises(AuthenticationError, match="Invalid token"):
-                JWTManager.verify_token(tampered_token)
+        with (
+            patch("app.services.auth.jwt.get_settings", return_value=_mock_settings()),
+            pytest.raises(AuthenticationError, match="Invalid token"),
+        ):
+            JWTManager.verify_token(tampered_token)
 
     @pytest.mark.asyncio
     async def test_refresh_single_use(self):
@@ -191,9 +206,10 @@ class TestJWTTokenSecurity:
     @pytest.mark.asyncio
     async def test_deactivated_admin_rejected(self):
         """Valid token for deactivated admin is rejected by get_current_admin."""
+        from fastapi.security import HTTPAuthorizationCredentials
+
         from app.core.rbac import get_current_admin
         from app.schemas.auth import AdminTokenPayload
-        from fastapi.security import HTTPAuthorizationCredentials
 
         admin_id = uuid.uuid4()
         valid_payload = AdminTokenPayload(

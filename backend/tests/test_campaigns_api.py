@@ -6,7 +6,6 @@ No database required — uses pure logic tests.
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # 1. Import tests
 # ---------------------------------------------------------------------------
@@ -231,64 +230,64 @@ class TestCampaignServiceMethods:
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "create_campaign")
-        assert callable(getattr(CampaignService, "create_campaign"))
+        assert callable(CampaignService.create_campaign)
 
     def test_update_campaign(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "update_campaign")
-        assert callable(getattr(CampaignService, "update_campaign"))
+        assert callable(CampaignService.update_campaign)
 
     def test_get_campaign(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "get_campaign")
-        assert callable(getattr(CampaignService, "get_campaign"))
+        assert callable(CampaignService.get_campaign)
 
     def test_list_campaigns(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "list_campaigns")
-        assert callable(getattr(CampaignService, "list_campaigns"))
+        assert callable(CampaignService.list_campaigns)
 
     def test_launch_campaign(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "launch_campaign")
-        assert callable(getattr(CampaignService, "launch_campaign"))
+        assert callable(CampaignService.launch_campaign)
 
     def test_pause_campaign(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "pause_campaign")
-        assert callable(getattr(CampaignService, "pause_campaign"))
+        assert callable(CampaignService.pause_campaign)
 
     def test_resume_campaign(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "resume_campaign")
-        assert callable(getattr(CampaignService, "resume_campaign"))
+        assert callable(CampaignService.resume_campaign)
 
     def test_check_quota(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "check_quota")
-        assert callable(getattr(CampaignService, "check_quota"))
+        assert callable(CampaignService.check_quota)
 
     def test_get_campaign_stats(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "get_campaign_stats")
-        assert callable(getattr(CampaignService, "get_campaign_stats"))
+        assert callable(CampaignService.get_campaign_stats)
 
     def test_get_recipients(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "get_recipients")
-        assert callable(getattr(CampaignService, "get_recipients"))
+        assert callable(CampaignService.get_recipients)
 
     def test_preview_audience(self):
         from app.services.campaign import CampaignService
 
         assert hasattr(CampaignService, "preview_audience")
-        assert callable(getattr(CampaignService, "preview_audience"))
+        assert callable(CampaignService.preview_audience)

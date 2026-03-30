@@ -13,9 +13,10 @@ Creates:
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "004"
 down_revision: str = "003"
@@ -25,13 +26,26 @@ depends_on: str | Sequence[str] | None = None
 # ── ENUM types (public schema, shared across tenants) ──
 
 campaignstatus = postgresql.ENUM(
-    "draft", "scheduled", "sending", "paused", "completed", "failed",
-    name="campaignstatus", schema="public", create_type=False,
+    "draft",
+    "scheduled",
+    "sending",
+    "paused",
+    "completed",
+    "failed",
+    name="campaignstatus",
+    schema="public",
+    create_type=False,
 )
 
 recipientstatus = postgresql.ENUM(
-    "pending", "sent", "delivered", "read", "failed",
-    name="recipientstatus", schema="public", create_type=False,
+    "pending",
+    "sent",
+    "delivered",
+    "read",
+    "failed",
+    name="recipientstatus",
+    schema="public",
+    create_type=False,
 )
 
 ALL_ENUMS = [campaignstatus, recipientstatus]
@@ -50,8 +64,10 @@ def upgrade() -> None:
     op.create_table(
         "campaigns",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         # Campaign info
         sa.Column("name", sa.String(200), nullable=False),
@@ -62,19 +78,25 @@ def upgrade() -> None:
         sa.Column("template_language", sa.String(10), server_default="fr", nullable=False),
         # Audience
         sa.Column(
-            "audience_filter", postgresql.JSONB(),
-            server_default=sa.text("'{}'::jsonb"), nullable=False,
+            "audience_filter",
+            postgresql.JSONB(),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
         ),
         sa.Column("audience_count", sa.Integer(), server_default="0", nullable=False),
         # Variable mapping
         sa.Column(
-            "variable_mapping", postgresql.JSONB(),
-            server_default=sa.text("'{}'::jsonb"), nullable=False,
+            "variable_mapping",
+            postgresql.JSONB(),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
         ),
         # Status
         sa.Column(
-            "status", campaignstatus,
-            server_default="draft", nullable=False,
+            "status",
+            campaignstatus,
+            server_default="draft",
+            nullable=False,
         ),
         # Scheduling
         sa.Column("scheduled_at", sa.DateTime(timezone=True), nullable=True),
@@ -82,7 +104,8 @@ def upgrade() -> None:
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         # Aggregated stats
         sa.Column(
-            "stats", postgresql.JSONB(),
+            "stats",
+            postgresql.JSONB(),
             server_default=sa.text(
                 """'{"sent": 0, "delivered": 0, "read": 0, "failed": 0, "total": 0}'::jsonb"""
             ),
@@ -92,30 +115,41 @@ def upgrade() -> None:
         sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=False),
         # Timestamps
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["created_by"], ["public.admins.id"],
+            ["created_by"],
+            ["public.admins.id"],
         ),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_campaigns_status", "campaigns", ["status"],
+        "ix_campaigns_status",
+        "campaigns",
+        ["status"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_campaigns_scheduled_at", "campaigns", ["scheduled_at"],
+        "ix_campaigns_scheduled_at",
+        "campaigns",
+        ["scheduled_at"],
         schema=TENANT_SCHEMA,
         postgresql_where=sa.text("scheduled_at IS NOT NULL"),
     )
     op.create_index(
-        "ix_campaigns_created_by", "campaigns", ["created_by"],
+        "ix_campaigns_created_by",
+        "campaigns",
+        ["created_by"],
         schema=TENANT_SCHEMA,
     )
 
@@ -123,16 +157,20 @@ def upgrade() -> None:
     op.create_table(
         "campaign_recipients",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         # Foreign keys
         sa.Column("campaign_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("contact_id", postgresql.UUID(as_uuid=True), nullable=False),
         # Delivery status
         sa.Column(
-            "status", recipientstatus,
-            server_default="pending", nullable=False,
+            "status",
+            recipientstatus,
+            server_default="pending",
+            nullable=False,
         ),
         # Delivery details
         sa.Column("whatsapp_message_id", sa.String(100), nullable=True),
@@ -142,30 +180,38 @@ def upgrade() -> None:
         sa.Column("error_message", sa.Text(), nullable=True),
         # Timestamp
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["campaign_id"], [f"{TENANT_SCHEMA}.campaigns.id"],
+            ["campaign_id"],
+            [f"{TENANT_SCHEMA}.campaigns.id"],
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["contact_id"], [f"{TENANT_SCHEMA}.contacts.id"],
+            ["contact_id"],
+            [f"{TENANT_SCHEMA}.contacts.id"],
         ),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_recipients_campaign_status", "campaign_recipients",
+        "ix_recipients_campaign_status",
+        "campaign_recipients",
         ["campaign_id", "status"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_recipients_contact_id", "campaign_recipients", ["contact_id"],
+        "ix_recipients_contact_id",
+        "campaign_recipients",
+        ["contact_id"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_recipients_whatsapp_msg_id", "campaign_recipients",
+        "ix_recipients_whatsapp_msg_id",
+        "campaign_recipients",
         ["whatsapp_message_id"],
         schema=TENANT_SCHEMA,
         postgresql_where=sa.text("whatsapp_message_id IS NOT NULL"),

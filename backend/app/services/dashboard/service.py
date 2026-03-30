@@ -5,7 +5,7 @@ Runs all aggregate queries within a single tenant DB session for efficiency.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy import func, select
@@ -47,8 +47,11 @@ class DashboardService:
             active_conversations = active_result.scalar_one()
 
             # 2. Messages today
-            today_start = datetime.now(timezone.utc).replace(
-                hour=0, minute=0, second=0, microsecond=0,
+            today_start = datetime.now(UTC).replace(
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
             )
             msg_result = await session.execute(
                 select(func.count(Message.id)).where(

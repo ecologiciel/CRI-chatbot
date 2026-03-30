@@ -164,9 +164,7 @@ class EmbeddingService:
             # Split into sub-batches
             for i in range(0, len(request.texts), self._batch_size):
                 batch = request.texts[i : i + self._batch_size]
-                vectors, tokens = await self._embed_batch_internal(
-                    batch, request.task_type
-                )
+                vectors, tokens = await self._embed_batch_internal(batch, request.task_type)
                 all_vectors.extend(vectors)
                 total_tokens += tokens
 

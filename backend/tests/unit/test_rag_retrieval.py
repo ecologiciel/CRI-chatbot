@@ -96,7 +96,8 @@ class TestRetrieveWithFilters:
         service, _, qdrant = _make_service()
 
         await service.retrieve(
-            tenant_context, "test",
+            tenant_context,
+            "test",
             filters={"applicable_sectors": ["industrie", "tourisme"]},
             language="fr",
         )

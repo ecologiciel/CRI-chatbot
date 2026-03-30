@@ -67,7 +67,9 @@ class WhatsAppSessionManager:
         self.logger = logger.bind(service="whatsapp_session")
 
     async def get_or_create_session(
-        self, tenant: TenantContext, phone: str,
+        self,
+        tenant: TenantContext,
+        phone: str,
     ) -> SessionInfo:
         """Get existing session or create new one on inbound message.
 
@@ -126,7 +128,9 @@ class WhatsAppSessionManager:
         )
 
     async def get_session(
-        self, tenant: TenantContext, phone: str,
+        self,
+        tenant: TenantContext,
+        phone: str,
     ) -> SessionInfo:
         """Get session info without modifying it.
 
@@ -156,7 +160,9 @@ class WhatsAppSessionManager:
         )
 
     async def close_session(
-        self, tenant: TenantContext, phone: str,
+        self,
+        tenant: TenantContext,
+        phone: str,
     ) -> None:
         """Explicitly close a session (e.g., on conversation end)."""
         redis = get_redis()
@@ -209,9 +215,7 @@ class WhatsAppSessionManager:
         # Get limit from tenant config or use default
         annual_limit = DEFAULT_ANNUAL_LIMIT
         if tenant.whatsapp_config and isinstance(tenant.whatsapp_config, dict):
-            annual_limit = tenant.whatsapp_config.get(
-                "annual_message_limit", DEFAULT_ANNUAL_LIMIT
-            )
+            annual_limit = tenant.whatsapp_config.get("annual_message_limit", DEFAULT_ANNUAL_LIMIT)
 
         remaining = max(0, annual_limit - annual_count)
         is_warning = annual_count >= int(annual_limit * WARNING_THRESHOLD)
@@ -227,7 +231,9 @@ class WhatsAppSessionManager:
         )
 
     async def is_duplicate_message(
-        self, tenant: TenantContext, wamid: str,
+        self,
+        tenant: TenantContext,
+        wamid: str,
     ) -> bool:
         """Check if a WhatsApp message was already processed (dedup).
 

@@ -10,7 +10,6 @@ Handles:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 import structlog
 from sqlalchemy import func, select
@@ -122,11 +121,13 @@ class FeedbackService:
         existing_result = await session.execute(
             select(UnansweredQuestion).where(
                 UnansweredQuestion.question == question_text,
-                UnansweredQuestion.status.in_([
-                    UnansweredStatus.pending,
-                    UnansweredStatus.approved,
-                    UnansweredStatus.modified,
-                ]),
+                UnansweredQuestion.status.in_(
+                    [
+                        UnansweredStatus.pending,
+                        UnansweredStatus.approved,
+                        UnansweredStatus.modified,
+                    ]
+                ),
             ),
         )
         existing = existing_result.scalar_one_or_none()
@@ -216,9 +217,7 @@ class FeedbackService:
             # Paginated data
             offset = (page - 1) * page_size
             data_result = await session.execute(
-                base.order_by(Feedback.created_at.desc())
-                .offset(offset)
-                .limit(page_size),
+                base.order_by(Feedback.created_at.desc()).offset(offset).limit(page_size),
             )
             items = list(data_result.scalars().all())
 

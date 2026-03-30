@@ -13,8 +13,9 @@ os.environ.setdefault("REDIS_PASSWORD", "test-password")
 os.environ.setdefault("MINIO_ROOT_PASSWORD", "test-password")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key")
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.core.rbac import get_current_admin
 from app.core.tenant import TenantContext

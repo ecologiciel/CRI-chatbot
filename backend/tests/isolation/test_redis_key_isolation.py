@@ -4,8 +4,9 @@ Verifies that all Redis operations are scoped to the tenant's prefix,
 making cross-tenant key access impossible at the application level.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from app.services.whatsapp.webhook import WhatsAppWebhookService
 

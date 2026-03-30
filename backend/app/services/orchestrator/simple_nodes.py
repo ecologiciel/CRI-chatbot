@@ -69,6 +69,3 @@ class TrackingPlaceholder:
     async def handle(self, state: ConversationState) -> ConversationState:
         lang = state.get("language", "fr")
         return {"response": self.MESSAGES.get(lang, self.MESSAGES["fr"])}  # type: ignore[return-value]
-
-
-

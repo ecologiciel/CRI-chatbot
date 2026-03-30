@@ -53,15 +53,12 @@ def _make_session(is_duplicate=False, point_ids=None):
 
     mock_result = MagicMock()
     mock_result.first.return_value = MagicMock() if is_duplicate else None
-    mock_result.fetchall.return_value = (
-        [(pid,) for pid in point_ids] if point_ids else []
-    )
+    mock_result.fetchall.return_value = [(pid,) for pid in point_ids] if point_ids else []
     session.execute = AsyncMock(return_value=mock_result)
     return session
 
 
 class TestIngestPipeline:
-
     @pytest.mark.asyncio
     async def test_full_pipeline_returns_chunk_count(self, tenant_context):
         """Happy path: returns chunk count, Qdrant upserted."""
@@ -89,7 +86,10 @@ class TestIngestPipeline:
         ):
             service = IngestionService()
             count = await service.ingest_document(
-                tenant_context, DOC_ID, "Full document text.", "Test Doc",
+                tenant_context,
+                DOC_ID,
+                "Full document text.",
+                "Test Doc",
             )
 
         assert count == 3
@@ -97,7 +97,6 @@ class TestIngestPipeline:
 
 
 class TestDuplicateDetection:
-
     @pytest.mark.asyncio
     async def test_duplicate_content_returns_zero(self, tenant_context):
         """Duplicate SHA256 hash returns 0 chunks."""
@@ -117,7 +116,10 @@ class TestDuplicateDetection:
         ):
             service = IngestionService()
             count = await service.ingest_document(
-                tenant_context, DOC_ID, "Duplicate text.", "Doc",
+                tenant_context,
+                DOC_ID,
+                "Duplicate text.",
+                "Doc",
             )
 
         assert count == 0
@@ -125,7 +127,6 @@ class TestDuplicateDetection:
 
 
 class TestQdrantFailure:
-
     @pytest.mark.asyncio
     async def test_qdrant_failure_raises(self, tenant_context):
         """Qdrant exception wrapped in IngestionError."""
@@ -153,12 +154,14 @@ class TestQdrantFailure:
             service = IngestionService()
             with pytest.raises(IngestionError, match="Ingestion failed"):
                 await service.ingest_document(
-                    tenant_context, DOC_ID, "Content.", "Doc",
+                    tenant_context,
+                    DOC_ID,
+                    "Content.",
+                    "Doc",
                 )
 
 
 class TestMetadataEnrichment:
-
     @pytest.mark.asyncio
     async def test_invalid_json_returns_empty_dicts(self, tenant_context):
         """Non-JSON from Gemini doesn't block ingestion."""
@@ -185,14 +188,16 @@ class TestMetadataEnrichment:
         ):
             service = IngestionService()
             count = await service.ingest_document(
-                tenant_context, DOC_ID, "Content here.", "Doc",
+                tenant_context,
+                DOC_ID,
+                "Content here.",
+                "Doc",
             )
 
         assert count == 3
 
 
 class TestDeleteDocument:
-
     @pytest.mark.asyncio
     async def test_delete_removes_points_and_db(self, tenant_context):
         """delete_document calls Qdrant.delete with point IDs."""

@@ -40,19 +40,25 @@ class InternalWhitelist(UUIDMixin, TimestampMixin, Base):
     )
 
     phone: Mapped[str] = mapped_column(
-        String(20), nullable=False,
+        String(20),
+        nullable=False,
         comment="E.164 format, e.g. +212612345678",
     )
     label: Mapped[str | None] = mapped_column(
-        String(255), nullable=True,
+        String(255),
+        nullable=True,
         comment="Optional display label (e.g. employee name or department)",
     )
     note: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
         comment="Admin note about why this number was whitelisted",
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=text("true"),
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
     )
     added_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

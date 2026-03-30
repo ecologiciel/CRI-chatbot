@@ -6,11 +6,10 @@ Key: phone in E.164 format. CIN added via suivi de dossier auth.
 
 from __future__ import annotations
 
-import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, Index, String, Text, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import Enum, Index, String, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -43,9 +42,7 @@ class Contact(UUIDMixin, TimestampMixin, Base):
         default=Language.fr,
         server_default=Language.fr.value,
     )
-    cin: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, comment="CIN marocain"
-    )
+    cin: Mapped[str | None] = mapped_column(String(20), nullable=True, comment="CIN marocain")
 
     # Consent & source
     opt_in_status: Mapped[OptInStatus] = mapped_column(
@@ -55,7 +52,9 @@ class Contact(UUIDMixin, TimestampMixin, Base):
         server_default=OptInStatus.pending.value,
     )
     tags: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb"),
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
     )
     source: Mapped[ContactSource] = mapped_column(
         Enum(ContactSource, name="contactsource", schema="public"),
@@ -66,7 +65,10 @@ class Contact(UUIDMixin, TimestampMixin, Base):
 
     # Extensible metadata
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True, default=None,
+        "metadata",
+        JSONB,
+        nullable=True,
+        default=None,
     )
 
     # Relationships

@@ -12,9 +12,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.enums import TenantStatus
 
 # Reserved slugs that would conflict with PostgreSQL schemas or internal routing
-_RESERVED_SLUGS = frozenset({
-    "admin", "api", "public", "system", "tenant", "test",
-})
+_RESERVED_SLUGS = frozenset(
+    {
+        "admin",
+        "api",
+        "public",
+        "system",
+        "tenant",
+        "test",
+    }
+)
 
 
 class WhatsAppConfig(BaseModel):
@@ -23,9 +30,7 @@ class WhatsAppConfig(BaseModel):
     phone_number_id: str = Field(..., description="Meta phone number ID")
     access_token: str = Field(..., description="Meta API access token")
     verify_token: str = Field(..., description="Webhook verification token")
-    business_account_id: str = Field(
-        default="", description="WhatsApp Business Account ID"
-    )
+    business_account_id: str = Field(default="", description="WhatsApp Business Account ID")
 
     model_config = ConfigDict(extra="allow")
 
@@ -35,16 +40,16 @@ class TenantCreate(BaseModel):
 
     name: str = Field(..., min_length=2, max_length=255, description="Nom complet du CRI")
     slug: str = Field(
-        ..., min_length=2, max_length=50,
+        ...,
+        min_length=2,
+        max_length=50,
         pattern=r"^[a-z][a-z0-9-]*$",
         description="Identifiant unique (lowercase, alphanumeric, hyphens)",
     )
     region: str = Field(..., min_length=2, max_length=255, description="Region couverte")
     logo_url: str | None = Field(default=None, description="URL logo")
     accent_color: str | None = Field(default=None, description="CSS HSL color")
-    whatsapp_config: WhatsAppConfig | None = Field(
-        default=None, description="Config WhatsApp"
-    )
+    whatsapp_config: WhatsAppConfig | None = Field(default=None, description="Config WhatsApp")
     max_contacts: int = Field(default=20_000, ge=100, le=1_000_000)
     max_messages_per_year: int = Field(default=100_000, ge=1000, le=10_000_000)
     max_admins: int = Field(default=10, ge=1, le=100)

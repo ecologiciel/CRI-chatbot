@@ -59,9 +59,7 @@ async def get_current_admin(
     ip_address = request.client.host if request.client else None
 
     auth_service = AuthService()
-    payload = await auth_service.verify_access_token(
-        credentials.credentials, ip_address=ip_address
-    )
+    payload = await auth_service.verify_access_token(credentials.credentials, ip_address=ip_address)
 
     # Verify admin still active in DB (token could outlive deactivation)
     factory = get_session_factory()

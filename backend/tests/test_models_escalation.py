@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 
 import pytest
-
 
 # ── 1. Model import ─────────────────────────────────────────────
 
@@ -156,12 +156,12 @@ def test_escalation_respond_valid():
 
 def test_escalation_read_wait_time_for_pending():
     """EscalationRead computes wait_time_seconds for pending escalations."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.models.enums import EscalationPriority, EscalationStatus, EscalationTrigger
     from app.schemas.escalation import EscalationRead
 
-    created = datetime.now(timezone.utc) - timedelta(minutes=5)
+    created = datetime.now(UTC) - timedelta(minutes=5)
     esc = EscalationRead(
         id=uuid.uuid4(),
         conversation_id=uuid.uuid4(),
@@ -182,12 +182,12 @@ def test_escalation_read_wait_time_for_pending():
 
 def test_escalation_read_no_wait_time_for_resolved():
     """EscalationRead does not compute wait_time for resolved escalations."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.models.enums import EscalationPriority, EscalationStatus, EscalationTrigger
     from app.schemas.escalation import EscalationRead
 
-    created = datetime.now(timezone.utc) - timedelta(hours=1)
+    created = datetime.now(UTC) - timedelta(hours=1)
     esc = EscalationRead(
         id=uuid.uuid4(),
         conversation_id=uuid.uuid4(),

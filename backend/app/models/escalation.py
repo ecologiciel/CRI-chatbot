@@ -101,10 +101,12 @@ class Escalation(UUIDMixin, Base):
         server_default=func.now(),
     )
     assigned_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
     resolved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     # ── Relationships ─────────────────────────────────────────────

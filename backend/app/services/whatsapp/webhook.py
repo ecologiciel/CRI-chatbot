@@ -116,7 +116,9 @@ class WhatsAppWebhookService:
                 if value.messages:
                     for msg in value.messages:
                         await WhatsAppWebhookService._process_message(
-                            tenant, msg, value.contacts,
+                            tenant,
+                            msg,
+                            value.contacts,
                         )
 
                 # 7. Process statuses
@@ -126,7 +128,8 @@ class WhatsAppWebhookService:
 
     @staticmethod
     def _validate_hmac_signature(
-        raw_body: bytes, signature: str | None,
+        raw_body: bytes,
+        signature: str | None,
     ) -> None:
         """Verify HMAC-SHA256 signature using the global app_secret.
 
@@ -196,7 +199,9 @@ class WhatsAppWebhookService:
             tenant_slug=tenant.slug,
             message_id=status.id,
             status=status.status,
-            recipient_id=f"***{status.recipient_id[-4:]}" if len(status.recipient_id) > 4 else "***",
+            recipient_id=f"***{status.recipient_id[-4:]}"
+            if len(status.recipient_id) > 4
+            else "***",
         )
 
         # TODO: Update message status in DB (Wave 5 — conversation service)

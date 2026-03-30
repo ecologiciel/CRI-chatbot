@@ -27,7 +27,9 @@ def _make_httpx_mock(response_json=None, status_error=False):
             "error": {"code": 500, "message": "Internal Error"},
         }
         error = httpx.HTTPStatusError(
-            "500 error", request=MagicMock(), response=mock_response,
+            "500 error",
+            request=MagicMock(),
+            response=mock_response,
         )
         response.raise_for_status = MagicMock(side_effect=error)
 
@@ -54,7 +56,9 @@ class TestSendText:
 
         with patch(_HTTPX_PATCH, mock_httpx):
             wamid = await service.send_text(
-                tenant_context, "+212600000001", "Bonjour",
+                tenant_context,
+                "+212600000001",
+                "Bonjour",
             )
 
         assert wamid == "wamid.test123"
@@ -68,13 +72,14 @@ class TestSendButtons:
     async def test_buttons_max_3_enforcement(self, tenant_context):
         """4 buttons raises ValueError."""
         service = WhatsAppSenderService()
-        buttons = [
-            {"id": f"btn-{i}", "title": f"Button {i}"} for i in range(4)
-        ]
+        buttons = [{"id": f"btn-{i}", "title": f"Button {i}"} for i in range(4)]
 
         with pytest.raises(ValueError, match="at most 3"):
             await service.send_buttons(
-                tenant_context, "+212600000001", "Choose", buttons,
+                tenant_context,
+                "+212600000001",
+                "Choose",
+                buttons,
             )
 
 
@@ -86,15 +91,20 @@ class TestSendList:
         """send_list with sections returns wamid."""
         mock_httpx, _ = _make_httpx_mock()
         service = WhatsAppSenderService()
-        sections = [{
-            "title": "Category",
-            "rows": [{"id": "r1", "title": "Row 1"}],
-        }]
+        sections = [
+            {
+                "title": "Category",
+                "rows": [{"id": "r1", "title": "Row 1"}],
+            }
+        ]
 
         with patch(_HTTPX_PATCH, mock_httpx):
             wamid = await service.send_list(
-                tenant_context, "+212600000001",
-                "Choisissez:", "Options", sections,
+                tenant_context,
+                "+212600000001",
+                "Choisissez:",
+                "Options",
+                sections,
             )
 
         assert wamid == "wamid.test123"
@@ -109,11 +119,15 @@ class TestMetaAPIError:
         mock_httpx, _ = _make_httpx_mock(status_error=True)
         service = WhatsAppSenderService()
 
-        with patch(_HTTPX_PATCH, mock_httpx):
-            with pytest.raises(WhatsAppSendError, match="Meta API error"):
-                await service.send_text(
-                    tenant_context, "+212600000001", "Test",
-                )
+        with (
+            patch(_HTTPX_PATCH, mock_httpx),
+            pytest.raises(WhatsAppSendError, match="Meta API error"),
+        ):
+            await service.send_text(
+                tenant_context,
+                "+212600000001",
+                "Test",
+            )
 
 
 class TestMissingConfig:
@@ -126,5 +140,7 @@ class TestMissingConfig:
 
         with pytest.raises(WhatsAppSendError, match="not configured"):
             await service.send_text(
-                tenant_no_whatsapp, "+212600000001", "Test",
+                tenant_no_whatsapp,
+                "+212600000001",
+                "Test",
             )

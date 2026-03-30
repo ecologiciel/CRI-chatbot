@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import DuplicateResourceError, ResourceNotFoundError
@@ -142,9 +142,7 @@ class ContactService:
             # Paginated data
             offset = (page - 1) * page_size
             data_result = await session.execute(
-                base.order_by(Contact.created_at.desc())
-                .offset(offset)
-                .limit(page_size),
+                base.order_by(Contact.created_at.desc()).offset(offset).limit(page_size),
             )
             items = list(data_result.scalars().all())
 

@@ -29,9 +29,15 @@ META_GRAPH_URL = "https://graph.facebook.com/v21.0"
 DOWNLOAD_TIMEOUT = 60.0
 
 ALLOWED_IMAGE_MIMES = frozenset({"image/jpeg", "image/png", "image/webp"})
-ALLOWED_AUDIO_MIMES = frozenset({
-    "audio/ogg", "audio/mpeg", "audio/amr", "audio/aac", "audio/mp4",
-})
+ALLOWED_AUDIO_MIMES = frozenset(
+    {
+        "audio/ogg",
+        "audio/mpeg",
+        "audio/amr",
+        "audio/aac",
+        "audio/mp4",
+    }
+)
 ALL_ALLOWED_MIMES = ALLOWED_IMAGE_MIMES | ALLOWED_AUDIO_MIMES
 
 MIME_TO_EXT: dict[str, str] = {
@@ -45,8 +51,8 @@ MIME_TO_EXT: dict[str, str] = {
     "audio/mp4": "m4a",
 }
 
-MAX_SIZE_IMAGE = 16 * 1024 * 1024   # 16 MB
-MAX_SIZE_AUDIO = 25 * 1024 * 1024   # 25 MB
+MAX_SIZE_IMAGE = 16 * 1024 * 1024  # 16 MB
+MAX_SIZE_AUDIO = 25 * 1024 * 1024  # 25 MB
 
 # ---------------------------------------------------------------------------
 # Gemini prompts (no PII, CRI institutional tone)
@@ -70,9 +76,9 @@ class MediaResult:
     """Outcome of media processing — always returned, never raises."""
 
     extracted_text: str  # Text from Gemini analysis (empty on failure)
-    minio_path: str      # "cri-{slug}/media/2026-03/{id}.jpg" (empty on failure)
-    media_type: str      # "image" | "audio" | "unsupported"
-    analysis: str        # "success" | error description
+    minio_path: str  # "cri-{slug}/media/2026-03/{id}.jpg" (empty on failure)
+    media_type: str  # "image" | "audio" | "unsupported"
+    analysis: str  # "success" | error description
     success: bool
 
 
@@ -141,12 +147,17 @@ class WhatsAppMediaHandler:
 
             # 4. Store in MinIO
             minio_path = await self._upload_to_minio(
-                tenant, media_id, media_bytes, clean_mime,
+                tenant,
+                media_id,
+                media_bytes,
+                clean_mime,
             )
 
             # 5. Analyze with Gemini (graceful — failure does not block storage)
             extracted_text = await self._analyze_with_gemini(
-                media_bytes, clean_mime, media_type,
+                media_bytes,
+                clean_mime,
+                media_type,
             )
 
             self.logger.info(

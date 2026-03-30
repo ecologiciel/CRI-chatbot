@@ -13,9 +13,10 @@ Creates:
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "005"
 down_revision: str = "004"
@@ -25,17 +26,33 @@ depends_on: str | Sequence[str] | None = None
 # ── ENUM types (public schema, shared across tenants) ──
 
 escalationtrigger = postgresql.ENUM(
-    "explicit_request", "rag_failure", "sensitive_topic",
-    "negative_feedback", "otp_timeout", "manual",
-    name="escalationtrigger", schema="public", create_type=False,
+    "explicit_request",
+    "rag_failure",
+    "sensitive_topic",
+    "negative_feedback",
+    "otp_timeout",
+    "manual",
+    name="escalationtrigger",
+    schema="public",
+    create_type=False,
 )
 escalationpriority = postgresql.ENUM(
-    "high", "medium", "low",
-    name="escalationpriority", schema="public", create_type=False,
+    "high",
+    "medium",
+    "low",
+    name="escalationpriority",
+    schema="public",
+    create_type=False,
 )
 escalationstatus = postgresql.ENUM(
-    "pending", "assigned", "in_progress", "resolved", "closed",
-    name="escalationstatus", schema="public", create_type=False,
+    "pending",
+    "assigned",
+    "in_progress",
+    "resolved",
+    "closed",
+    name="escalationstatus",
+    schema="public",
+    create_type=False,
 )
 
 ALL_ENUMS = [escalationtrigger, escalationpriority, escalationstatus]
@@ -54,25 +71,31 @@ def upgrade() -> None:
     op.create_table(
         "escalations",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         # Foreign keys
         sa.Column(
-            "conversation_id", postgresql.UUID(as_uuid=True),
+            "conversation_id",
+            postgresql.UUID(as_uuid=True),
             nullable=False,
         ),
         sa.Column(
-            "assigned_to", postgresql.UUID(as_uuid=True),
+            "assigned_to",
+            postgresql.UUID(as_uuid=True),
             nullable=True,
         ),
         # Trigger & priority
         sa.Column(
-            "trigger_type", escalationtrigger,
+            "trigger_type",
+            escalationtrigger,
             nullable=False,
         ),
         sa.Column(
-            "priority", escalationpriority,
+            "priority",
+            escalationpriority,
             nullable=False,
         ),
         # Context
@@ -80,21 +103,27 @@ def upgrade() -> None:
         sa.Column("user_message", sa.Text(), nullable=True),
         # Status
         sa.Column(
-            "status", escalationstatus,
-            nullable=False, server_default="pending",
+            "status",
+            escalationstatus,
+            nullable=False,
+            server_default="pending",
         ),
         sa.Column("resolution_notes", sa.Text(), nullable=True),
         # Timestamps
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            nullable=False, server_default=sa.text("NOW()"),
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("NOW()"),
         ),
         sa.Column(
-            "assigned_at", sa.DateTime(timezone=True),
+            "assigned_at",
+            sa.DateTime(timezone=True),
             nullable=True,
         ),
         sa.Column(
-            "resolved_at", sa.DateTime(timezone=True),
+            "resolved_at",
+            sa.DateTime(timezone=True),
             nullable=True,
         ),
         # Constraints

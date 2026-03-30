@@ -16,7 +16,6 @@ from app.core.exceptions import WhatsAppSendError
 from app.core.tenant import TenantContext
 from app.services.whatsapp.sender import WhatsAppSenderService
 
-
 # --- Fixtures ---
 
 TEST_TENANT_ID = uuid.uuid4()
@@ -121,10 +120,7 @@ class TestSendButtons:
         tenant = _make_tenant_context()
         sender = WhatsAppSenderService()
 
-        buttons = [
-            {"id": f"btn_{i}", "title": f"Option {i}"}
-            for i in range(4)
-        ]
+        buttons = [{"id": f"btn_{i}", "title": f"Option {i}"} for i in range(4)]
 
         with pytest.raises(ValueError, match="at most 3 buttons"):
             await sender.send_buttons(tenant, "+212600000001", "Choose:", buttons)
@@ -144,7 +140,11 @@ class TestSendList:
             {
                 "title": "Procédures",
                 "rows": [
-                    {"id": "proc_1", "title": "Création d'entreprise", "description": "SARL, SA, SNC"},
+                    {
+                        "id": "proc_1",
+                        "title": "Création d'entreprise",
+                        "description": "SARL, SA, SNC",
+                    },
                     {"id": "proc_2", "title": "Convention d'investissement"},
                 ],
             }
@@ -152,7 +152,11 @@ class TestSendList:
 
         with patch("app.services.whatsapp.sender.httpx.AsyncClient", return_value=mock_client):
             wamid = await sender.send_list(
-                tenant, "+212600000001", "Choisissez un service:", "Services", sections,
+                tenant,
+                "+212600000001",
+                "Choisissez un service:",
+                "Services",
+                sections,
             )
 
         assert wamid == "wamid.list_123"
@@ -176,7 +180,10 @@ class TestSendTemplate:
 
         with patch("app.services.whatsapp.sender.httpx.AsyncClient", return_value=mock_client):
             wamid = await sender.send_template(
-                tenant, "+212600000001", "welcome_message", "fr",
+                tenant,
+                "+212600000001",
+                "welcome_message",
+                "fr",
             )
 
         assert wamid == "wamid.tpl_123"

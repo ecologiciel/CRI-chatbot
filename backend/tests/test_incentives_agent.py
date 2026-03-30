@@ -6,9 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.tenant import TenantContext
-from app.services.orchestrator.incentives_agent import IncentivesAgent, _FALLBACK
+from app.services.orchestrator.incentives_agent import _FALLBACK, IncentivesAgent
 from app.services.orchestrator.state import ConversationState
-
 
 # --- Fixtures ---
 

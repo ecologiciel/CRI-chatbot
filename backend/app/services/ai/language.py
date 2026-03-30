@@ -30,17 +30,57 @@ _ARABIC_RANGES = (
 
 # ── Indicator word sets ──
 
-_FRENCH_INDICATORS = frozenset({
-    "le", "la", "les", "de", "du", "des", "un", "une",
-    "et", "est", "en", "que", "qui", "dans", "pour",
-    "sur", "avec", "par", "pas", "sont", "nous", "vous",
-})
+_FRENCH_INDICATORS = frozenset(
+    {
+        "le",
+        "la",
+        "les",
+        "de",
+        "du",
+        "des",
+        "un",
+        "une",
+        "et",
+        "est",
+        "en",
+        "que",
+        "qui",
+        "dans",
+        "pour",
+        "sur",
+        "avec",
+        "par",
+        "pas",
+        "sont",
+        "nous",
+        "vous",
+    }
+)
 
-_ENGLISH_INDICATORS = frozenset({
-    "the", "is", "are", "was", "were", "have", "has",
-    "with", "this", "that", "for", "from", "not", "but",
-    "they", "which", "will", "can", "been", "would",
-})
+_ENGLISH_INDICATORS = frozenset(
+    {
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "have",
+        "has",
+        "with",
+        "this",
+        "that",
+        "for",
+        "from",
+        "not",
+        "but",
+        "they",
+        "which",
+        "will",
+        "can",
+        "been",
+        "would",
+    }
+)
 
 # ── Thresholds ──
 
@@ -91,7 +131,9 @@ class LanguageDetectionService:
 
         if len(stripped) < MIN_TEXT_LENGTH:
             return LanguageResult(
-                language=Language.fr, confidence=0.5, method="default",
+                language=Language.fr,
+                confidence=0.5,
+                method="default",
             )
 
         # Step 1: Arabic check
@@ -136,7 +178,9 @@ class LanguageDetectionService:
             text_length=len(stripped),
         )
         return LanguageResult(
-            language=Language.fr, confidence=0.3, method="default",
+            language=Language.fr,
+            confidence=0.3,
+            method="default",
         )
 
     def _detect_arabic(self, text: str) -> LanguageResult | None:
@@ -201,7 +245,9 @@ class LanguageDetectionService:
         return None  # Ambiguous
 
     async def _gemini_detect(
-        self, text: str, tenant: TenantContext,
+        self,
+        text: str,
+        tenant: TenantContext,
     ) -> LanguageResult | None:
         """Fallback: ask Gemini to detect language (~10 tokens).
 

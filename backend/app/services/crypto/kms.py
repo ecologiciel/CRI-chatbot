@@ -18,7 +18,7 @@ from __future__ import annotations
 import base64
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from cryptography.exceptions import InvalidTag
@@ -97,9 +97,7 @@ class KMSService:
             tenant_id=str(tenant_id),
         )
 
-    async def rotate_key(
-        self, tenant_id: uuid.UUID, tenant_slug: str
-    ) -> None:
+    async def rotate_key(self, tenant_id: uuid.UUID, tenant_slug: str) -> None:
         """Rotate the encryption key for a tenant.
 
         Deactivates the current key and generates a new one with an
@@ -130,7 +128,7 @@ class KMSService:
                 .where(TenantKey.is_active.is_(True))
                 .values(
                     is_active=False,
-                    rotated_at=datetime.now(timezone.utc),
+                    rotated_at=datetime.now(UTC),
                 )
             )
 
@@ -156,9 +154,7 @@ class KMSService:
             new_version=current_version + 1,
         )
 
-    async def delete_tenant_key(
-        self, tenant_id: uuid.UUID, tenant_slug: str
-    ) -> None:
+    async def delete_tenant_key(self, tenant_id: uuid.UUID, tenant_slug: str) -> None:
         """Delete all keys for a tenant (provisioning rollback / deprovision).
 
         Args:
@@ -172,9 +168,7 @@ class KMSService:
         async with self._session_factory() as session:
             from sqlalchemy import delete
 
-            await session.execute(
-                delete(TenantKey).where(TenantKey.tenant_id == tenant_id)
-            )
+            await session.execute(delete(TenantKey).where(TenantKey.tenant_id == tenant_id))
             await session.commit()
 
         self._log.info(
@@ -201,16 +195,12 @@ class KMSService:
             data_key = await self._get_data_key(tenant_slug)
             aesgcm = AESGCM(data_key)
             nonce = secrets.token_bytes(self.NONCE_SIZE)
-            ciphertext = aesgcm.encrypt(
-                nonce, plaintext.encode("utf-8"), None
-            )
+            ciphertext = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
             return base64.b64encode(nonce + ciphertext).decode("ascii")
         except CRIDecryptionError:
             raise
         except Exception as exc:
-            raise CRIEncryptionError(
-                f"Encryption failed for tenant {tenant_slug}"
-            ) from exc
+            raise CRIEncryptionError(f"Encryption failed for tenant {tenant_slug}") from exc
 
     async def decrypt(self, ciphertext_b64: str, tenant_slug: str) -> str:
         """Decrypt a base64-encoded ciphertext with the tenant's data key.
@@ -246,9 +236,7 @@ class KMSService:
                 "invalid tag (tampered or wrong key)"
             ) from None
         except Exception as exc:
-            raise CRIDecryptionError(
-                f"Decryption failed for tenant {tenant_slug}"
-            ) from exc
+            raise CRIDecryptionError(f"Decryption failed for tenant {tenant_slug}") from exc
 
     # ── Internal ──
 
@@ -286,9 +274,7 @@ class KMSService:
             row = result.scalar_one_or_none()
 
         if row is None:
-            raise CRIDecryptionError(
-                f"No active encryption key for tenant {tenant_slug}"
-            )
+            raise CRIDecryptionError(f"No active encryption key for tenant {tenant_slug}")
 
         encrypted_blob = bytes(row) if not isinstance(row, bytes) else row
 

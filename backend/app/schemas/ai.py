@@ -11,18 +11,14 @@ class GeminiRequest(BaseModel):
     """
 
     contents: str = Field(..., min_length=1, description="Prompt text (already anonymized)")
-    system_instruction: str | None = Field(
-        default=None, description="System-level instruction"
-    )
+    system_instruction: str | None = Field(default=None, description="System-level instruction")
     temperature: float | None = Field(
         default=None, ge=0.0, le=2.0, description="Override default temperature"
     )
     max_output_tokens: int | None = Field(
         default=None, gt=0, description="Override default max output tokens"
     )
-    trace_id: str | None = Field(
-        default=None, description="Correlation ID for log tracing"
-    )
+    trace_id: str | None = Field(default=None, description="Correlation ID for log tracing")
 
 
 class GeminiResponse(BaseModel):
@@ -49,9 +45,7 @@ class EmbeddingRequest(BaseModel):
         default="RETRIEVAL_DOCUMENT",
         description="RETRIEVAL_DOCUMENT (indexing) or RETRIEVAL_QUERY (search)",
     )
-    trace_id: str | None = Field(
-        default=None, description="Correlation ID for log tracing"
-    )
+    trace_id: str | None = Field(default=None, description="Correlation ID for log tracing")
 
 
 class EmbeddingResponse(BaseModel):

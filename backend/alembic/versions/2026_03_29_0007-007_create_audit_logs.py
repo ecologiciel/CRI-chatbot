@@ -16,9 +16,10 @@ See scripts/apply_audit_policy.sql for production GRANT/REVOKE commands.
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "007"
@@ -64,13 +65,10 @@ def upgrade() -> None:
         schema="public",
     )
     # DESC index for chronological queries — use raw SQL
-    op.execute(
-        "CREATE INDEX ix_audit_created ON public.audit_logs (created_at DESC)"
-    )
+    op.execute("CREATE INDEX ix_audit_created ON public.audit_logs (created_at DESC)")
     # Partial index — only rows with a known user
     op.execute(
-        "CREATE INDEX ix_audit_user ON public.audit_logs (user_id) "
-        "WHERE user_id IS NOT NULL"
+        "CREATE INDEX ix_audit_user ON public.audit_logs (user_id) " "WHERE user_id IS NOT NULL"
     )
     op.create_index(
         "ix_audit_action",

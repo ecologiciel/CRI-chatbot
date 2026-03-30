@@ -151,7 +151,9 @@ class GeminiService:
         """Internal method with tenacity retry. Raises raw SDK exceptions."""
         config = types.GenerateContentConfig(
             system_instruction=request.system_instruction,
-            temperature=request.temperature if request.temperature is not None else self._temperature,
+            temperature=request.temperature
+            if request.temperature is not None
+            else self._temperature,
             max_output_tokens=request.max_output_tokens or self._max_output_tokens,
         )
 

@@ -9,12 +9,15 @@ Resolution strategies:
   - slug (internal utility)
 """
 
+from __future__ import annotations
+
 import json
 import re
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import Request
@@ -29,6 +32,9 @@ from app.core.exceptions import (
 )
 from app.core.redis import get_redis
 from app.models.enums import TenantStatus
+
+if TYPE_CHECKING:
+    from app.models.tenant import Tenant
 
 logger = structlog.get_logger()
 
@@ -83,9 +89,7 @@ class TenantContext:
         """
         factory = get_session_factory()
         async with factory() as session:
-            await session.execute(
-                text(f"SET search_path TO {self.db_schema}, public")
-            )
+            await session.execute(text(f"SET search_path TO {self.db_schema}, public"))
             try:
                 yield session
                 await session.commit()
@@ -137,19 +141,17 @@ class TenantResolver:
         # 2. DB fallback
         try:
             tenant_uuid = uuid.UUID(tenant_id)
-        except ValueError:
+        except ValueError as err:
             raise TenantNotFoundError(
                 f"Invalid tenant ID format: {tenant_id}",
                 details={"identifier": tenant_id},
-            )
+            ) from err
 
         from app.models.tenant import Tenant
 
         factory = get_session_factory()
         async with factory() as session:
-            result = await session.execute(
-                select(Tenant).where(Tenant.id == tenant_uuid)
-            )
+            result = await session.execute(select(Tenant).where(Tenant.id == tenant_uuid))
             tenant = result.scalar_one_or_none()
 
         if not tenant:
@@ -202,8 +204,7 @@ class TenantResolver:
         async with factory() as session:
             result = await session.execute(
                 select(Tenant).where(
-                    Tenant.whatsapp_config["phone_number_id"].as_string()
-                    == phone_number_id,
+                    Tenant.whatsapp_config["phone_number_id"].as_string() == phone_number_id,
                     Tenant.status == TenantStatus.active,
                 )
             )
@@ -261,9 +262,7 @@ class TenantResolver:
 
         factory = get_session_factory()
         async with factory() as session:
-            result = await session.execute(
-                select(Tenant).where(Tenant.slug == slug)
-            )
+            result = await session.execute(select(Tenant).where(Tenant.slug == slug))
             tenant = result.scalar_one_or_none()
 
         if not tenant:
@@ -289,7 +288,7 @@ class TenantResolver:
     # --- Internal helpers ---
 
     @staticmethod
-    def _build_context(tenant: "Tenant") -> TenantContext:  # noqa: F821
+    def _build_context(tenant: Tenant) -> TenantContext:  # noqa: F821
         """Convert a Tenant ORM object to TenantContext."""
         return TenantContext(
             id=tenant.id,

@@ -110,12 +110,19 @@ class IncentivesService:
             if selected_item_id:
                 # Show item detail fiche
                 response = await self._show_item_detail(
-                    tenant, phone, language, selected_item_id,
+                    tenant,
+                    phone,
+                    language,
+                    selected_item_id,
                 )
             elif current_category_id:
                 # Navigate deeper into tree
                 response = await self._navigate_category(
-                    tenant, phone, language, current_category_id, inc_state,
+                    tenant,
+                    phone,
+                    language,
+                    current_category_id,
+                    inc_state,
                 )
             else:
                 # Show root categories
@@ -213,7 +220,9 @@ class IncentivesService:
         else:
             sections = self._categories_to_list(categories, language)
             await self._sender.send_list(
-                tenant, phone, body_text,
+                tenant,
+                phone,
+                body_text,
                 self._t(language, "list_button"),
                 sections,
             )
@@ -233,7 +242,9 @@ class IncentivesService:
         else:
             sections = self._items_to_list(items, language)
             await self._sender.send_list(
-                tenant, phone, body_text,
+                tenant,
+                phone,
+                body_text,
                 self._t(language, "list_button"),
                 sections,
             )
@@ -241,7 +252,8 @@ class IncentivesService:
     # ── Database queries ──
 
     async def _get_root_categories(
-        self, tenant: TenantContext,
+        self,
+        tenant: TenantContext,
     ) -> list[IncentiveCategory]:
         """Get top-level categories (parent_id IS NULL), ordered by order_index."""
         async with tenant.db_session() as session:
@@ -256,7 +268,9 @@ class IncentivesService:
             return list(result.scalars().all())
 
     async def _get_children(
-        self, tenant: TenantContext, parent_id: uuid.UUID,
+        self,
+        tenant: TenantContext,
+        parent_id: uuid.UUID,
     ) -> list[IncentiveCategory]:
         """Get child categories of a parent."""
         async with tenant.db_session() as session:
@@ -271,7 +285,9 @@ class IncentivesService:
             return list(result.scalars().all())
 
     async def _get_items(
-        self, tenant: TenantContext, category_id: uuid.UUID,
+        self,
+        tenant: TenantContext,
+        category_id: uuid.UUID,
     ) -> list[IncentiveItem]:
         """Get incentive items for a leaf category."""
         async with tenant.db_session() as session:
@@ -286,7 +302,9 @@ class IncentivesService:
             return list(result.scalars().all())
 
     async def _get_item_detail(
-        self, tenant: TenantContext, item_id: uuid.UUID,
+        self,
+        tenant: TenantContext,
+        item_id: uuid.UUID,
     ) -> IncentiveItem | None:
         """Get full detail of a single incentive item."""
         async with tenant.db_session() as session:
@@ -298,7 +316,9 @@ class IncentivesService:
     # ── Formatting helpers ──
 
     def _categories_to_buttons(
-        self, categories: list[IncentiveCategory], language: str,
+        self,
+        categories: list[IncentiveCategory],
+        language: str,
     ) -> list[dict[str, str]]:
         """Convert categories to WhatsApp button format (max 3).
 
@@ -314,7 +334,9 @@ class IncentivesService:
         ]
 
     def _categories_to_list(
-        self, categories: list[IncentiveCategory], language: str,
+        self,
+        categories: list[IncentiveCategory],
+        language: str,
     ) -> list[dict]:
         """Convert categories to WhatsApp list sections format.
 
@@ -325,16 +347,18 @@ class IncentivesService:
             {
                 "id": str(cat.id),
                 "title": self._get_localized_name(cat, language)[:MAX_LIST_ROW_TITLE_LENGTH],
-                "description": (
-                    self._get_localized_description(cat, language) or ""
-                )[:MAX_LIST_ROW_DESCRIPTION_LENGTH],
+                "description": (self._get_localized_description(cat, language) or "")[
+                    :MAX_LIST_ROW_DESCRIPTION_LENGTH
+                ],
             }
             for cat in categories
         ]
         return [{"title": self._t(language, "root"), "rows": rows}]
 
     def _items_to_buttons(
-        self, items: list[IncentiveItem], language: str,
+        self,
+        items: list[IncentiveItem],
+        language: str,
     ) -> list[dict[str, str]]:
         """Convert items to WhatsApp button format (max 3)."""
         return [
@@ -346,16 +370,18 @@ class IncentivesService:
         ]
 
     def _items_to_list(
-        self, items: list[IncentiveItem], language: str,
+        self,
+        items: list[IncentiveItem],
+        language: str,
     ) -> list[dict]:
         """Convert items to WhatsApp list sections format."""
         rows = [
             {
                 "id": str(item.id),
                 "title": self._get_localized_title(item, language)[:MAX_LIST_ROW_TITLE_LENGTH],
-                "description": (
-                    self._get_localized_description(item, language) or ""
-                )[:MAX_LIST_ROW_DESCRIPTION_LENGTH],
+                "description": (self._get_localized_description(item, language) or "")[
+                    :MAX_LIST_ROW_DESCRIPTION_LENGTH
+                ],
             }
             for item in items
         ]

@@ -1,11 +1,5 @@
 """Pydantic v2 schemas package."""
 
-from app.schemas.auth import (
-    AdminTokenPayload,
-    AuthTokenResponse,
-    LoginRequest,
-    RefreshTokenRequest,
-)
 from app.schemas.admin import (
     AdminCreate,
     AdminList,
@@ -13,14 +7,11 @@ from app.schemas.admin import (
     AdminResponse,
     AdminUpdate,
 )
-from app.schemas.escalation import (
-    EscalationAssign,
-    EscalationCreate,
-    EscalationList,
-    EscalationRead,
-    EscalationResolve,
-    EscalationRespond,
-    EscalationStats,
+from app.schemas.auth import (
+    AdminTokenPayload,
+    AuthTokenResponse,
+    LoginRequest,
+    RefreshTokenRequest,
 )
 from app.schemas.contact import (
     ContactCreate,
@@ -35,6 +26,15 @@ from app.schemas.conversation import (
     ConversationUpdate,
     MessageCreate,
     MessageResponse,
+)
+from app.schemas.escalation import (
+    EscalationAssign,
+    EscalationCreate,
+    EscalationList,
+    EscalationRead,
+    EscalationResolve,
+    EscalationRespond,
+    EscalationStats,
 )
 from app.schemas.feedback import (
     FeedbackCreate,

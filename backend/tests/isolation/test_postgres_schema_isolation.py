@@ -4,8 +4,9 @@ Verifies that TenantContext.db_session() scopes each tenant to its own
 schema via SET search_path, and that slug validation prevents SQL injection.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.core.tenant import TenantContext
 
@@ -44,7 +45,7 @@ class TestPostgresSchemaIsolation:
         mock_factory, mock_session = _make_mock_session_factory()
 
         with patch("app.core.tenant.get_session_factory", return_value=mock_factory):
-            async with tenant_alpha.db_session() as session:
+            async with tenant_alpha.db_session():
                 pass
 
         # First execute call is the SET search_path
@@ -59,7 +60,7 @@ class TestPostgresSchemaIsolation:
         mock_factory, mock_session = _make_mock_session_factory()
 
         with patch("app.core.tenant.get_session_factory", return_value=mock_factory):
-            async with tenant_beta.db_session() as session:
+            async with tenant_beta.db_session():
                 pass
 
         first_call = mock_session.execute.call_args_list[0]
@@ -76,7 +77,7 @@ class TestPostgresSchemaIsolation:
             mock_factory, mock_session = _make_mock_session_factory()
 
             with patch("app.core.tenant.get_session_factory", return_value=mock_factory):
-                async with tenant.db_session() as session:
+                async with tenant.db_session():
                     pass
 
             first_call = mock_session.execute.call_args_list[0]
@@ -94,23 +95,28 @@ class TestPostgresSchemaIsolation:
         """Slug with SQL injection characters is rejected at construction."""
         with pytest.raises(ValueError, match="Invalid tenant slug"):
             TenantContext(
-                id=TenantContext.__dataclass_fields__["id"].default if hasattr(TenantContext.__dataclass_fields__["id"], "default") else __import__("uuid").uuid4(),
+                id=TenantContext.__dataclass_fields__["id"].default
+                if hasattr(TenantContext.__dataclass_fields__["id"], "default")
+                else __import__("uuid").uuid4(),
                 slug="alpha; DROP TABLE admins;--",
                 name="Evil",
                 status="active",
                 whatsapp_config=None,
             )
 
-    @pytest.mark.parametrize("bad_slug", [
-        "Alpha",          # uppercase
-        "alpha beta",     # space
-        "alpha-beta",     # hyphen
-        "alpha.beta",     # dot
-        "_alpha",         # leading underscore
-        "alpha'OR'1'='1", # SQL injection
-        "",               # empty
-        "123; DROP",      # SQL with semicolon
-    ])
+    @pytest.mark.parametrize(
+        "bad_slug",
+        [
+            "Alpha",  # uppercase
+            "alpha beta",  # space
+            "alpha-beta",  # hyphen
+            "alpha.beta",  # dot
+            "_alpha",  # leading underscore
+            "alpha'OR'1'='1",  # SQL injection
+            "",  # empty
+            "123; DROP",  # SQL with semicolon
+        ],
+    )
     def test_invalid_slug_patterns_rejected(self, bad_slug):
         """Various invalid slug patterns are rejected by __post_init__."""
         with pytest.raises(ValueError, match="Invalid tenant slug"):

@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from pathlib import PurePosixPath
 
 import structlog
 from fastapi import APIRouter, Depends, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from pathlib import PurePosixPath
 
+from app.core.exceptions import ValidationError
 from app.core.rbac import require_role
 from app.core.tenant import TenantContext, get_current_tenant
-from app.core.exceptions import ValidationError
 from app.models.enums import AdminRole, ContactSource, Language, OptInStatus
 from app.schemas.auth import AdminTokenPayload
 from app.schemas.contact import (
@@ -102,9 +102,7 @@ async def list_contacts(
 async def import_contacts(
     file: UploadFile,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> ImportResultResponse:
     """Import contacts from an Excel or CSV file.
 
@@ -200,9 +198,7 @@ async def export_contacts(
 async def batch_update_tags(
     data: TagsBatchUpdate,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> TagsBatchResult:
     """Add or remove tags from multiple contacts at once."""
     service = get_contact_service()
@@ -253,7 +249,10 @@ async def get_segment_contacts(
     """Get contacts belonging to a named segment."""
     service = get_segmentation_service()
     items, total = await service.get_segment_contacts(
-        tenant, segment_key, page=page, page_size=page_size,
+        tenant,
+        segment_key,
+        page=page,
+        page_size=page_size,
     )
     return ContactList(
         items=[ContactResponse.model_validate(c) for c in items],
@@ -272,9 +271,7 @@ async def get_segment_contacts(
 async def create_contact(
     data: ContactCreate,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> ContactResponse:
     """Create a new contact manually."""
     service = get_contact_service()
@@ -302,7 +299,8 @@ async def get_contact(
     """Get contact detail with conversation count and last interaction."""
     service = get_contact_service()
     contact, conversation_count, last_interaction = await service.get_contact_detail(
-        tenant, contact_id,
+        tenant,
+        contact_id,
     )
     response = ContactDetailResponse.model_validate(contact)
     response.conversation_count = conversation_count
@@ -343,9 +341,7 @@ async def change_opt_in_status(
     contact_id: uuid.UUID,
     data: OptInChangeRequest,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> OptInChangeLog:
     """Change contact opt-in status with CNDP-compliant audit logging."""
     service = get_contact_service()
@@ -375,9 +371,7 @@ async def update_contact(
     contact_id: uuid.UUID,
     data: ContactUpdate,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> ContactResponse:
     """Update contact (tags, name, opt_in_status, etc.)."""
     service = get_contact_service()
@@ -394,9 +388,7 @@ async def update_contact(
 async def delete_contact(
     contact_id: uuid.UUID,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> Response:
     """Delete a contact and cascade to conversations/messages."""
     service = get_contact_service()

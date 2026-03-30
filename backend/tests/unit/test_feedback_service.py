@@ -91,7 +91,9 @@ class TestCreateNegativeFeedback:
         )
 
         data = FeedbackCreate(
-            message_id=msg.id, rating=FeedbackRating.negative, reason="incomplete",
+            message_id=msg.id,
+            rating=FeedbackRating.negative,
+            reason="incomplete",
         )
 
         with _make_db_session_patch(session):

@@ -7,9 +7,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 from app.models.enums import CampaignStatus, RecipientStatus
-
 
 # ─── Campaign schemas ───────────────────────────────────────────────
 
@@ -26,8 +24,12 @@ class CampaignCreate(BaseModel):
     template_id: str = Field(..., description="Meta template ID")
     template_name: str = Field(..., description="Human-readable template name")
     template_language: str = Field(default="fr", description="Template language code")
-    audience_filter: dict = Field(..., description="Targeting criteria: tags, segments, language, etc.")
-    variable_mapping: dict = Field(default_factory=dict, description="Template variable mapping: {\"1\": \"contact.name\", ...}")
+    audience_filter: dict = Field(
+        ..., description="Targeting criteria: tags, segments, language, etc."
+    )
+    variable_mapping: dict = Field(
+        default_factory=dict, description='Template variable mapping: {"1": "contact.name", ...}'
+    )
 
     @model_validator(mode="after")
     def validate_audience_filter(self) -> CampaignCreate:

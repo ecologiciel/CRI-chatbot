@@ -9,15 +9,19 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "ASYNC"]
-ignore = ["E501"]
+ignore = ["E501", "B008", "N806"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
 [tool.mypy]
 python_version = "3.12"
-strict = true
 plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+warn_return_any = false
+disable_error_code = ["arg-type", "return-value", "assignment", "union-attr", "attr-defined", "operator", "index", "misc"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

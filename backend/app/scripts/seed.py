@@ -11,21 +11,20 @@ import os
 import sys
 
 import structlog
+from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.core.database import get_engine, get_session_factory, close_engine
+from app.core.database import close_engine, get_engine, get_session_factory
 from app.core.logging import setup_logging
 from app.core.minio import init_minio
-from app.core.qdrant import init_qdrant, close_qdrant
-from app.core.redis import init_redis, close_redis
+from app.core.qdrant import close_qdrant, init_qdrant
+from app.core.redis import close_redis, init_redis
 from app.models.admin import Admin
 from app.models.enums import AdminRole
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate
 from app.services.auth.service import AuthService
 from app.services.tenant.provisioning import TenantProvisioningService
-
-from sqlalchemy import select
 
 logger = structlog.get_logger()
 
@@ -40,7 +39,7 @@ async def seed() -> None:
         print("ERROR: SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD are required")
         sys.exit(1)
 
-    settings = get_settings()
+    get_settings()
     setup_logging()
     log = logger.bind(script="seed")
 
@@ -56,9 +55,7 @@ async def seed() -> None:
 
         # ── Step 1: Create super_admin if not exists ──
         async with factory() as session:
-            result = await session.execute(
-                select(Admin).where(Admin.email == email)
-            )
+            result = await session.execute(select(Admin).where(Admin.email == email))
             existing_admin = result.scalar_one_or_none()
 
         if existing_admin:
@@ -79,9 +76,7 @@ async def seed() -> None:
 
         # ── Step 2: Create CRI-RSK tenant if not exists ──
         async with factory() as session:
-            result = await session.execute(
-                select(Tenant).where(Tenant.slug == "rabat")
-            )
+            result = await session.execute(select(Tenant).where(Tenant.slug == "rabat"))
             existing_tenant = result.scalar_one_or_none()
 
         if existing_tenant:

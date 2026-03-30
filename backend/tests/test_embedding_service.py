@@ -4,11 +4,11 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from app.core.exceptions import EmbeddingError
 from app.core.tenant import TenantContext
 from app.schemas.ai import EmbeddingRequest, EmbeddingResponse
-
 
 # --- Fixtures ---
 
@@ -108,9 +108,7 @@ async def test_embed_texts_success(embedding_service, mock_redis):
     """embed() returns correct number of embeddings with right dimension."""
     service, mock_client = embedding_service
 
-    mock_client.aio.models.embed_content = AsyncMock(
-        return_value=_make_mock_embed_response(3)
-    )
+    mock_client.aio.models.embed_content = AsyncMock(return_value=_make_mock_embed_response(3))
 
     request = EmbeddingRequest(texts=["text 1", "text 2", "text 3"])
     response = await service.embed(request, TEST_TENANT)
@@ -128,9 +126,7 @@ async def test_embed_single(embedding_service, mock_redis):
     """embed_single() returns a single vector directly."""
     service, mock_client = embedding_service
 
-    mock_client.aio.models.embed_content = AsyncMock(
-        return_value=_make_mock_embed_response(1)
-    )
+    mock_client.aio.models.embed_content = AsyncMock(return_value=_make_mock_embed_response(1))
 
     vector = await service.embed_single("search query", TEST_TENANT)
 
@@ -168,9 +164,7 @@ async def test_embed_raises_embedding_error(embedding_service, mock_redis):
     """SDK failure → EmbeddingError raised."""
     service, mock_client = embedding_service
 
-    mock_client.aio.models.embed_content = AsyncMock(
-        side_effect=Exception("API down")
-    )
+    mock_client.aio.models.embed_content = AsyncMock(side_effect=Exception("API down"))
 
     request = EmbeddingRequest(texts=["test"])
     with pytest.raises(EmbeddingError, match="Embedding generation failed"):
@@ -183,9 +177,7 @@ async def test_cost_tracking_embedding_tokens(embedding_service, mock_redis):
     service, mock_client = embedding_service
     _, pipe = mock_redis
 
-    mock_client.aio.models.embed_content = AsyncMock(
-        return_value=_make_mock_embed_response(2)
-    )
+    mock_client.aio.models.embed_content = AsyncMock(return_value=_make_mock_embed_response(2))
 
     request = EmbeddingRequest(texts=["hello world", "test text"])
     await service.embed(request, TEST_TENANT)
@@ -199,5 +191,5 @@ async def test_cost_tracking_embedding_tokens(embedding_service, mock_redis):
 @pytest.mark.asyncio
 async def test_embed_empty_raises_validation():
     """Empty text list → Pydantic validation error."""
-    with pytest.raises(Exception):  # ValidationError from Pydantic
+    with pytest.raises(ValidationError):
         EmbeddingRequest(texts=[])

@@ -8,7 +8,7 @@ token rotation (single-use).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from passlib.context import CryptContext
@@ -116,11 +116,9 @@ class AuthService:
         await self._reset_attempts(email)
 
         async with factory() as session:
-            result = await session.execute(
-                select(Admin).where(Admin.id == admin.id)
-            )
+            result = await session.execute(select(Admin).where(Admin.id == admin.id))
             db_admin = result.scalar_one()
-            db_admin.last_login = datetime.now(timezone.utc)
+            db_admin.last_login = datetime.now(UTC)
             await session.commit()
 
         settings = get_settings()

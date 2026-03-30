@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime
 
 import structlog
-from sqlalchemy import case, extract, func, select
+from sqlalchemy import extract, func, select
 
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.tenant import TenantContext
@@ -329,7 +329,10 @@ class SupervisedLearningService:
             )
 
         question = await self._feedback.update_unanswered_question(
-            tenant, question_id, data, admin_id,
+            tenant,
+            question_id,
+            data,
+            admin_id,
         )
 
         await self._audit.log_action(
@@ -383,7 +386,10 @@ class SupervisedLearningService:
         )
 
         question = await self._feedback.update_unanswered_question(
-            tenant, question_id, data, admin_id,
+            tenant,
+            question_id,
+            data,
+            admin_id,
         )
 
         await self._audit.log_action(
@@ -440,7 +446,10 @@ class SupervisedLearningService:
         )
 
         question = await self._feedback.update_unanswered_question(
-            tenant, question_id, data, admin_id,
+            tenant,
+            question_id,
+            data,
+            admin_id,
         )
 
         await self._audit.log_action(
@@ -508,17 +517,14 @@ class SupervisedLearningService:
                     func.avg(
                         extract(
                             "epoch",
-                            UnansweredQuestion.updated_at
-                            - UnansweredQuestion.created_at,
+                            UnansweredQuestion.updated_at - UnansweredQuestion.created_at,
                         )
                         / 3600.0,
                     ),
                 ).where(UnansweredQuestion.status.in_(reviewed_statuses)),
             )
             avg_hours = avg_result.scalar_one()
-            avg_review_time_hours = (
-                round(float(avg_hours), 2) if avg_hours is not None else None
-            )
+            avg_review_time_hours = round(float(avg_hours), 2) if avg_hours is not None else None
 
             # Top 5 pending by frequency
             top_result = await session.execute(
@@ -575,8 +581,7 @@ class SupervisedLearningService:
             result = await session.execute(
                 select(UnansweredQuestion).where(
                     UnansweredQuestion.status == UnansweredStatus.pending,
-                    func.lower(UnansweredQuestion.question)
-                    == func.lower(question_text),
+                    func.lower(UnansweredQuestion.question) == func.lower(question_text),
                 ),
             )
             match = result.scalar_one_or_none()
@@ -611,7 +616,7 @@ class SupervisedLearningService:
         Returns:
             Cosine similarity in [0, 1] (or 0.0 if either vector is zero).
         """
-        dot = sum(x * y for x, y in zip(a, b))
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
         norm_a = math.sqrt(sum(x * x for x in a))
         norm_b = math.sqrt(sum(x * x for x in b))
         if norm_a == 0.0 or norm_b == 0.0:

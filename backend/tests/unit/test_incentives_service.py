@@ -2,8 +2,6 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from app.services.incitations.service import (
     MAX_BUTTON_TITLE_LENGTH,
     MAX_BUTTONS,

@@ -63,13 +63,16 @@ class FAQAgent:
         try:
             # Step 1: Retrieve chunks from Qdrant
             retrieval_result = await self._retrieval.retrieve(
-                tenant, query, language=language,
+                tenant,
+                query,
+                language=language,
             )
 
             # Step 2: No chunks → short-circuit with "no_answer"
             if not retrieval_result.chunks:
                 updates["response"] = PromptTemplates.get_message(
-                    "no_answer", language,
+                    "no_answer",
+                    language,
                 )
                 updates["confidence"] = 0.0
                 updates["chunk_ids"] = []
@@ -138,13 +141,12 @@ class FAQAgent:
             )
             updates["error"] = str(exc)
             updates["response"] = PromptTemplates.get_message(
-                "no_answer", language,
+                "no_answer",
+                language,
             )
             updates["confidence"] = 0.0
             updates["chunk_ids"] = []
-            updates["consecutive_low_confidence"] = (
-                state.get("consecutive_low_confidence", 0) + 1
-            )
+            updates["consecutive_low_confidence"] = state.get("consecutive_low_confidence", 0) + 1
 
         return updates  # type: ignore[return-value]
 

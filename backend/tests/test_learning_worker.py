@@ -295,7 +295,9 @@ class TestIdempotency:
             return_value=mock_tenant,
         ):
             result = await reinject_learning_task(
-                {}, TEST_TENANT.slug, str(QUESTION_ID),
+                {},
+                TEST_TENANT.slug,
+                str(QUESTION_ID),
             )
 
         assert result["status"] == "already_injected"
@@ -319,7 +321,9 @@ class TestIdempotency:
             return_value=mock_tenant,
         ):
             result = await reinject_learning_task(
-                {}, TEST_TENANT.slug, str(QUESTION_ID),
+                {},
+                TEST_TENANT.slug,
+                str(QUESTION_ID),
             )
 
         assert result["status"] == "not_found"
@@ -345,7 +349,9 @@ class TestIdempotency:
             return_value=mock_tenant,
         ):
             result = await reinject_learning_task(
-                {}, TEST_TENANT.slug, str(QUESTION_ID),
+                {},
+                TEST_TENANT.slug,
+                str(QUESTION_ID),
             )
 
         assert result["status"] == "invalid_status"
@@ -372,7 +378,9 @@ class TestIdempotency:
             return_value=mock_tenant,
         ):
             result = await reinject_learning_task(
-                {}, TEST_TENANT.slug, str(QUESTION_ID),
+                {},
+                TEST_TENANT.slug,
+                str(QUESTION_ID),
             )
 
         assert result["status"] == "no_answer"

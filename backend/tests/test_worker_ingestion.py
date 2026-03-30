@@ -142,16 +142,18 @@ class TestIngestDocumentTask:
                 return_value=TEST_TENANT,
             ),
             patch.object(
-                TenantContext, "db_session", side_effect=session_factory,
+                TenantContext,
+                "db_session",
+                side_effect=session_factory,
             ),
             patch("app.core.minio.get_minio", return_value=mock_minio),
             patch(
                 "app.workers.ingestion.extract_text",
                 side_effect=IngestionError("Extraction failed"),
             ),
+            pytest.raises(IngestionError),
         ):
-            with pytest.raises(IngestionError):
-                await ingest_document_task({}, "rabat", str(doc_id))
+            await ingest_document_task({}, "rabat", str(doc_id))
 
 
 class TestReindexDocumentTask:

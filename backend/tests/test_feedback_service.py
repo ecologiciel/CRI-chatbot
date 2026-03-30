@@ -1,8 +1,8 @@
 """Tests for FeedbackService — feedback collection and unanswered question management."""
 
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,7 +16,6 @@ from app.models.enums import (
 from app.models.feedback import Feedback, UnansweredQuestion
 from app.schemas.feedback import FeedbackCreate, UnansweredQuestionUpdate
 from app.services.feedback.service import FeedbackService
-
 
 # --- Fixtures ---
 
@@ -46,7 +45,7 @@ def _make_message(
     msg.direction = direction
     msg.content = content
     msg.chunk_ids = chunk_ids if chunk_ids is not None else ["chunk_1", "chunk_2"]
-    msg.timestamp = timestamp or datetime(2026, 3, 26, 12, 0, 0, tzinfo=timezone.utc)
+    msg.timestamp = timestamp or datetime(2026, 3, 26, 12, 0, 0, tzinfo=UTC)
     msg.metadata_ = metadata_ or {"language": "fr"}
     return msg
 
@@ -125,9 +124,11 @@ class TestCreateFeedback:
         session.execute = AsyncMock(return_value=mock_result)
 
         svc = FeedbackService()
-        with patch.object(TenantContext, "db_session", return_value=session):
-            with pytest.raises(ResourceNotFoundError):
-                await svc.create_feedback(TEST_TENANT, data)
+        with (
+            patch.object(TenantContext, "db_session", return_value=session),
+            pytest.raises(ResourceNotFoundError),
+        ):
+            await svc.create_feedback(TEST_TENANT, data)
 
     @pytest.mark.asyncio
     async def test_create_negative_feedback_creates_unanswered(self):
@@ -136,13 +137,13 @@ class TestCreateFeedback:
         outbound_msg = _make_message(
             conversation_id=conv_id,
             direction=MessageDirection.outbound,
-            timestamp=datetime(2026, 3, 26, 12, 1, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 26, 12, 1, 0, tzinfo=UTC),
         )
         inbound_msg = _make_message(
             conversation_id=conv_id,
             direction=MessageDirection.inbound,
             content="Comment créer une SARL ?",
-            timestamp=datetime(2026, 3, 26, 12, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 26, 12, 0, 0, tzinfo=UTC),
         )
         data = _make_feedback_create(
             message_id=outbound_msg.id,
@@ -194,13 +195,13 @@ class TestCreateFeedback:
         conv_id = uuid.uuid4()
         outbound_msg = _make_message(
             conversation_id=conv_id,
-            timestamp=datetime(2026, 3, 26, 12, 1, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 26, 12, 1, 0, tzinfo=UTC),
         )
         inbound_msg = _make_message(
             conversation_id=conv_id,
             direction=MessageDirection.inbound,
             content="Question déjà flaggée",
-            timestamp=datetime(2026, 3, 26, 12, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 26, 12, 0, 0, tzinfo=UTC),
         )
         existing_uq = MagicMock(spec=UnansweredQuestion)
         existing_uq.frequency = 1
@@ -332,7 +333,10 @@ class TestUpdateUnansweredQuestion:
         svc = FeedbackService()
         with patch.object(TenantContext, "db_session", return_value=session):
             result = await svc.update_unanswered_question(
-                TEST_TENANT, question_id, data, admin_id,
+                TEST_TENANT,
+                question_id,
+                data,
+                admin_id,
             )
 
         assert result.status == UnansweredStatus.approved
@@ -350,8 +354,13 @@ class TestUpdateUnansweredQuestion:
         data = UnansweredQuestionUpdate(status=UnansweredStatus.rejected)
 
         svc = FeedbackService()
-        with patch.object(TenantContext, "db_session", return_value=session):
-            with pytest.raises(ResourceNotFoundError):
-                await svc.update_unanswered_question(
-                    TEST_TENANT, uuid.uuid4(), data, uuid.uuid4(),
-                )
+        with (
+            patch.object(TenantContext, "db_session", return_value=session),
+            pytest.raises(ResourceNotFoundError),
+        ):
+            await svc.update_unanswered_question(
+                TEST_TENANT,
+                uuid.uuid4(),
+                data,
+                uuid.uuid4(),
+            )

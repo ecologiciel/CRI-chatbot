@@ -7,11 +7,9 @@ No database or Redis required — uses mocks and pure logic tests.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # 1. Import tests
@@ -204,12 +202,14 @@ class TestWSAuthentication:
         from app.api.ws.escalation_ws import _authenticate_token
         from app.core.exceptions import AuthenticationError
 
-        with patch(
-            "app.api.ws.escalation_ws.JWTManager.verify_token",
-            side_effect=AuthenticationError("bad token"),
+        with (
+            patch(
+                "app.api.ws.escalation_ws.JWTManager.verify_token",
+                side_effect=AuthenticationError("bad token"),
+            ),
+            pytest.raises(AuthenticationError),
         ):
-            with pytest.raises(AuthenticationError):
-                _authenticate_token("bad-token")
+            _authenticate_token("bad-token")
 
     def test_refresh_token_rejected(self):
         from app.api.ws.escalation_ws import _authenticate_token
@@ -223,12 +223,14 @@ class TestWSAuthentication:
             "jti": str(uuid.uuid4()),
         }
 
-        with patch(
-            "app.api.ws.escalation_ws.JWTManager.verify_token",
-            return_value=mock_payload,
+        with (
+            patch(
+                "app.api.ws.escalation_ws.JWTManager.verify_token",
+                return_value=mock_payload,
+            ),
+            pytest.raises(AuthenticationError, match="Invalid token type"),
         ):
-            with pytest.raises(AuthenticationError, match="Invalid token type"):
-                _authenticate_token("refresh-token")
+            _authenticate_token("refresh-token")
 
 
 # ---------------------------------------------------------------------------

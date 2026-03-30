@@ -5,6 +5,7 @@ endpoints. Each role is tested against each endpoint category.
 """
 
 import uuid
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,17 +15,14 @@ from app.core.rbac import get_current_admin
 from app.core.tenant import TenantContext, get_current_tenant
 from app.main import app
 from app.models.enums import AdminRole
-from app.schemas.auth import AdminTokenPayload
 
 from .conftest import (
-    TEST_ADMIN_ID,
-    TEST_TENANT_ID,
     OTHER_TENANT_ID,
+    TEST_TENANT_ID,
     make_admin_payload,
     mock_tenant_db_session,
     override_admin,
 )
-
 
 # --- Helpers ---
 
@@ -120,15 +118,20 @@ class TestTenantEndpointRBAC:
     """RBAC for /api/v1/tenants/ endpoints (super_admin only)."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role,expected_status", [
-        (AdminRole.super_admin, 201),
-        (AdminRole.admin_tenant, 403),
-        (AdminRole.supervisor, 403),
-        (AdminRole.viewer, 403),
-    ])
+    @pytest.mark.parametrize(
+        "role,expected_status",
+        [
+            (AdminRole.super_admin, 201),
+            (AdminRole.admin_tenant, 403),
+            (AdminRole.supervisor, 403),
+            (AdminRole.viewer, 403),
+        ],
+    )
     async def test_create_tenant_rbac(self, role, expected_status):
         """POST /tenants/ — only super_admin gets 201."""
-        payload = make_admin_payload(role=role.value, tenant_id=None if role == AdminRole.super_admin else TEST_TENANT_ID)
+        payload = make_admin_payload(
+            role=role.value, tenant_id=None if role == AdminRole.super_admin else TEST_TENANT_ID
+        )
         cleanup = override_admin(payload)
         try:
             with patch("app.api.v1.tenant.TenantProvisioningService") as MockProv:
@@ -136,7 +139,9 @@ class TestTenantEndpointRBAC:
                 mock_prov.provision_tenant = AsyncMock(return_value=_make_tenant_orm())
                 MockProv.return_value = mock_prov
 
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
                     response = await client.post(
                         "/api/v1/tenants/",
                         json={"name": "New CRI", "slug": "newcri", "region": "RSK"},
@@ -147,22 +152,29 @@ class TestTenantEndpointRBAC:
             cleanup()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role,expected_status", [
-        (AdminRole.super_admin, 200),
-        (AdminRole.admin_tenant, 403),
-        (AdminRole.supervisor, 403),
-        (AdminRole.viewer, 403),
-    ])
+    @pytest.mark.parametrize(
+        "role,expected_status",
+        [
+            (AdminRole.super_admin, 200),
+            (AdminRole.admin_tenant, 403),
+            (AdminRole.supervisor, 403),
+            (AdminRole.viewer, 403),
+        ],
+    )
     async def test_list_tenants_rbac(self, role, expected_status):
         """GET /tenants/ — only super_admin gets 200."""
-        payload = make_admin_payload(role=role.value, tenant_id=None if role == AdminRole.super_admin else TEST_TENANT_ID)
+        payload = make_admin_payload(
+            role=role.value, tenant_id=None if role == AdminRole.super_admin else TEST_TENANT_ID
+        )
         cleanup = override_admin(payload)
         try:
             mock_session = _mock_session_for_list(items=[], total=0)
             mock_factory = MagicMock(return_value=mock_session)
 
             with patch("app.api.v1.tenant.get_session_factory", return_value=mock_factory):
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
                     response = await client.get("/api/v1/tenants/")
 
             assert response.status_code == expected_status
@@ -170,15 +182,20 @@ class TestTenantEndpointRBAC:
             cleanup()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role,expected_status", [
-        (AdminRole.super_admin, 200),
-        (AdminRole.admin_tenant, 403),
-        (AdminRole.supervisor, 403),
-        (AdminRole.viewer, 403),
-    ])
+    @pytest.mark.parametrize(
+        "role,expected_status",
+        [
+            (AdminRole.super_admin, 200),
+            (AdminRole.admin_tenant, 403),
+            (AdminRole.supervisor, 403),
+            (AdminRole.viewer, 403),
+        ],
+    )
     async def test_update_tenant_rbac(self, role, expected_status):
         """PATCH /tenants/{id} — only super_admin gets 200."""
-        payload = make_admin_payload(role=role.value, tenant_id=None if role == AdminRole.super_admin else TEST_TENANT_ID)
+        payload = make_admin_payload(
+            role=role.value, tenant_id=None if role == AdminRole.super_admin else TEST_TENANT_ID
+        )
         cleanup = override_admin(payload)
         try:
             mock_session = AsyncMock()
@@ -192,7 +209,9 @@ class TestTenantEndpointRBAC:
             mock_factory = MagicMock(return_value=mock_session)
 
             with patch("app.api.v1.tenant.get_session_factory", return_value=mock_factory):
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
                     response = await client.patch(
                         f"/api/v1/tenants/{TEST_TENANT_ID}",
                         json={"name": "Updated"},
@@ -203,15 +222,20 @@ class TestTenantEndpointRBAC:
             cleanup()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role,expected_status", [
-        (AdminRole.super_admin, 204),
-        (AdminRole.admin_tenant, 403),
-        (AdminRole.supervisor, 403),
-        (AdminRole.viewer, 403),
-    ])
+    @pytest.mark.parametrize(
+        "role,expected_status",
+        [
+            (AdminRole.super_admin, 204),
+            (AdminRole.admin_tenant, 403),
+            (AdminRole.supervisor, 403),
+            (AdminRole.viewer, 403),
+        ],
+    )
     async def test_delete_tenant_rbac(self, role, expected_status):
         """DELETE /tenants/{id} — only super_admin gets 204."""
-        payload = make_admin_payload(role=role.value, tenant_id=None if role == AdminRole.super_admin else TEST_TENANT_ID)
+        payload = make_admin_payload(
+            role=role.value, tenant_id=None if role == AdminRole.super_admin else TEST_TENANT_ID
+        )
         cleanup = override_admin(payload)
         try:
             mock_session = AsyncMock()
@@ -231,7 +255,9 @@ class TestTenantEndpointRBAC:
                 mock_prov.deprovision_tenant = AsyncMock()
                 MockProv.return_value = mock_prov
 
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
                     response = await client.delete(f"/api/v1/tenants/{TEST_TENANT_ID}")
 
             assert response.status_code == expected_status
@@ -246,15 +272,18 @@ class TestKBEndpointRBAC:
     """RBAC for /api/v1/kb/ endpoints."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role,expected_status", [
-        (AdminRole.super_admin, 202),
-        (AdminRole.admin_tenant, 202),
-        (AdminRole.supervisor, 403),
-        (AdminRole.viewer, 403),
-    ])
+    @pytest.mark.parametrize(
+        "role,expected_status",
+        [
+            (AdminRole.super_admin, 202),
+            (AdminRole.admin_tenant, 202),
+            (AdminRole.supervisor, 403),
+            (AdminRole.viewer, 403),
+        ],
+    )
     async def test_kb_upload_rbac(self, role, expected_status, test_tenant):
         """POST /kb/documents — super_admin + admin_tenant get 202."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         payload = make_admin_payload(role=role.value)
         cleanup = override_admin(payload)
@@ -263,8 +292,8 @@ class TestKBEndpointRBAC:
         def _refresh_doc(obj):
             obj.id = obj.id or uuid.uuid4()
             obj.chunk_count = 0
-            obj.created_at = datetime.now(timezone.utc)
-            obj.updated_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
+            obj.updated_at = datetime.now(UTC)
             obj.error_message = None
             obj.source_url = None
             obj.content_hash = None
@@ -302,12 +331,15 @@ class TestKBEndpointRBAC:
             app.dependency_overrides.pop(get_current_tenant, None)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role,expected_status", [
-        (AdminRole.super_admin, 200),
-        (AdminRole.admin_tenant, 200),
-        (AdminRole.supervisor, 200),
-        (AdminRole.viewer, 200),
-    ])
+    @pytest.mark.parametrize(
+        "role,expected_status",
+        [
+            (AdminRole.super_admin, 200),
+            (AdminRole.admin_tenant, 200),
+            (AdminRole.supervisor, 200),
+            (AdminRole.viewer, 200),
+        ],
+    )
     async def test_kb_list_rbac(self, role, expected_status, test_tenant):
         """GET /kb/documents — all roles get 200."""
         payload = make_admin_payload(role=role.value)
@@ -335,12 +367,15 @@ class TestKBEndpointRBAC:
             app.dependency_overrides.pop(get_current_tenant, None)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role,expected_status", [
-        (AdminRole.super_admin, 204),
-        (AdminRole.admin_tenant, 204),
-        (AdminRole.supervisor, 403),
-        (AdminRole.viewer, 403),
-    ])
+    @pytest.mark.parametrize(
+        "role,expected_status",
+        [
+            (AdminRole.super_admin, 204),
+            (AdminRole.admin_tenant, 204),
+            (AdminRole.supervisor, 403),
+            (AdminRole.viewer, 403),
+        ],
+    )
     async def test_kb_delete_rbac(self, role, expected_status, test_tenant):
         """DELETE /kb/documents/{id} — super_admin + admin_tenant get 204."""
         doc_id = uuid.uuid4()
@@ -375,12 +410,15 @@ class TestKBEndpointRBAC:
             app.dependency_overrides.pop(get_current_tenant, None)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role,expected_status", [
-        (AdminRole.super_admin, 202),
-        (AdminRole.admin_tenant, 202),
-        (AdminRole.supervisor, 403),
-        (AdminRole.viewer, 403),
-    ])
+    @pytest.mark.parametrize(
+        "role,expected_status",
+        [
+            (AdminRole.super_admin, 202),
+            (AdminRole.admin_tenant, 202),
+            (AdminRole.supervisor, 403),
+            (AdminRole.viewer, 403),
+        ],
+    )
     async def test_kb_reindex_rbac(self, role, expected_status, test_tenant):
         """POST /kb/documents/{id}/reindex — super_admin + admin_tenant get 202."""
         doc_id = uuid.uuid4()
@@ -418,12 +456,15 @@ class TestAuthEndpointRBAC:
     """RBAC for /api/v1/auth/ endpoints."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("role", [
-        AdminRole.super_admin,
-        AdminRole.admin_tenant,
-        AdminRole.supervisor,
-        AdminRole.viewer,
-    ])
+    @pytest.mark.parametrize(
+        "role",
+        [
+            AdminRole.super_admin,
+            AdminRole.admin_tenant,
+            AdminRole.supervisor,
+            AdminRole.viewer,
+        ],
+    )
     async def test_auth_me_all_roles(self, role):
         """GET /auth/me — all authenticated roles get 200."""
         admin_id = uuid.uuid4()
@@ -450,7 +491,9 @@ class TestAuthEndpointRBAC:
             mock_factory = MagicMock(return_value=mock_session)
 
             with patch("app.api.v1.auth.get_session_factory", return_value=mock_factory):
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
                     response = await client.get("/api/v1/auth/me")
 
             assert response.status_code == 200
@@ -493,7 +536,9 @@ class TestCrossTenantAccess:
             mock_factory = MagicMock(return_value=mock_session)
 
             with patch("app.api.v1.tenant.get_session_factory", return_value=mock_factory):
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
                     response = await client.get(f"/api/v1/tenants/{TEST_TENANT_ID}")
 
             assert response.status_code == 200
@@ -518,7 +563,9 @@ class TestCrossTenantAccess:
             mock_factory = MagicMock(return_value=mock_session)
 
             with patch("app.api.v1.tenant.get_session_factory", return_value=mock_factory):
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
                     response = await client.get(f"/api/v1/tenants/{OTHER_TENANT_ID}")
 
             assert response.status_code == 403

@@ -8,7 +8,6 @@ LangGraph execution, message persistence, and error handling.
 from __future__ import annotations
 
 import uuid
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,7 +19,6 @@ from app.models.enums import (
     FeedbackRating,
     Language,
     MessageDirection,
-    MessageType,
 )
 from app.schemas.whatsapp import (
     ContactInfo,
@@ -204,7 +202,9 @@ def handler_env():
     mock_redis = AsyncMock()
 
     patches = (
-        patch("app.services.whatsapp.handler.WhatsAppSessionManager", return_value=mock_session_mgr),
+        patch(
+            "app.services.whatsapp.handler.WhatsAppSessionManager", return_value=mock_session_mgr
+        ),
         patch("app.services.whatsapp.handler.WhatsAppSenderService", return_value=mock_sender),
         patch("app.services.whatsapp.handler.WhatsAppMediaHandler", return_value=mock_media),
         patch("app.services.whatsapp.handler.get_contact_service", return_value=mock_contact_svc),
@@ -275,7 +275,8 @@ class TestHappyPath:
 
         # Dedup checked
         mocks["session_mgr"].is_duplicate_message.assert_awaited_once_with(
-            TEST_TENANT, TEST_WAMID,
+            TEST_TENANT,
+            TEST_WAMID,
         )
         # Contact created
         mocks["contact_svc"].get_or_create.assert_awaited_once()
@@ -310,12 +311,16 @@ class TestMediaMessages:
         mocks["media"].process_media.return_value = media_result
 
         with patch(
-            RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result(),
+            RUN_CONV_PATH,
+            new_callable=AsyncMock,
+            return_value=_make_run_result(),
         ) as mock_run:
             await handler.handle_message(TEST_TENANT, msg, None)
 
         mocks["media"].process_media.assert_awaited_once_with(
-            TEST_TENANT, "media_img_123", "image/jpeg",
+            TEST_TENANT,
+            "media_img_123",
+            "image/jpeg",
         )
         # Extracted text + caption used as query
         run_call = mock_run.await_args
@@ -336,12 +341,16 @@ class TestMediaMessages:
         mocks["media"].process_media.return_value = media_result
 
         with patch(
-            RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result(),
+            RUN_CONV_PATH,
+            new_callable=AsyncMock,
+            return_value=_make_run_result(),
         ) as mock_run:
             await handler.handle_message(TEST_TENANT, msg, None)
 
         mocks["media"].process_media.assert_awaited_once_with(
-            TEST_TENANT, "media_aud_456", "audio/ogg",
+            TEST_TENANT,
+            "media_aud_456",
+            "audio/ogg",
         )
         run_call = mock_run.await_args
         query = run_call.kwargs.get("query", "")
@@ -547,7 +556,9 @@ class TestIncentiveState:
         msg = _make_text_message()
 
         with patch(
-            RUN_CONV_PATH, new_callable=AsyncMock, return_value=run_result,
+            RUN_CONV_PATH,
+            new_callable=AsyncMock,
+            return_value=run_result,
         ) as mock_run:
             await handler.handle_message(TEST_TENANT, msg, None)
 
@@ -576,5 +587,7 @@ class TestContactLanguageUpdate:
             await handler.handle_message(TEST_TENANT, msg, None)
 
         mocks["contact_svc"].update_language.assert_awaited_once_with(
-            TEST_TENANT, contact.id, Language.ar,
+            TEST_TENANT,
+            contact.id,
+            Language.ar,
         )

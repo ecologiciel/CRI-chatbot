@@ -54,12 +54,32 @@ MAX_INPUT_LENGTH = 2000  # Maximum message length in characters
 # Each tuple: (compiled_regex, subcategory_label)
 _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Instruction override
-    (re.compile(r"ignore\s+(all\s+)?(previous\s+)?instructions?", re.IGNORECASE), "instruction_override"),
-    (re.compile(r"oublie\s+(toutes?\s+)?(les\s+)?instructions?", re.IGNORECASE), "instruction_override"),
-    (re.compile(r"disregard\s+(all\s+)?(prior\s+)?instructions?", re.IGNORECASE), "instruction_override"),
-    (re.compile(r"forget\s+(all\s+)?(your\s+)?instructions?", re.IGNORECASE), "instruction_override"),
-    (re.compile(r"ignore[zr]?\s+(toutes?\s+)?(les\s+)?instructions?\s+pr[ée]c[ée]dentes?", re.IGNORECASE), "instruction_override"),
-    (re.compile(r"override\s+(your\s+)?(instructions?|programming|rules)", re.IGNORECASE), "instruction_override"),
+    (
+        re.compile(r"ignore\s+(all\s+)?(previous\s+)?instructions?", re.IGNORECASE),
+        "instruction_override",
+    ),
+    (
+        re.compile(r"oublie\s+(toutes?\s+)?(les\s+)?instructions?", re.IGNORECASE),
+        "instruction_override",
+    ),
+    (
+        re.compile(r"disregard\s+(all\s+)?(prior\s+)?instructions?", re.IGNORECASE),
+        "instruction_override",
+    ),
+    (
+        re.compile(r"forget\s+(all\s+)?(your\s+)?instructions?", re.IGNORECASE),
+        "instruction_override",
+    ),
+    (
+        re.compile(
+            r"ignore[zr]?\s+(toutes?\s+)?(les\s+)?instructions?\s+pr[ée]c[ée]dentes?", re.IGNORECASE
+        ),
+        "instruction_override",
+    ),
+    (
+        re.compile(r"override\s+(your\s+)?(instructions?|programming|rules)", re.IGNORECASE),
+        "instruction_override",
+    ),
     (re.compile(r"new\s+instructions?\s*:", re.IGNORECASE), "instruction_override"),
     # Role-play / persona hijacking
     (re.compile(r"you\s+are\s+now\s+(a|an|my)", re.IGNORECASE), "role_play"),
@@ -69,16 +89,39 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"joue\s+le\s+r[oô]le\s+", re.IGNORECASE), "role_play"),
     (re.compile(r"role[\s-]?play(?:ing)?\s+as", re.IGNORECASE), "role_play"),
     # System prompt extraction
-    (re.compile(r"(show|display|print|reveal|repeat)\s+(me\s+)?(your\s+)?(system\s+)?prompt", re.IGNORECASE), "prompt_extraction"),
-    (re.compile(r"(montre|affiche|r[eé]p[eè]te)\s+(moi\s+)?(ton\s+)?prompt", re.IGNORECASE), "prompt_extraction"),
-    (re.compile(r"what\s+(?:are|is)\s+your\s+(?:system\s+)?(?:prompt|instructions?|rules)", re.IGNORECASE), "prompt_extraction"),
-    (re.compile(r"repeat\s+(?:the|your)\s+(?:system|initial)\s+(?:prompt|instructions?)", re.IGNORECASE), "prompt_extraction"),
+    (
+        re.compile(
+            r"(show|display|print|reveal|repeat)\s+(me\s+)?(your\s+)?(system\s+)?prompt",
+            re.IGNORECASE,
+        ),
+        "prompt_extraction",
+    ),
+    (
+        re.compile(r"(montre|affiche|r[eé]p[eè]te)\s+(moi\s+)?(ton\s+)?prompt", re.IGNORECASE),
+        "prompt_extraction",
+    ),
+    (
+        re.compile(
+            r"what\s+(?:are|is)\s+your\s+(?:system\s+)?(?:prompt|instructions?|rules)",
+            re.IGNORECASE,
+        ),
+        "prompt_extraction",
+    ),
+    (
+        re.compile(
+            r"repeat\s+(?:the|your)\s+(?:system|initial)\s+(?:prompt|instructions?)", re.IGNORECASE
+        ),
+        "prompt_extraction",
+    ),
     # DAN / jailbreak
     (re.compile(r"\bDAN\b.*\bmode\b", re.IGNORECASE), "jailbreak"),
     (re.compile(r"jailbreak", re.IGNORECASE), "jailbreak"),
     (re.compile(r"developer\s+mode", re.IGNORECASE), "jailbreak"),
     (re.compile(r"do\s+anything\s+now", re.IGNORECASE), "jailbreak"),
-    (re.compile(r"bypass\s+(your\s+)?(rules|restrictions|filters|safety)", re.IGNORECASE), "jailbreak"),
+    (
+        re.compile(r"bypass\s+(your\s+)?(rules|restrictions|filters|safety)", re.IGNORECASE),
+        "jailbreak",
+    ),
     # System tag injection
     (re.compile(r"^system\s*:", re.IGNORECASE | re.MULTILINE), "system_tag"),
     (re.compile(r"<\s*system\s*>", re.IGNORECASE), "system_tag"),
@@ -131,7 +174,10 @@ class InputGuardService:
         if not text or not text.strip():
             GUARDRAIL_INPUT_CHECKS.labels(result="allow").inc()
             return InputGuardResult(
-                is_safe=True, action="allow", reason="Empty input", category="safe",
+                is_safe=True,
+                action="allow",
+                reason="Empty input",
+                category="safe",
             )
 
         stripped = text.strip()

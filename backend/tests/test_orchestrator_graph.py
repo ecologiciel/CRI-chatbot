@@ -21,7 +21,6 @@ from app.services.orchestrator.graph import (
 from app.services.orchestrator.state import ConversationState, IntentType
 from app.services.rag.prompts import PromptTemplates
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -92,10 +91,7 @@ def _mock_faq_agent(
     agent = AsyncMock()
 
     async def handle(state, tenant):
-        if confidence < 0.5:
-            counter = state.get("consecutive_low_confidence", 0) + 1
-        else:
-            counter = 0
+        counter = state.get("consecutive_low_confidence", 0) + 1 if confidence < 0.5 else 0
         return {
             "response": response,
             "chunk_ids": chunk_ids or ["chunk_1", "chunk_2"],
@@ -198,10 +194,16 @@ def _build_graph_with_mocks(
         patch("app.services.orchestrator.graph.get_intent_detector", return_value=mock_detector),
         patch("app.services.orchestrator.graph.get_faq_agent", return_value=mock_faq),
         patch("app.services.orchestrator.graph.get_incentives_agent", return_value=mock_incentives),
-        patch("app.services.orchestrator.graph.get_response_validator", return_value=mock_validator),
-        patch("app.services.orchestrator.graph.get_feedback_collector", return_value=mock_collector),
+        patch(
+            "app.services.orchestrator.graph.get_response_validator", return_value=mock_validator
+        ),
+        patch(
+            "app.services.orchestrator.graph.get_feedback_collector", return_value=mock_collector
+        ),
         patch("app.services.orchestrator.graph.get_internal_agent", return_value=mock_internal),
-        patch("app.services.orchestrator.graph.get_escalation_handler", return_value=mock_escalation),
+        patch(
+            "app.services.orchestrator.graph.get_escalation_handler", return_value=mock_escalation
+        ),
     ):
         graph = build_conversation_graph()
 
@@ -332,13 +334,26 @@ class TestConversationGraph:
         mock_escalation = _mock_escalation_handler()
 
         with (
-            patch("app.services.orchestrator.graph.get_intent_detector", return_value=mock_detector),
+            patch(
+                "app.services.orchestrator.graph.get_intent_detector", return_value=mock_detector
+            ),
             patch("app.services.orchestrator.graph.get_faq_agent", return_value=mock_faq),
-            patch("app.services.orchestrator.graph.get_incentives_agent", return_value=mock_incentives),
-            patch("app.services.orchestrator.graph.get_response_validator", return_value=mock_validator),
-            patch("app.services.orchestrator.graph.get_feedback_collector", return_value=mock_collector),
+            patch(
+                "app.services.orchestrator.graph.get_incentives_agent", return_value=mock_incentives
+            ),
+            patch(
+                "app.services.orchestrator.graph.get_response_validator",
+                return_value=mock_validator,
+            ),
+            patch(
+                "app.services.orchestrator.graph.get_feedback_collector",
+                return_value=mock_collector,
+            ),
             patch("app.services.orchestrator.graph.get_internal_agent", return_value=mock_internal),
-            patch("app.services.orchestrator.graph.get_escalation_handler", return_value=mock_escalation),
+            patch(
+                "app.services.orchestrator.graph.get_escalation_handler",
+                return_value=mock_escalation,
+            ),
             patch("app.services.orchestrator.graph._conversation_graph", None),
         ):
             result = await run_conversation(
@@ -383,7 +398,9 @@ class TestConversationGraph:
             patch("app.services.orchestrator.graph.get_response_validator", return_value=validator),
             patch("app.services.orchestrator.graph.get_feedback_collector", return_value=collector),
             patch("app.services.orchestrator.graph.get_internal_agent", return_value=internal),
-            patch("app.services.orchestrator.graph.get_escalation_handler", return_value=escalation),
+            patch(
+                "app.services.orchestrator.graph.get_escalation_handler", return_value=escalation
+            ),
         ):
             graph = build_conversation_graph()
 

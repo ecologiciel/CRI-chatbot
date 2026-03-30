@@ -83,7 +83,8 @@ class EscalationHandler:
                     phone_masked=phone[:6] + "***" if len(phone) > 6 else "***",
                 )
                 msg = ALREADY_ESCALATED_MESSAGES.get(
-                    language, ALREADY_ESCALATED_MESSAGES["fr"],
+                    language,
+                    ALREADY_ESCALATED_MESSAGES["fr"],
                 )
                 return {"response": msg}  # type: ignore[return-value]
 
@@ -113,7 +114,8 @@ class EscalationHandler:
                 conversation_id = _uuid.UUID(conversation_id_str)
             else:
                 conversation_id = await self._service.lookup_active_conversation(
-                    tenant, phone,
+                    tenant,
+                    phone,
                 )
             if conversation_id is None:
                 self._logger.error(

@@ -70,7 +70,7 @@ class TestExtractPDF:
         """Extract text from a minimal PDF."""
         # Build a minimal valid PDF with text
         try:
-            import pdfplumber
+            import pdfplumber  # noqa: F401
         except ImportError:
             pytest.skip("pdfplumber not installed")
 
@@ -136,7 +136,7 @@ class TestUnsupportedExtension:
 
     def test_supported_extensions_constant(self):
         """Verify supported extensions set."""
-        assert SUPPORTED_EXTENSIONS == {".pdf", ".docx", ".txt", ".md", ".csv"}
+        assert {".pdf", ".docx", ".txt", ".md", ".csv"} == SUPPORTED_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +150,7 @@ def _make_minimal_pdf(text: str) -> bytes:
     Uses a raw PDF structure to avoid extra dependencies.
     """
     # Minimal valid PDF 1.4 with a single page and text
-    if text:
-        stream_content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET"
-    else:
-        stream_content = ""
+    stream_content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET" if text else ""
 
     stream_bytes = stream_content.encode("latin-1")
     stream_length = len(stream_bytes)

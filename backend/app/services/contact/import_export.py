@@ -10,12 +10,11 @@ import csv
 import io
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import PurePosixPath
 
 import structlog
 from openpyxl import Workbook, load_workbook
-from datetime import datetime
-
 from sqlalchemy import Select, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -139,7 +138,9 @@ class ContactImportExportService:
                 phone = f"+{phone}"
 
             if not PHONE_PATTERN.match(phone):
-                result.errors.append({"row": idx, "phone": phone, "error": "Format téléphone invalide (E.164)"})
+                result.errors.append(
+                    {"row": idx, "phone": phone, "error": "Format téléphone invalide (E.164)"}
+                )
                 continue
 
             name = _strip_html(row.get("name", "") or "").strip() or None
@@ -148,21 +149,25 @@ class ContactImportExportService:
             cin = (row.get("cin", "") or "").strip().upper() or None
 
             if cin and not CIN_PATTERN.match(cin):
-                result.errors.append({"row": idx, "phone": phone, "error": f"Format CIN invalide: {cin}"})
+                result.errors.append(
+                    {"row": idx, "phone": phone, "error": f"Format CIN invalide: {cin}"}
+                )
                 continue
 
             tags_raw = (row.get("tags", "") or "").strip()
             tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
 
-            valid_rows.append({
-                "phone": phone,
-                "name": name,
-                "language": language,
-                "cin": cin,
-                "tags": tags,
-                "source": ContactSource.import_csv.value,
-                "opt_in_status": OptInStatus.pending.value,
-            })
+            valid_rows.append(
+                {
+                    "phone": phone,
+                    "name": name,
+                    "language": language,
+                    "cin": cin,
+                    "tags": tags,
+                    "source": ContactSource.import_csv.value,
+                    "opt_in_status": OptInStatus.pending.value,
+                }
+            )
 
         if not valid_rows:
             return result
@@ -231,13 +236,23 @@ class ContactImportExportService:
         for raw_row in rows_iter:
             if not any(cell.strip() for cell in raw_row):
                 continue
-            rows.append({
-                "phone": raw_row[phone_idx] if phone_idx < len(raw_row) else "",
-                "name": raw_row[name_idx] if name_idx is not None and name_idx < len(raw_row) else "",
-                "language": raw_row[lang_idx] if lang_idx is not None and lang_idx < len(raw_row) else "",
-                "cin": raw_row[cin_idx] if cin_idx is not None and cin_idx < len(raw_row) else "",
-                "tags": raw_row[tags_idx] if tags_idx is not None and tags_idx < len(raw_row) else "",
-            })
+            rows.append(
+                {
+                    "phone": raw_row[phone_idx] if phone_idx < len(raw_row) else "",
+                    "name": raw_row[name_idx]
+                    if name_idx is not None and name_idx < len(raw_row)
+                    else "",
+                    "language": raw_row[lang_idx]
+                    if lang_idx is not None and lang_idx < len(raw_row)
+                    else "",
+                    "cin": raw_row[cin_idx]
+                    if cin_idx is not None and cin_idx < len(raw_row)
+                    else "",
+                    "tags": raw_row[tags_idx]
+                    if tags_idx is not None and tags_idx < len(raw_row)
+                    else "",
+                }
+            )
         return rows
 
     def _parse_excel(self, file_bytes: bytes) -> list[dict]:
@@ -273,13 +288,21 @@ class ContactImportExportService:
             cells = [str(c or "").strip() if c is not None else "" for c in raw_row]
             if not any(cells):
                 continue
-            rows.append({
-                "phone": cells[phone_idx] if phone_idx < len(cells) else "",
-                "name": cells[name_idx] if name_idx is not None and name_idx < len(cells) else "",
-                "language": cells[lang_idx] if lang_idx is not None and lang_idx < len(cells) else "",
-                "cin": cells[cin_idx] if cin_idx is not None and cin_idx < len(cells) else "",
-                "tags": cells[tags_idx] if tags_idx is not None and tags_idx < len(cells) else "",
-            })
+            rows.append(
+                {
+                    "phone": cells[phone_idx] if phone_idx < len(cells) else "",
+                    "name": cells[name_idx]
+                    if name_idx is not None and name_idx < len(cells)
+                    else "",
+                    "language": cells[lang_idx]
+                    if lang_idx is not None and lang_idx < len(cells)
+                    else "",
+                    "cin": cells[cin_idx] if cin_idx is not None and cin_idx < len(cells) else "",
+                    "tags": cells[tags_idx]
+                    if tags_idx is not None and tags_idx < len(cells)
+                    else "",
+                }
+            )
         wb.close()
         return rows
 
@@ -357,16 +380,18 @@ class ContactImportExportService:
         ws.append(["Téléphone", "Nom", "Langue", "CIN", "Opt-in", "Tags", "Source", "Créé le"])
 
         for c in contacts:
-            ws.append([
-                c.phone,
-                c.name or "",
-                c.language.value if c.language else "",
-                c.cin or "",
-                c.opt_in_status.value if c.opt_in_status else "",
-                ", ".join(c.tags) if c.tags else "",
-                c.source.value if c.source else "",
-                c.created_at.isoformat() if c.created_at else "",
-            ])
+            ws.append(
+                [
+                    c.phone,
+                    c.name or "",
+                    c.language.value if c.language else "",
+                    c.cin or "",
+                    c.opt_in_status.value if c.opt_in_status else "",
+                    ", ".join(c.tags) if c.tags else "",
+                    c.source.value if c.source else "",
+                    c.created_at.isoformat() if c.created_at else "",
+                ]
+            )
 
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -400,19 +425,23 @@ class ContactImportExportService:
 
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(["phone", "name", "language", "cin", "opt_in_status", "tags", "source", "created_at"])
+        writer.writerow(
+            ["phone", "name", "language", "cin", "opt_in_status", "tags", "source", "created_at"]
+        )
 
         for c in contacts:
-            writer.writerow([
-                c.phone,
-                c.name or "",
-                c.language.value if c.language else "",
-                c.cin or "",
-                c.opt_in_status.value if c.opt_in_status else "",
-                ", ".join(c.tags) if c.tags else "",
-                c.source.value if c.source else "",
-                c.created_at.isoformat() if c.created_at else "",
-            ])
+            writer.writerow(
+                [
+                    c.phone,
+                    c.name or "",
+                    c.language.value if c.language else "",
+                    c.cin or "",
+                    c.opt_in_status.value if c.opt_in_status else "",
+                    ", ".join(c.tags) if c.tags else "",
+                    c.source.value if c.source else "",
+                    c.created_at.isoformat() if c.created_at else "",
+                ]
+            )
 
         return buffer.getvalue()
 

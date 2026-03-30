@@ -7,7 +7,6 @@ No database required — uses mocks where needed.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -30,9 +29,7 @@ class TestAuditLogModel:
         # __table_args__ is a tuple where last element is a dict
         table_args = AuditLog.__table_args__
         # Find the dict in the tuple
-        schema_dict = next(
-            (arg for arg in table_args if isinstance(arg, dict)), {}
-        )
+        schema_dict = next((arg for arg in table_args if isinstance(arg, dict)), {})
         assert schema_dict.get("schema") == "public"
 
     def test_audit_model_no_updated_at(self):
@@ -155,7 +152,7 @@ class TestAuditSchemas:
         assert f.date_to is None
 
     def test_audit_list_structure(self):
-        from app.schemas.audit import AuditLogList, AuditLogRead
+        from app.schemas.audit import AuditLogList
 
         lst = AuditLogList(items=[], total=0, page=1, page_size=50)
         assert lst.items == []
@@ -185,10 +182,9 @@ class TestAuditService:
 
     def test_singleton_factory(self):
         """get_audit_service() returns the same instance on repeated calls."""
-        from app.services.audit.service import get_audit_service
-
         # Reset singleton for clean test
         import app.services.audit.service as mod
+        from app.services.audit.service import get_audit_service
 
         mod._audit_service = None
 
@@ -284,9 +280,7 @@ class TestAuditPolicy:
             "scripts",
             "apply_audit_policy.sql",
         )
-        assert os.path.isfile(script_path), (
-            f"SQL policy script not found at {script_path}"
-        )
+        assert os.path.isfile(script_path), f"SQL policy script not found at {script_path}"
 
     def test_sql_script_contains_revoke(self):
         import os

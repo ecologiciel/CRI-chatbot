@@ -15,11 +15,10 @@ from __future__ import annotations
 import base64
 import secrets
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 
 # ── Model & Service imports ──
 
@@ -280,9 +279,7 @@ async def test_get_data_key_cache_miss():
 
     assert result == data_key
     # Verify cache was populated
-    mock_redis.set.assert_called_once_with(
-        "test-tenant:kms:data_key", data_key.hex(), ex=300
-    )
+    mock_redis.set.assert_called_once_with("test-tenant:kms:data_key", data_key.hex(), ex=300)
 
 
 @pytest.mark.asyncio

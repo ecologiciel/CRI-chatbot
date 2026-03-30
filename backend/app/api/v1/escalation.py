@@ -127,13 +127,15 @@ async def assign_escalation(
 
     try:
         result = await svc.assign_escalation(
-            escalation_id, uuid.UUID(admin.sub), tenant,
+            escalation_id,
+            uuid.UUID(admin.sub),
+            tenant,
         )
-    except NoResultFound:
+    except NoResultFound as err:
         raise ResourceNotFoundError(
             f"Escalation not found: {escalation_id}",
             details={"escalation_id": str(escalation_id)},
-        )
+        ) from err
 
     return EscalationRead.model_validate(result)
 
@@ -172,13 +174,16 @@ async def respond_to_escalation(
 
     try:
         wamid = await svc.respond_via_whatsapp(
-            escalation_id, body.message, uuid.UUID(admin.sub), tenant,
+            escalation_id,
+            body.message,
+            uuid.UUID(admin.sub),
+            tenant,
         )
-    except NoResultFound:
+    except NoResultFound as err:
         raise ResourceNotFoundError(
             f"Escalation not found: {escalation_id}",
             details={"escalation_id": str(escalation_id)},
-        )
+        ) from err
 
     return {"wamid": wamid}
 
@@ -213,13 +218,16 @@ async def close_escalation(
 
     try:
         result = await svc.close_escalation(
-            escalation_id, body.resolution_notes, uuid.UUID(admin.sub), tenant,
+            escalation_id,
+            body.resolution_notes,
+            uuid.UUID(admin.sub),
+            tenant,
         )
-    except NoResultFound:
+    except NoResultFound as err:
         raise ResourceNotFoundError(
             f"Escalation not found: {escalation_id}",
             details={"escalation_id": str(escalation_id)},
-        )
+        ) from err
 
     return EscalationRead.model_validate(result)
 
@@ -245,6 +253,8 @@ async def get_escalation_conversation(
         )
 
     messages = await svc.get_conversation_messages(
-        escalation.conversation_id, tenant, limit=limit,
+        escalation.conversation_id,
+        tenant,
+        limit=limit,
     )
     return [MessageResponse.model_validate(m) for m in messages]

@@ -30,17 +30,26 @@ class KBDocument(UUIDMixin, TimestampMixin, Base):
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     language: Mapped[str] = mapped_column(
-        String(5), nullable=False, server_default="fr",
+        String(5),
+        nullable=False,
+        server_default="fr",
     )
     content_hash: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, comment="SHA-256 for dedup",
+        String(64),
+        nullable=True,
+        comment="SHA-256 for dedup",
     )
     file_path: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, comment="MinIO path",
+        String(500),
+        nullable=True,
+        comment="MinIO path",
     )
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chunk_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0",
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
     )
     status: Mapped[KBDocumentStatus] = mapped_column(
         Enum(KBDocumentStatus, name="kbdocumentstatus", schema="public"),
@@ -50,12 +59,16 @@ class KBDocument(UUIDMixin, TimestampMixin, Base):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True, default=None,
+        "metadata",
+        JSONB,
+        nullable=True,
+        default=None,
     )
 
     # Relationships
     chunks: Mapped[list[KBChunk]] = relationship(
-        back_populates="document", cascade="all, delete-orphan",
+        back_populates="document",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
@@ -78,11 +91,16 @@ class KBChunk(UUIDMixin, TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     qdrant_point_id: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, comment="Qdrant vector point ID",
+        String(100),
+        nullable=True,
+        comment="Qdrant vector point ID",
     )
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True, default=None,
+        "metadata",
+        JSONB,
+        nullable=True,
+        default=None,
     )
 
     # Relationships

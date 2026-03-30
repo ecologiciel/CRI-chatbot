@@ -122,6 +122,7 @@ class DossierStatut(str, Enum):
 
 class CampaignStatus(str, Enum):
     """Statut du cycle de vie d'une campagne de publipostage."""
+
     draft = "draft"
     scheduled = "scheduled"
     sending = "sending"
@@ -132,6 +133,7 @@ class CampaignStatus(str, Enum):
 
 class RecipientStatus(str, Enum):
     """Statut d'envoi pour un destinataire individuel d'une campagne."""
+
     pending = "pending"
     sent = "sent"
     delivered = "delivered"

@@ -58,20 +58,28 @@ class Campaign(UUIDMixin, TimestampMixin, Base):
     template_id: Mapped[str] = mapped_column(String(255), nullable=False)
     template_name: Mapped[str] = mapped_column(String(255), nullable=False)
     template_language: Mapped[str] = mapped_column(
-        String(10), nullable=False, server_default="fr",
+        String(10),
+        nullable=False,
+        server_default="fr",
     )
 
     # ── Audience ──
     audience_filter: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{}'::jsonb"),
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
     )
     audience_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0",
+        Integer,
+        nullable=False,
+        server_default="0",
     )
 
     # ── Variable mapping ──
     variable_mapping: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{}'::jsonb"),
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
     )
 
     # ── Status ──
@@ -84,13 +92,16 @@ class Campaign(UUIDMixin, TimestampMixin, Base):
 
     # ── Scheduling & timestamps ──
     scheduled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     # ── Aggregated stats (updated by the send worker) ──
@@ -111,7 +122,8 @@ class Campaign(UUIDMixin, TimestampMixin, Base):
 
     # ── Relationships ──
     recipients: Mapped[list[CampaignRecipient]] = relationship(
-        back_populates="campaign", cascade="all, delete-orphan",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
     )
     creator: Mapped[Admin] = relationship(lazy="selectin")
 
@@ -160,22 +172,28 @@ class CampaignRecipient(UUIDMixin, Base):
 
     # ── Delivery details ──
     whatsapp_message_id: Mapped[str | None] = mapped_column(
-        String(100), nullable=True,
+        String(100),
+        nullable=True,
     )
     sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
     delivered_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
     read_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── Timestamp (no updated_at — status changes tracked via dedicated fields) ──
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
 
     # ── Relationships ──

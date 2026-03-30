@@ -17,7 +17,7 @@ Redis key patterns (no tenant prefix — auth is global/public):
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -93,7 +93,7 @@ class SessionManager:
         last_ip = await self._redis.get(key_ip)
         last_login_ts = await self._redis.get(key_last)
         if last_ip and last_ip != ip_address and last_login_ts:
-            elapsed = datetime.now(timezone.utc).timestamp() - float(last_login_ts)
+            elapsed = datetime.now(UTC).timestamp() - float(last_login_ts)
             if elapsed < _ALERT_WINDOW_SECONDS:
                 result["ip_alert"] = True
                 await self._redis.setex(
@@ -110,7 +110,7 @@ class SessionManager:
                 )
 
         # 3. Store new session (pipeline for atomicity)
-        now_ts = str(datetime.now(timezone.utc).timestamp())
+        now_ts = str(datetime.now(UTC).timestamp())
         pipe = self._redis.pipeline()
         pipe.setex(key_active, _ACCESS_TOKEN_TTL, jti)
         pipe.setex(key_ip, _ACCESS_TOKEN_TTL, ip_address)

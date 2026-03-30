@@ -1,13 +1,13 @@
 """Unit tests for GenerationService — full RAG generation pipeline."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.core.exceptions import GenerationError, GeminiError
+from app.core.exceptions import GeminiError, GenerationError
 from app.models.enums import Language
 from app.schemas.ai import GeminiResponse
-from app.schemas.rag import GenerationRequest, RetrievedChunk, RetrievalResult
+from app.schemas.rag import GenerationRequest, RetrievalResult, RetrievedChunk
 from app.services.ai.language import LanguageResult
 from app.services.rag.generation import GenerationService
 
@@ -45,8 +45,12 @@ def _make_retrieval_result(chunks=None, confidence=0.85):
 def _make_gemini_response(text="Réponse générée."):
     """Create a GeminiResponse."""
     return GeminiResponse(
-        text=text, input_tokens=50, output_tokens=30,
-        total_tokens=80, model="gemini-2.5-flash", latency_ms=200.0,
+        text=text,
+        input_tokens=50,
+        output_tokens=30,
+        total_tokens=80,
+        model="gemini-2.5-flash",
+        latency_ms=200.0,
     )
 
 
@@ -71,7 +75,9 @@ def _make_service(
 
     mock_language = AsyncMock()
     mock_language.detect = AsyncMock(
-        return_value=LanguageResult(language=Language.fr, confidence=0.9, method="heuristic_french"),
+        return_value=LanguageResult(
+            language=Language.fr, confidence=0.9, method="heuristic_french"
+        ),
     )
 
     with (
@@ -145,16 +151,20 @@ class TestPIIAnonymization:
         """CIN in chunk content is replaced with [CIN] in Gemini prompt."""
         chunks = [
             RetrievedChunk(
-                chunk_id="c1", document_id="d1",
+                chunk_id="c1",
+                document_id="d1",
                 content="Le client AB123456 doit déposer son dossier.",
-                score=0.9, metadata={},
+                score=0.9,
+                metadata={},
             ),
         ]
         service, _, gemini = _make_service(
             retrieval_result=_make_retrieval_result(chunks=chunks, confidence=0.9),
         )
         request = GenerationRequest(
-            query="Procédure dépôt", language="fr", chunks=chunks,
+            query="Procédure dépôt",
+            language="fr",
+            chunks=chunks,
         )
 
         await service.generate(tenant_context, request)
@@ -175,7 +185,9 @@ class TestPreRetrievedChunks:
         chunks = _make_chunks(2, score=0.9)
         service, retrieval, _ = _make_service()
         request = GenerationRequest(
-            query="Test", language="fr", chunks=chunks,
+            query="Test",
+            language="fr",
+            chunks=chunks,
         )
 
         await service.generate(tenant_context, request)

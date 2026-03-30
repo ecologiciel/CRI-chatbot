@@ -33,6 +33,7 @@ import structlog
 from langgraph.graph import END, StateGraph
 
 from app.core.tenant import TenantContext
+from app.services.orchestrator.escalation_handler import get_escalation_handler
 from app.services.orchestrator.faq_agent import get_faq_agent
 from app.services.orchestrator.feedback_collector import get_feedback_collector
 from app.services.orchestrator.incentives_agent import get_incentives_agent
@@ -40,7 +41,6 @@ from app.services.orchestrator.intent import get_intent_detector
 from app.services.orchestrator.internal_agent import get_internal_agent
 from app.services.orchestrator.response_validator import get_response_validator
 from app.services.orchestrator.router import Router
-from app.services.orchestrator.escalation_handler import get_escalation_handler
 from app.services.orchestrator.simple_nodes import (
     BlockedResponseNode,
     GreetingNode,
@@ -56,6 +56,7 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 # Tenant reconstruction helper
 # ---------------------------------------------------------------------------
+
 
 def _reconstruct_tenant(state: ConversationState) -> TenantContext:
     """Reconstruct a TenantContext from the serialized dict in state."""
@@ -83,6 +84,7 @@ def _serialize_tenant(tenant: TenantContext) -> dict:
 # ---------------------------------------------------------------------------
 # Node wrappers
 # ---------------------------------------------------------------------------
+
 
 def _wrap_tenant_node(
     method: Callable[..., Awaitable[ConversationState]],
@@ -177,23 +179,28 @@ def check_feedback_escalation(state: ConversationState) -> str:
     query = (state.get("query") or "").lower()
     escalation_keywords = [
         # Français
-        "parler", "agent", "humain", "conseiller",
+        "parler",
+        "agent",
+        "humain",
+        "conseiller",
         # English
-        "talk", "human", "advisor",
+        "talk",
+        "human",
+        "advisor",
         # Arabe
-        "\u0645\u0648\u0638\u0641",   # موظف
+        "\u0645\u0648\u0638\u0641",  # موظف
         "\u0645\u0633\u062a\u0634\u0627\u0631",  # مستشار
         "\u0627\u0644\u062a\u062d\u062f\u062b",  # التحدث
     ]
-    if any(kw in query for kw in escalation_keywords):
-        if state.get("confidence", 1.0) < 0.5:
-            return "escalation_handler"
+    if any(kw in query for kw in escalation_keywords) and state.get("confidence", 1.0) < 0.5:
+        return "escalation_handler"
     return END
 
 
 # ---------------------------------------------------------------------------
 # Graph construction
 # ---------------------------------------------------------------------------
+
 
 def build_conversation_graph() -> Any:
     """Build and compile the complete conversation StateGraph.
@@ -338,6 +345,7 @@ def get_conversation_graph() -> Any:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 async def run_conversation(
     tenant: TenantContext,

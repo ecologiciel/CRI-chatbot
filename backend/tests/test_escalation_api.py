@@ -6,13 +6,6 @@ No database required — uses mocks and pure logic tests.
 
 from __future__ import annotations
 
-import uuid
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # 1. Import tests
 # ---------------------------------------------------------------------------
@@ -173,25 +166,25 @@ class TestEscalationServiceNewMethods:
         from app.services.escalation.service import EscalationService
 
         assert hasattr(EscalationService, "get_escalation_by_id")
-        assert callable(getattr(EscalationService, "get_escalation_by_id"))
+        assert callable(EscalationService.get_escalation_by_id)
 
     def test_get_escalations_exists(self):
         from app.services.escalation.service import EscalationService
 
         assert hasattr(EscalationService, "get_escalations")
-        assert callable(getattr(EscalationService, "get_escalations"))
+        assert callable(EscalationService.get_escalations)
 
     def test_get_stats_exists(self):
         from app.services.escalation.service import EscalationService
 
         assert hasattr(EscalationService, "get_escalation_stats")
-        assert callable(getattr(EscalationService, "get_escalation_stats"))
+        assert callable(EscalationService.get_escalation_stats)
 
     def test_get_conversation_messages_exists(self):
         from app.services.escalation.service import EscalationService
 
         assert hasattr(EscalationService, "get_conversation_messages")
-        assert callable(getattr(EscalationService, "get_conversation_messages"))
+        assert callable(EscalationService.get_conversation_messages)
 
 
 # ---------------------------------------------------------------------------

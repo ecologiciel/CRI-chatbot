@@ -19,7 +19,6 @@ from app.main import app
 from app.models.enums import AdminRole
 from app.schemas.auth import AdminTokenPayload, AuthTokenResponse
 
-
 # --- Factories ---
 
 
@@ -79,9 +78,7 @@ class TestLoginEndpoint:
         """POST /auth/login with valid credentials returns 200 + tokens."""
         mock_response = _make_token_response()
 
-        with patch(
-            "app.api.v1.auth.AuthService"
-        ) as MockAuthService:
+        with patch("app.api.v1.auth.AuthService") as MockAuthService:
             MockAuthService.return_value.login = AsyncMock(return_value=mock_response)
 
             async with AsyncClient(
@@ -103,9 +100,7 @@ class TestLoginEndpoint:
     @pytest.mark.asyncio
     async def test_login_wrong_password(self):
         """POST /auth/login with wrong password returns 401."""
-        with patch(
-            "app.api.v1.auth.AuthService"
-        ) as MockAuthService:
+        with patch("app.api.v1.auth.AuthService") as MockAuthService:
             MockAuthService.return_value.login = AsyncMock(
                 side_effect=AuthenticationError("Invalid credentials")
             )
@@ -125,9 +120,7 @@ class TestLoginEndpoint:
     @pytest.mark.asyncio
     async def test_login_locked_account(self):
         """POST /auth/login when locked returns 429."""
-        with patch(
-            "app.api.v1.auth.AuthService"
-        ) as MockAuthService:
+        with patch("app.api.v1.auth.AuthService") as MockAuthService:
             MockAuthService.return_value.login = AsyncMock(
                 side_effect=AccountLockedError(remaining_seconds=1500)
             )
@@ -165,12 +158,8 @@ class TestRefreshEndpoint:
         """POST /auth/refresh with valid token returns 200 + new tokens."""
         mock_response = _make_token_response()
 
-        with patch(
-            "app.api.v1.auth.AuthService"
-        ) as MockAuthService:
-            MockAuthService.return_value.refresh_token = AsyncMock(
-                return_value=mock_response
-            )
+        with patch("app.api.v1.auth.AuthService") as MockAuthService:
+            MockAuthService.return_value.refresh_token = AsyncMock(return_value=mock_response)
 
             async with AsyncClient(
                 transport=ASGITransport(app=app),
@@ -189,9 +178,7 @@ class TestRefreshEndpoint:
     @pytest.mark.asyncio
     async def test_refresh_reuse_fails(self):
         """POST /auth/refresh with already-used token returns 401."""
-        with patch(
-            "app.api.v1.auth.AuthService"
-        ) as MockAuthService:
+        with patch("app.api.v1.auth.AuthService") as MockAuthService:
             MockAuthService.return_value.refresh_token = AsyncMock(
                 side_effect=AuthenticationError("Refresh token already used")
             )

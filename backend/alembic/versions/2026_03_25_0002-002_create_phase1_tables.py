@@ -14,9 +14,10 @@ Creates:
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "002"
 down_revision: str = "001"
@@ -26,54 +27,112 @@ depends_on: str | Sequence[str] | None = None
 # ── ENUM types (all in public schema, shared across tenants) ──
 
 language = postgresql.ENUM(
-    "fr", "ar", "en",
-    name="language", schema="public", create_type=False,
+    "fr",
+    "ar",
+    "en",
+    name="language",
+    schema="public",
+    create_type=False,
 )
 optinstatus = postgresql.ENUM(
-    "opted_in", "opted_out", "pending",
-    name="optinstatus", schema="public", create_type=False,
+    "opted_in",
+    "opted_out",
+    "pending",
+    name="optinstatus",
+    schema="public",
+    create_type=False,
 )
 contactsource = postgresql.ENUM(
-    "whatsapp", "import_csv", "manual",
-    name="contactsource", schema="public", create_type=False,
+    "whatsapp",
+    "import_csv",
+    "manual",
+    name="contactsource",
+    schema="public",
+    create_type=False,
 )
 agenttype = postgresql.ENUM(
-    "public", "internal",
-    name="agenttype", schema="public", create_type=False,
+    "public",
+    "internal",
+    name="agenttype",
+    schema="public",
+    create_type=False,
 )
 conversationstatus = postgresql.ENUM(
-    "active", "ended", "escalated", "human_handled",
-    name="conversationstatus", schema="public", create_type=False,
+    "active",
+    "ended",
+    "escalated",
+    "human_handled",
+    name="conversationstatus",
+    schema="public",
+    create_type=False,
 )
 messagedirection = postgresql.ENUM(
-    "inbound", "outbound",
-    name="messagedirection", schema="public", create_type=False,
+    "inbound",
+    "outbound",
+    name="messagedirection",
+    schema="public",
+    create_type=False,
 )
 messagetype = postgresql.ENUM(
-    "text", "image", "audio", "document", "interactive", "system",
-    name="messagetype", schema="public", create_type=False,
+    "text",
+    "image",
+    "audio",
+    "document",
+    "interactive",
+    "system",
+    name="messagetype",
+    schema="public",
+    create_type=False,
 )
 adminrole = postgresql.ENUM(
-    "super_admin", "admin_tenant", "supervisor", "viewer",
-    name="adminrole", schema="public", create_type=False,
+    "super_admin",
+    "admin_tenant",
+    "supervisor",
+    "viewer",
+    name="adminrole",
+    schema="public",
+    create_type=False,
 )
 kbdocumentstatus = postgresql.ENUM(
-    "pending", "indexing", "indexed", "error",
-    name="kbdocumentstatus", schema="public", create_type=False,
+    "pending",
+    "indexing",
+    "indexed",
+    "error",
+    name="kbdocumentstatus",
+    schema="public",
+    create_type=False,
 )
 feedbackrating = postgresql.ENUM(
-    "positive", "negative", "question",
-    name="feedbackrating", schema="public", create_type=False,
+    "positive",
+    "negative",
+    "question",
+    name="feedbackrating",
+    schema="public",
+    create_type=False,
 )
 unansweredstatus = postgresql.ENUM(
-    "pending", "approved", "modified", "rejected", "injected",
-    name="unansweredstatus", schema="public", create_type=False,
+    "pending",
+    "approved",
+    "modified",
+    "rejected",
+    "injected",
+    name="unansweredstatus",
+    schema="public",
+    create_type=False,
 )
 
 ALL_ENUMS = [
-    language, optinstatus, contactsource, agenttype, conversationstatus,
-    messagedirection, messagetype, adminrole, kbdocumentstatus,
-    feedbackrating, unansweredstatus,
+    language,
+    optinstatus,
+    contactsource,
+    agenttype,
+    conversationstatus,
+    messagedirection,
+    messagetype,
+    adminrole,
+    kbdocumentstatus,
+    feedbackrating,
+    unansweredstatus,
 ]
 
 TENANT_SCHEMA = "tenant_template"
@@ -93,35 +152,49 @@ def upgrade() -> None:
     op.create_table(
         "admins",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column("email", sa.String(255), nullable=False, unique=True),
         sa.Column("password_hash", sa.String(255), nullable=False),
         sa.Column("full_name", sa.String(255), nullable=False),
         sa.Column(
-            "role", adminrole,
-            server_default="viewer", nullable=False,
+            "role",
+            adminrole,
+            server_default="viewer",
+            nullable=False,
         ),
         sa.Column(
-            "tenant_id", postgresql.UUID(as_uuid=True), nullable=True,
+            "tenant_id",
+            postgresql.UUID(as_uuid=True),
+            nullable=True,
         ),
         sa.Column(
-            "is_active", sa.Boolean(),
-            server_default=sa.text("true"), nullable=False,
+            "is_active",
+            sa.Boolean(),
+            server_default=sa.text("true"),
+            nullable=False,
         ),
         sa.Column("last_login", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["tenant_id"], ["public.tenants.id"], ondelete="SET NULL",
+            ["tenant_id"],
+            ["public.tenants.id"],
+            ondelete="SET NULL",
         ),
         schema="public",
     )
@@ -133,80 +206,114 @@ def upgrade() -> None:
     op.create_table(
         "contacts",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column("phone", sa.String(20), nullable=False),
         sa.Column("name", sa.String(255), nullable=True),
         sa.Column("language", language, server_default="fr", nullable=False),
         sa.Column("cin", sa.String(20), nullable=True),
         sa.Column("opt_in_status", optinstatus, server_default="pending", nullable=False),
-        sa.Column("tags", postgresql.JSONB(), server_default=sa.text("'[]'::jsonb"), nullable=False),
+        sa.Column(
+            "tags", postgresql.JSONB(), server_default=sa.text("'[]'::jsonb"), nullable=False
+        ),
         sa.Column("source", contactsource, server_default="whatsapp", nullable=False),
         sa.Column("metadata", postgresql.JSONB(), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_contacts_phone", "contacts", ["phone"], unique=True, schema=TENANT_SCHEMA,
+        "ix_contacts_phone",
+        "contacts",
+        ["phone"],
+        unique=True,
+        schema=TENANT_SCHEMA,
     )
     op.create_index("ix_contacts_cin", "contacts", ["cin"], schema=TENANT_SCHEMA)
     op.create_index(
-        "ix_contacts_tags", "contacts", ["tags"],
-        schema=TENANT_SCHEMA, postgresql_using="gin",
+        "ix_contacts_tags",
+        "contacts",
+        ["tags"],
+        schema=TENANT_SCHEMA,
+        postgresql_using="gin",
     )
     op.create_index(
-        "ix_contacts_created_at", "contacts", ["created_at"], schema=TENANT_SCHEMA,
+        "ix_contacts_created_at",
+        "contacts",
+        ["created_at"],
+        schema=TENANT_SCHEMA,
     )
 
     # ── 5. Create conversations table (tenant_template) ──
     op.create_table(
         "conversations",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column("contact_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("agent_type", agenttype, server_default="public", nullable=False),
         sa.Column("status", conversationstatus, server_default="active", nullable=False),
         sa.Column("metadata", postgresql.JSONB(), nullable=True),
         sa.Column(
-            "started_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "started_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["contact_id"], [f"{TENANT_SCHEMA}.contacts.id"], ondelete="CASCADE",
+            ["contact_id"],
+            [f"{TENANT_SCHEMA}.contacts.id"],
+            ondelete="CASCADE",
         ),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_conversations_contact_id", "conversations", ["contact_id"],
+        "ix_conversations_contact_id",
+        "conversations",
+        ["contact_id"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_conversations_status", "conversations", ["status"],
+        "ix_conversations_status",
+        "conversations",
+        ["status"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_conversations_started_at", "conversations", ["started_at"],
+        "ix_conversations_started_at",
+        "conversations",
+        ["started_at"],
         schema=TENANT_SCHEMA,
     )
 
@@ -214,8 +321,10 @@ def upgrade() -> None:
     op.create_table(
         "messages",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column("conversation_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("direction", messagedirection, nullable=False),
@@ -223,41 +332,57 @@ def upgrade() -> None:
         sa.Column("content", sa.Text(), nullable=True),
         sa.Column("media_url", sa.String(500), nullable=True),
         sa.Column(
-            "chunk_ids", postgresql.JSONB(),
-            server_default=sa.text("'[]'::jsonb"), nullable=False,
+            "chunk_ids",
+            postgresql.JSONB(),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
         ),
         sa.Column("whatsapp_message_id", sa.String(100), nullable=True),
         sa.Column("metadata", postgresql.JSONB(), nullable=True),
         sa.Column(
-            "timestamp", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "timestamp",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["conversation_id"], [f"{TENANT_SCHEMA}.conversations.id"],
+            ["conversation_id"],
+            [f"{TENANT_SCHEMA}.conversations.id"],
             ondelete="CASCADE",
         ),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_messages_conversation_id", "messages", ["conversation_id"],
+        "ix_messages_conversation_id",
+        "messages",
+        ["conversation_id"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_messages_whatsapp_message_id", "messages", ["whatsapp_message_id"],
-        unique=True, schema=TENANT_SCHEMA,
+        "ix_messages_whatsapp_message_id",
+        "messages",
+        ["whatsapp_message_id"],
+        unique=True,
+        schema=TENANT_SCHEMA,
         postgresql_where=sa.text("whatsapp_message_id IS NOT NULL"),
     )
     op.create_index(
-        "ix_messages_timestamp", "messages", ["timestamp"],
+        "ix_messages_timestamp",
+        "messages",
+        ["timestamp"],
         schema=TENANT_SCHEMA,
     )
 
@@ -265,8 +390,10 @@ def upgrade() -> None:
     op.create_table(
         "kb_documents",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column("title", sa.String(500), nullable=False),
         sa.Column("source_url", sa.String(1000), nullable=True),
@@ -280,30 +407,42 @@ def upgrade() -> None:
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("metadata", postgresql.JSONB(), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_kb_documents_category", "kb_documents", ["category"],
+        "ix_kb_documents_category",
+        "kb_documents",
+        ["category"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_kb_documents_status", "kb_documents", ["status"],
+        "ix_kb_documents_status",
+        "kb_documents",
+        ["status"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_kb_documents_content_hash", "kb_documents", ["content_hash"],
+        "ix_kb_documents_content_hash",
+        "kb_documents",
+        ["content_hash"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_kb_documents_created_at", "kb_documents", ["created_at"],
+        "ix_kb_documents_created_at",
+        "kb_documents",
+        ["created_at"],
         schema=TENANT_SCHEMA,
     )
 
@@ -311,8 +450,10 @@ def upgrade() -> None:
     op.create_table(
         "kb_chunks",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column("document_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
@@ -321,27 +462,36 @@ def upgrade() -> None:
         sa.Column("token_count", sa.Integer(), nullable=True),
         sa.Column("metadata", postgresql.JSONB(), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("document_id", "chunk_index", name="uq_kb_chunks_doc_index"),
         sa.ForeignKeyConstraint(
-            ["document_id"], [f"{TENANT_SCHEMA}.kb_documents.id"],
+            ["document_id"],
+            [f"{TENANT_SCHEMA}.kb_documents.id"],
             ondelete="CASCADE",
         ),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_kb_chunks_document_id", "kb_chunks", ["document_id"],
+        "ix_kb_chunks_document_id",
+        "kb_chunks",
+        ["document_id"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_kb_chunks_qdrant_point_id", "kb_chunks", ["qdrant_point_id"],
+        "ix_kb_chunks_qdrant_point_id",
+        "kb_chunks",
+        ["qdrant_point_id"],
         schema=TENANT_SCHEMA,
     )
 
@@ -349,42 +499,57 @@ def upgrade() -> None:
     op.create_table(
         "feedback",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column("message_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("rating", feedbackrating, nullable=False),
         sa.Column("reason", sa.String(255), nullable=True),
         sa.Column("comment", sa.Text(), nullable=True),
         sa.Column(
-            "chunk_ids", postgresql.JSONB(),
-            server_default=sa.text("'[]'::jsonb"), nullable=False,
+            "chunk_ids",
+            postgresql.JSONB(),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
         ),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["message_id"], [f"{TENANT_SCHEMA}.messages.id"],
+            ["message_id"],
+            [f"{TENANT_SCHEMA}.messages.id"],
             ondelete="CASCADE",
         ),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_feedback_message_id", "feedback", ["message_id"],
+        "ix_feedback_message_id",
+        "feedback",
+        ["message_id"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_feedback_rating", "feedback", ["rating"],
+        "ix_feedback_rating",
+        "feedback",
+        ["rating"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_feedback_created_at", "feedback", ["created_at"],
+        "ix_feedback_created_at",
+        "feedback",
+        ["created_at"],
         schema=TENANT_SCHEMA,
     )
 
@@ -392,8 +557,10 @@ def upgrade() -> None:
     op.create_table(
         "unanswered_questions",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column("question", sa.Text(), nullable=False),
         sa.Column("language", sa.String(5), server_default="fr", nullable=False),
@@ -404,34 +571,47 @@ def upgrade() -> None:
         sa.Column("review_note", sa.Text(), nullable=True),
         sa.Column("source_conversation_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["reviewed_by"], ["public.admins.id"], ondelete="SET NULL",
+            ["reviewed_by"],
+            ["public.admins.id"],
+            ondelete="SET NULL",
         ),
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_unanswered_questions_status", "unanswered_questions", ["status"],
+        "ix_unanswered_questions_status",
+        "unanswered_questions",
+        ["status"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_unanswered_questions_status_freq", "unanswered_questions",
+        "ix_unanswered_questions_status_freq",
+        "unanswered_questions",
         ["status", "frequency"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_unanswered_questions_language", "unanswered_questions", ["language"],
+        "ix_unanswered_questions_language",
+        "unanswered_questions",
+        ["language"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
-        "ix_unanswered_questions_created_at", "unanswered_questions", ["created_at"],
+        "ix_unanswered_questions_created_at",
+        "unanswered_questions",
+        ["created_at"],
         schema=TENANT_SCHEMA,
     )
 

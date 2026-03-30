@@ -7,18 +7,17 @@ and patched services for provisioning/DB operations.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.exceptions import AuthorizationError, DuplicateTenantError, ResourceNotFoundError
+from app.core.exceptions import DuplicateTenantError
 from app.core.rbac import get_current_admin
 from app.main import app
 from app.models.enums import AdminRole, TenantStatus
 from app.schemas.auth import AdminTokenPayload
-
 
 # --- Factories ---
 
@@ -38,7 +37,9 @@ def _make_super_admin_payload(**overrides) -> AdminTokenPayload:
     return AdminTokenPayload(**defaults)
 
 
-def _make_tenant_admin_payload(tenant_id: uuid.UUID | None = None, **overrides) -> AdminTokenPayload:
+def _make_tenant_admin_payload(
+    tenant_id: uuid.UUID | None = None, **overrides
+) -> AdminTokenPayload:
     """Create an admin_tenant token payload."""
     defaults = {
         "sub": str(uuid.uuid4()),
@@ -72,8 +73,8 @@ def _make_tenant_orm(**overrides) -> MagicMock:
         "max_contacts": 20000,
         "max_messages_per_year": 100000,
         "max_admins": 10,
-        "created_at": datetime(2025, 1, 1, tzinfo=timezone.utc),
-        "updated_at": datetime(2025, 1, 1, tzinfo=timezone.utc),
+        "created_at": datetime(2025, 1, 1, tzinfo=UTC),
+        "updated_at": datetime(2025, 1, 1, tzinfo=UTC),
     }
     defaults.update(overrides)
     mock = MagicMock()
@@ -124,12 +125,8 @@ class TestCreateTenantEndpoint:
         app.dependency_overrides[get_current_admin] = lambda: payload
 
         try:
-            with patch(
-                "app.api.v1.tenant.TenantProvisioningService"
-            ) as MockService:
-                MockService.return_value.provision_tenant = AsyncMock(
-                    return_value=tenant_orm
-                )
+            with patch("app.api.v1.tenant.TenantProvisioningService") as MockService:
+                MockService.return_value.provision_tenant = AsyncMock(return_value=tenant_orm)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app),
@@ -187,9 +184,7 @@ class TestCreateTenantEndpoint:
         app.dependency_overrides[get_current_admin] = lambda: payload
 
         try:
-            with patch(
-                "app.api.v1.tenant.TenantProvisioningService"
-            ) as MockService:
+            with patch("app.api.v1.tenant.TenantProvisioningService") as MockService:
                 MockService.return_value.provision_tenant = AsyncMock(
                     side_effect=DuplicateTenantError("rabat")
                 )
@@ -533,9 +528,7 @@ class TestDeleteTenantEndpoint:
                     "app.api.v1.tenant.get_session_factory",
                     return_value=mock_factory,
                 ),
-                patch(
-                    "app.api.v1.tenant.TenantProvisioningService"
-                ) as MockService,
+                patch("app.api.v1.tenant.TenantProvisioningService") as MockService,
             ):
                 MockService.return_value.deprovision_tenant = AsyncMock()
 

@@ -41,7 +41,9 @@ class Feedback(UUIDMixin, TimestampMixin, Base):
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     chunk_ids: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb"),
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
     )
 
     # Relationships
@@ -62,10 +64,15 @@ class UnansweredQuestion(UUIDMixin, TimestampMixin, Base):
 
     question: Mapped[str] = mapped_column(Text, nullable=False)
     language: Mapped[str] = mapped_column(
-        String(5), nullable=False, server_default="fr",
+        String(5),
+        nullable=False,
+        server_default="fr",
     )
     frequency: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default="1",
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
     )
     proposed_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[UnansweredStatus] = mapped_column(
@@ -81,7 +88,8 @@ class UnansweredQuestion(UUIDMixin, TimestampMixin, Base):
     )
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_conversation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True,
+        UUID(as_uuid=True),
+        nullable=True,
         comment="Reference only — no FK (conversation may be deleted)",
     )
 

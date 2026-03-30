@@ -9,6 +9,7 @@ This is the central integration point connecting all Wave 1-8 services.
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 
 import structlog
@@ -101,7 +102,8 @@ class MessageHandler:
                     phone_last4=_mask_phone(phone),
                 )
                 await self._sender.send_text(
-                    tenant, phone,
+                    tenant,
+                    phone,
                     PromptTemplates.get_message("rate_limit_user", "fr"),
                 )
                 return
@@ -111,7 +113,8 @@ class MessageHandler:
             if quota.is_exhausted:
                 self._logger.warning("tenant_quota_exhausted", tenant=tenant.slug)
                 await self._sender.send_text(
-                    tenant, phone,
+                    tenant,
+                    phone,
                     PromptTemplates.get_message("quota_exhausted", "fr"),
                 )
                 return
@@ -119,12 +122,16 @@ class MessageHandler:
             # 4. Get or create contact
             sender_name = _extract_sender_name(contacts, phone)
             contact = await self._contact_service.get_or_create(
-                tenant, phone, sender_name,
+                tenant,
+                phone,
+                sender_name,
             )
 
             # 5. Get or create conversation (30min inactivity timeout)
             conversation = await self._conversation_service.get_or_create(
-                tenant, contact.id, AgentType.public,
+                tenant,
+                contact.id,
+                AgentType.public,
             )
 
             # 6. Extract content from the message
@@ -142,7 +149,9 @@ class MessageHandler:
                         "en": "You have been unsubscribed. You will no longer receive messages.",
                     }
                     await self._sender.send_text(
-                        tenant, phone, stop_msgs.get(lang, stop_msgs["fr"]),
+                        tenant,
+                        phone,
+                        stop_msgs.get(lang, stop_msgs["fr"]),
                     )
                 return
 
@@ -177,7 +186,9 @@ class MessageHandler:
             # 11. Get conversation history for LangGraph context
             try:
                 history = await self._conversation_service.get_history(
-                    tenant, conversation.id, limit=10,
+                    tenant,
+                    conversation.id,
+                    limit=10,
                 )
             except Exception:
                 history = []
@@ -262,7 +273,9 @@ class MessageHandler:
                 try:
                     lang_enum = Language(detected_lang)
                     await self._contact_service.update_language(
-                        tenant, contact.id, lang_enum,
+                        tenant,
+                        contact.id,
+                        lang_enum,
                     )
                 except (ValueError, Exception):
                     pass  # Unknown language value or DB error
@@ -284,13 +297,12 @@ class MessageHandler:
                 phone_last4=_mask_phone(phone),
             )
             # Best-effort error message to user
-            try:
+            with contextlib.suppress(Exception):
                 await self._sender.send_text(
-                    tenant, phone,
+                    tenant,
+                    phone,
                     PromptTemplates.get_message("error_generic", "fr"),
                 )
-            except Exception:
-                pass
 
     # ── Content extraction ──
 
@@ -309,18 +321,26 @@ class MessageHandler:
 
         if msg.type == "image" and msg.image:
             media_result = await self._media_handler.process_media(
-                tenant, msg.image.id, msg.image.mime_type,
+                tenant,
+                msg.image.id,
+                msg.image.mime_type,
             )
             caption = msg.image.caption or ""
             if media_result.success:
                 text = f"{caption} {media_result.extracted_text}".strip()
             else:
                 text = caption or None
-            return text, media_result.minio_path if media_result.success else None, MessageType.image
+            return (
+                text,
+                media_result.minio_path if media_result.success else None,
+                MessageType.image,
+            )
 
         if msg.type == "audio" and msg.audio:
             media_result = await self._media_handler.process_media(
-                tenant, msg.audio.id, msg.audio.mime_type,
+                tenant,
+                msg.audio.id,
+                msg.audio.mime_type,
             )
             if media_result.success:
                 return media_result.extracted_text, media_result.minio_path, MessageType.audio
@@ -398,10 +418,8 @@ class MessageHandler:
         # Send acknowledgment
         ack_key = FEEDBACK_ACK_KEYS.get(rating, "feedback_ack_positive")
         ack_text = PromptTemplates.get_message(ack_key, "fr")
-        try:
+        with contextlib.suppress(Exception):
             await self._sender.send_text(tenant, phone, ack_text)
-        except Exception:
-            pass
 
     # ── Rate limiting ──
 

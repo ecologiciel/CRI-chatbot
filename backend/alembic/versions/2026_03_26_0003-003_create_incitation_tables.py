@@ -12,9 +12,10 @@ Creates:
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "003"
 down_revision: str = "002"
@@ -29,11 +30,15 @@ def upgrade() -> None:
     op.create_table(
         "incentive_categories",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column(
-            "parent_id", postgresql.UUID(as_uuid=True), nullable=True,
+            "parent_id",
+            postgresql.UUID(as_uuid=True),
+            nullable=True,
             comment="Null = root category",
         ),
         sa.Column("name_fr", sa.String(255), nullable=False, comment="French name"),
@@ -43,30 +48,42 @@ def upgrade() -> None:
         sa.Column("description_ar", sa.Text(), nullable=True),
         sa.Column("description_en", sa.Text(), nullable=True),
         sa.Column(
-            "order_index", sa.Integer(),
-            server_default="0", nullable=False,
+            "order_index",
+            sa.Integer(),
+            server_default="0",
+            nullable=False,
             comment="Sort order within sibling categories",
         ),
         sa.Column(
-            "is_leaf", sa.Boolean(),
-            server_default=sa.text("false"), nullable=False,
+            "is_leaf",
+            sa.Boolean(),
+            server_default=sa.text("false"),
+            nullable=False,
             comment="True = contains items, no sub-categories",
         ),
         sa.Column(
-            "is_active", sa.Boolean(),
-            server_default=sa.text("true"), nullable=False,
+            "is_active",
+            sa.Boolean(),
+            server_default=sa.text("true"),
+            nullable=False,
         ),
         sa.Column(
-            "icon", sa.String(50), nullable=True,
+            "icon",
+            sa.String(50),
+            nullable=True,
             comment="Lucide icon name for back-office",
         ),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
@@ -78,17 +95,20 @@ def upgrade() -> None:
     )
     op.create_index(
         "ix_incentive_categories_parent_id",
-        "incentive_categories", ["parent_id"],
+        "incentive_categories",
+        ["parent_id"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
         "ix_incentive_categories_order_index",
-        "incentive_categories", ["order_index"],
+        "incentive_categories",
+        ["order_index"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
         "ix_incentive_categories_is_active",
-        "incentive_categories", ["is_active"],
+        "incentive_categories",
+        ["is_active"],
         schema=TENANT_SCHEMA,
     )
 
@@ -96,11 +116,15 @@ def upgrade() -> None:
     op.create_table(
         "incentive_items",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"), nullable=False,
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
         ),
         sa.Column(
-            "category_id", postgresql.UUID(as_uuid=True), nullable=False,
+            "category_id",
+            postgresql.UUID(as_uuid=True),
+            nullable=False,
         ),
         sa.Column("title_fr", sa.String(500), nullable=False, comment="French title"),
         sa.Column("title_ar", sa.String(500), nullable=True, comment="Arabic title"),
@@ -109,37 +133,53 @@ def upgrade() -> None:
         sa.Column("description_ar", sa.Text(), nullable=True),
         sa.Column("description_en", sa.Text(), nullable=True),
         sa.Column(
-            "conditions", sa.Text(), nullable=True,
+            "conditions",
+            sa.Text(),
+            nullable=True,
             comment="Eligibility conditions (free text)",
         ),
         sa.Column(
-            "legal_reference", sa.String(500), nullable=True,
+            "legal_reference",
+            sa.String(500),
+            nullable=True,
             comment="Law/decree reference",
         ),
         sa.Column(
-            "eligibility_criteria", postgresql.JSONB(), nullable=True,
+            "eligibility_criteria",
+            postgresql.JSONB(),
+            nullable=True,
             comment="Structured eligibility criteria",
         ),
         sa.Column(
-            "documents_required", postgresql.JSONB(),
-            server_default=sa.text("'[]'::jsonb"), nullable=False,
+            "documents_required",
+            postgresql.JSONB(),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
             comment="List of required documents",
         ),
         sa.Column(
-            "order_index", sa.Integer(),
-            server_default="0", nullable=False,
+            "order_index",
+            sa.Integer(),
+            server_default="0",
+            nullable=False,
         ),
         sa.Column(
-            "is_active", sa.Boolean(),
-            server_default=sa.text("true"), nullable=False,
+            "is_active",
+            sa.Boolean(),
+            server_default=sa.text("true"),
+            nullable=False,
         ),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.text("now()"), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
@@ -151,17 +191,20 @@ def upgrade() -> None:
     )
     op.create_index(
         "ix_incentive_items_category_id",
-        "incentive_items", ["category_id"],
+        "incentive_items",
+        ["category_id"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
         "ix_incentive_items_order_index",
-        "incentive_items", ["order_index"],
+        "incentive_items",
+        ["order_index"],
         schema=TENANT_SCHEMA,
     )
     op.create_index(
         "ix_incentive_items_is_active",
-        "incentive_items", ["is_active"],
+        "incentive_items",
+        ["is_active"],
         schema=TENANT_SCHEMA,
     )
 

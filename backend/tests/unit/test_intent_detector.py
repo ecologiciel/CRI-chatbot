@@ -23,15 +23,22 @@ def _make_detector(
 
     mock_language = AsyncMock()
     mock_language.detect = AsyncMock(
-        return_value=lang_result or LanguageResult(
-            language=Language.fr, confidence=0.9, method="heuristic_french",
+        return_value=lang_result
+        or LanguageResult(
+            language=Language.fr,
+            confidence=0.9,
+            method="heuristic_french",
         ),
     )
 
     mock_guard = AsyncMock()
     mock_guard.check = AsyncMock(
-        return_value=guard_result or InputGuardResult(
-            is_safe=True, action="allow", reason="All checks passed", category="safe",
+        return_value=guard_result
+        or InputGuardResult(
+            is_safe=True,
+            action="allow",
+            reason="All checks passed",
+            category="safe",
         ),
     )
 
@@ -79,7 +86,8 @@ class TestInjectionBlocked:
     async def test_injection_skips_classification(self, tenant_context):
         """Guard blocking sets hors_perimetre; Gemini classify NOT called."""
         guard_result = InputGuardResult(
-            is_safe=False, action="block",
+            is_safe=False,
+            action="block",
             reason="Prompt injection detected",
             category="injection",
         )
@@ -115,7 +123,9 @@ class TestArabicLanguage:
         """Arabic text sets language='ar' in result."""
         detector, _ = _make_detector(
             lang_result=LanguageResult(
-                language=Language.ar, confidence=0.95, method="heuristic_arabic",
+                language=Language.ar,
+                confidence=0.95,
+                method="heuristic_arabic",
             ),
         )
         state = make_conversation_state(query="مرحبا")

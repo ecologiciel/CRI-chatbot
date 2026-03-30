@@ -16,9 +16,9 @@ import os
 import re
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool, text
 
+from alembic import context
 from app.core.config import get_settings
 
 # Import models package — triggers all model registrations on Base.metadata
@@ -80,6 +80,7 @@ def do_run_migrations(connection) -> None:
 async def run_async_migrations() -> None:
     """Create an async engine and run migrations."""
     from sqlalchemy.ext.asyncio import create_async_engine
+
     connectable = create_async_engine(_database_url, poolclass=pool.NullPool)
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

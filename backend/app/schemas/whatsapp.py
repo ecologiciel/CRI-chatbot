@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------------------------------------------------------------------------
 # Inbound: Meta webhook → our server
 # ---------------------------------------------------------------------------
+
 
 class WebhookMetadata(BaseModel):
     """Metadata block inside a webhook change value."""
@@ -160,6 +160,7 @@ class WhatsAppWebhookPayload(BaseModel):
 # ---------------------------------------------------------------------------
 # Outbound: our server → Meta Cloud API
 # ---------------------------------------------------------------------------
+
 
 class SendTextMessage(BaseModel):
     """Payload to send a text message."""

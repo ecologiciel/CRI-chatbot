@@ -55,7 +55,6 @@ def _make_client(embed_result=None, side_effect=None):
 
 
 class TestEmbedSingle:
-
     @pytest.mark.asyncio
     async def test_embed_single_returns_vector(self, tenant_context):
         client = _make_client()
@@ -78,7 +77,6 @@ class TestEmbedSingle:
 
 
 class TestEmbedBatch:
-
     @pytest.mark.asyncio
     async def test_embed_batch_returns_correct_count(self, tenant_context):
         client = _make_client(embed_result=_make_embed_result(3))
@@ -90,9 +88,13 @@ class TestEmbedBatch:
 
     @pytest.mark.asyncio
     async def test_embed_batch_auto_splits(self, tenant_context):
-        client = _make_client(side_effect=[
-            _make_embed_result(2), _make_embed_result(2), _make_embed_result(1),
-        ])
+        client = _make_client(
+            side_effect=[
+                _make_embed_result(2),
+                _make_embed_result(2),
+                _make_embed_result(1),
+            ]
+        )
         with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=_make_redis()):
             service = EmbeddingService(_make_settings(batch_size=2))
             service._client = client
@@ -102,7 +104,6 @@ class TestEmbedBatch:
 
 
 class TestEmbedError:
-
     @pytest.mark.asyncio
     async def test_api_failure_raises_embedding_error(self, tenant_context):
         client = _make_client(side_effect=RuntimeError("API error"))

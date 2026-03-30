@@ -44,41 +44,49 @@ class IncentiveCategory(UUIDMixin, TimestampMixin, Base):
     )
 
     # Multilingual names
-    name_fr: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="French name"
-    )
-    name_ar: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, comment="Arabic name"
-    )
-    name_en: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, comment="English name"
-    )
+    name_fr: Mapped[str] = mapped_column(String(255), nullable=False, comment="French name")
+    name_ar: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="Arabic name")
+    name_en: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="English name")
 
     # Multilingual descriptions
     description_fr: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
     )
     description_ar: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
     )
     description_en: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
     )
 
     # Display
     order_index: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0",
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
         comment="Sort order within sibling categories",
     )
     is_leaf: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=text("false"),
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
         comment="True = contains items, no sub-categories",
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=text("true"),
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
     )
     icon: Mapped[str | None] = mapped_column(
-        String(50), nullable=True, comment="Lucide icon name for back-office",
+        String(50),
+        nullable=True,
+        comment="Lucide icon name for back-office",
     )
 
     # Relationships
@@ -125,49 +133,62 @@ class IncentiveItem(UUIDMixin, TimestampMixin, Base):
     )
 
     # Multilingual titles
-    title_fr: Mapped[str] = mapped_column(
-        String(500), nullable=False, comment="French title"
-    )
-    title_ar: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, comment="Arabic title"
-    )
+    title_fr: Mapped[str] = mapped_column(String(500), nullable=False, comment="French title")
+    title_ar: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="Arabic title")
     title_en: Mapped[str | None] = mapped_column(
         String(500), nullable=True, comment="English title"
     )
 
     # Multilingual descriptions
     description_fr: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
     )
     description_ar: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
     )
     description_en: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
     )
 
     # Content
     conditions: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Eligibility conditions (free text)",
+        Text,
+        nullable=True,
+        comment="Eligibility conditions (free text)",
     )
     legal_reference: Mapped[str | None] = mapped_column(
-        String(500), nullable=True, comment="Law/decree reference",
+        String(500),
+        nullable=True,
+        comment="Law/decree reference",
     )
     eligibility_criteria: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, default=None,
+        JSONB,
+        nullable=True,
+        default=None,
         comment="Structured eligibility criteria",
     )
     documents_required: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb"),
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
         comment="List of required documents",
     )
 
     # Display
     order_index: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0",
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=text("true"),
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
     )
 
     # Relationships

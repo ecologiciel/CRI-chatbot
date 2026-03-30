@@ -13,9 +13,7 @@ os.environ.setdefault("REDIS_PASSWORD", "test")
 
 from app.core.exceptions import IngestionError
 from app.core.tenant import TenantContext
-from app.models.enums import KBDocumentStatus
 from app.schemas.rag import ChunkResult
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -32,9 +30,27 @@ TEST_TENANT = TenantContext(
 DOCUMENT_ID = uuid.uuid4()
 
 SAMPLE_CHUNKS = [
-    ChunkResult(content="Chunk one about investissements.", chunk_index=0, token_count=10, start_char=0, end_char=30),
-    ChunkResult(content="Chunk two about fiscalité.", chunk_index=1, token_count=10, start_char=31, end_char=55),
-    ChunkResult(content="Chunk three about création d'entreprise.", chunk_index=2, token_count=12, start_char=56, end_char=90),
+    ChunkResult(
+        content="Chunk one about investissements.",
+        chunk_index=0,
+        token_count=10,
+        start_char=0,
+        end_char=30,
+    ),
+    ChunkResult(
+        content="Chunk two about fiscalité.",
+        chunk_index=1,
+        token_count=10,
+        start_char=31,
+        end_char=55,
+    ),
+    ChunkResult(
+        content="Chunk three about création d'entreprise.",
+        chunk_index=2,
+        token_count=12,
+        start_char=56,
+        end_char=90,
+    ),
 ]
 
 SAMPLE_VECTORS = [
@@ -44,9 +60,30 @@ SAMPLE_VECTORS = [
 ]
 
 SAMPLE_METADATA = [
-    {"related_laws": ["Loi 47-18"], "applicable_sectors": ["industrie"], "legal_forms": [], "regions": ["RSK"], "language": "fr", "summary": "Investissements"},
-    {"related_laws": [], "applicable_sectors": ["commerce"], "legal_forms": ["SARL"], "regions": [], "language": "fr", "summary": "Fiscalité"},
-    {"related_laws": [], "applicable_sectors": [], "legal_forms": ["SA"], "regions": ["RSK"], "language": "fr", "summary": "Création"},
+    {
+        "related_laws": ["Loi 47-18"],
+        "applicable_sectors": ["industrie"],
+        "legal_forms": [],
+        "regions": ["RSK"],
+        "language": "fr",
+        "summary": "Investissements",
+    },
+    {
+        "related_laws": [],
+        "applicable_sectors": ["commerce"],
+        "legal_forms": ["SARL"],
+        "regions": [],
+        "language": "fr",
+        "summary": "Fiscalité",
+    },
+    {
+        "related_laws": [],
+        "applicable_sectors": [],
+        "legal_forms": ["SA"],
+        "regions": ["RSK"],
+        "language": "fr",
+        "summary": "Création",
+    },
 ]
 
 
@@ -90,9 +127,7 @@ def _make_ingestion_service(
 
     if mock_gemini is None:
         mock_gemini = MagicMock()
-        mock_gemini.generate_simple = AsyncMock(
-            return_value=json.dumps(SAMPLE_METADATA)
-        )
+        mock_gemini.generate_simple = AsyncMock(return_value=json.dumps(SAMPLE_METADATA))
 
     if mock_qdrant is None:
         mock_qdrant = AsyncMock()
@@ -114,7 +149,8 @@ def _make_ingestion_service(
 
     # Patch tenant.db_session to return our mock session
     patcher = patch.object(
-        TenantContext, "db_session",
+        TenantContext,
+        "db_session",
         return_value=mock_session,
     )
 
@@ -181,7 +217,9 @@ class TestIngestDocumentDedup:
             if call_count == 2:
                 # Dedup check returns a match
                 return mock_existing
-            return MagicMock(first=MagicMock(return_value=None), fetchall=MagicMock(return_value=[]))
+            return MagicMock(
+                first=MagicMock(return_value=None), fetchall=MagicMock(return_value=[])
+            )
 
         mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
@@ -217,14 +255,13 @@ class TestIngestDocumentFailure:
             mock_qdrant=mock_qdrant,
         )
 
-        with patcher:
-            with pytest.raises(IngestionError, match="Ingestion failed"):
-                await service.ingest_document(
-                    tenant=TEST_TENANT,
-                    document_id=DOCUMENT_ID,
-                    content="Content that will fail.",
-                    title="Failing Doc",
-                )
+        with patcher, pytest.raises(IngestionError, match="Ingestion failed"):
+            await service.ingest_document(
+                tenant=TEST_TENANT,
+                document_id=DOCUMENT_ID,
+                content="Content that will fail.",
+                title="Failing Doc",
+            )
 
         # Status should have been updated to error (last execute call with update)
         assert mock_session.execute.await_count >= 2  # At least: indexing + error
@@ -239,7 +276,9 @@ class TestDeleteDocument:
         # First query: get qdrant_point_ids
         mock_result_with_ids = MagicMock()
         mock_result_with_ids.fetchall.return_value = [
-            ("point-1",), ("point-2",), ("point-3",),
+            ("point-1",),
+            ("point-2",),
+            ("point-3",),
         ]
         mock_result_with_ids.first.return_value = None
 
@@ -250,7 +289,9 @@ class TestDeleteDocument:
             call_count += 1
             if call_count == 1:
                 return mock_result_with_ids
-            return MagicMock(first=MagicMock(return_value=None), fetchall=MagicMock(return_value=[]))
+            return MagicMock(
+                first=MagicMock(return_value=None), fetchall=MagicMock(return_value=[])
+            )
 
         mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
@@ -276,9 +317,16 @@ class TestEnrichMetadata:
         """Valid Gemini JSON → parsed MetadataEnrichment dicts."""
         mock_gemini = MagicMock()
         mock_gemini.generate_simple = AsyncMock(
-            return_value=json.dumps([
-                {"related_laws": ["Loi 47-18"], "applicable_sectors": ["industrie"], "language": "fr", "summary": "Test"},
-            ])
+            return_value=json.dumps(
+                [
+                    {
+                        "related_laws": ["Loi 47-18"],
+                        "applicable_sectors": ["industrie"],
+                        "language": "fr",
+                        "summary": "Test",
+                    },
+                ]
+            )
         )
 
         service, _, _, _, _, _, patcher = _make_ingestion_service(mock_gemini=mock_gemini)
@@ -297,9 +345,7 @@ class TestEnrichMetadata:
     async def test_invalid_json_returns_empty_dicts(self):
         """Invalid Gemini response → empty metadata dicts (best-effort)."""
         mock_gemini = MagicMock()
-        mock_gemini.generate_simple = AsyncMock(
-            return_value="This is not valid JSON at all"
-        )
+        mock_gemini.generate_simple = AsyncMock(return_value="This is not valid JSON at all")
 
         service, _, _, _, _, _, patcher = _make_ingestion_service(mock_gemini=mock_gemini)
 
@@ -318,9 +364,7 @@ class TestEnrichMetadata:
     async def test_gemini_exception_returns_empty_dicts(self):
         """Gemini API exception → empty metadata dicts (never blocks ingestion)."""
         mock_gemini = MagicMock()
-        mock_gemini.generate_simple = AsyncMock(
-            side_effect=Exception("Gemini API down")
-        )
+        mock_gemini.generate_simple = AsyncMock(side_effect=Exception("Gemini API down"))
 
         service, _, _, _, _, _, patcher = _make_ingestion_service(mock_gemini=mock_gemini)
 

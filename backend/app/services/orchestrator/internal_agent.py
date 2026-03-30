@@ -111,7 +111,8 @@ class InternalAgent:
             # Step 3: Reject non-whitelisted users
             if not is_whitelisted:
                 updates["response"] = REFUSAL_MESSAGES.get(
-                    language, REFUSAL_MESSAGES["fr"],
+                    language,
+                    REFUSAL_MESSAGES["fr"],
                 )
                 self._logger.info(
                     "internal_access_denied",
@@ -138,7 +139,9 @@ class InternalAgent:
 
             elif sub_intent == "report":
                 report = await self._service.generate_report(
-                    tenant, query, language,
+                    tenant,
+                    query,
+                    language,
                 )
                 updates["response"] = report
                 updates["confidence"] = 1.0
@@ -152,7 +155,10 @@ class InternalAgent:
                     for m in state.get("messages", [])[-5:]
                 ]
                 result = await self._service.search_faq(
-                    tenant, query, language, history,
+                    tenant,
+                    query,
+                    language,
+                    history,
                 )
                 updates["response"] = result["response"]
                 updates["chunk_ids"] = result["chunk_ids"]

@@ -261,7 +261,9 @@ class InternalAgentService:
             Dict with: response, confidence, chunk_ids, retrieved_chunks.
         """
         retrieval_result = await self._retrieval.retrieve(
-            tenant, query, language=language,
+            tenant,
+            query,
+            language=language,
         )
 
         if not retrieval_result.chunks:
@@ -320,7 +322,8 @@ class InternalAgentService:
         stats = await self.get_dashboard_stats(tenant)
 
         lang_label = {"fr": "français", "ar": "arabe", "en": "anglais"}.get(
-            language, "français",
+            language,
+            "français",
         )
         system_prompt = (
             f"Tu es un assistant analytique du Centre Régional d'Investissement. "

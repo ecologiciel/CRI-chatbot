@@ -63,7 +63,9 @@ class TestLowConfidenceDisclaimer:
         """confidence=0.5 appends French disclaimer with 'titre indicatif'."""
         guard = _make_guard()
         result = await guard.check(
-            "Voici la procédure.", confidence=0.5, language="fr",
+            "Voici la procédure.",
+            confidence=0.5,
+            language="fr",
         )
 
         assert result.confidence_ok is False
@@ -74,7 +76,9 @@ class TestLowConfidenceDisclaimer:
         """confidence=0.5 appends Arabic disclaimer."""
         guard = _make_guard()
         result = await guard.check(
-            "إليك الإجراء.", confidence=0.5, language="ar",
+            "إليك الإجراء.",
+            confidence=0.5,
+            language="ar",
         )
 
         assert result.confidence_ok is False

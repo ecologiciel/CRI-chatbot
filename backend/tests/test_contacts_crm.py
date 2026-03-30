@@ -7,19 +7,16 @@ batch tags, opt-in change, contact history, filtered export.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from app.models.enums import (
     AgentType,
-    ContactSource,
     ConversationStatus,
-    Language,
     OptInStatus,
     RecipientStatus,
 )
-
 
 # ---------------------------------------------------------------------------
 # 1. Import smoke tests
@@ -28,15 +25,11 @@ from app.models.enums import (
 
 def test_imports_schemas():
     from app.schemas.contacts_extended import (
-        CampaignParticipation,
         ContactHistory,
-        ConversationSummary,
-        OptInChangeLog,
-        OptInChangeRequest,
         SegmentInfo,
-        TagsBatchResult,
         TagsBatchUpdate,
     )
+
     assert TagsBatchUpdate is not None
     assert ContactHistory is not None
     assert SegmentInfo is not None
@@ -47,6 +40,7 @@ def test_imports_segmentation():
         SegmentationService,
         get_segmentation_service,
     )
+
     assert SegmentationService is not None
     assert get_segmentation_service is not None
 
@@ -131,7 +125,7 @@ def test_conversation_summary_schema():
         status=ConversationStatus.active,
         agent_type=AgentType.public,
         message_count=5,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
     )
     assert s.message_count == 5
 
@@ -143,7 +137,7 @@ def test_campaign_participation_schema():
         campaign_id=uuid.uuid4(),
         campaign_name="Rentrée 2026",
         status=RecipientStatus.delivered,
-        sent_at=datetime.now(timezone.utc),
+        sent_at=datetime.now(UTC),
     )
     assert p.status == RecipientStatus.delivered
 
@@ -224,10 +218,16 @@ def test_segment_keys_exist():
     from app.services.contact.segmentation import SEGMENTS
 
     expected = {
-        "opted_in", "opted_out", "pending",
-        "from_whatsapp", "from_import", "from_manual",
-        "has_cin", "no_cin",
-        "new_30d", "inactive_90d",
+        "opted_in",
+        "opted_out",
+        "pending",
+        "from_whatsapp",
+        "from_import",
+        "from_manual",
+        "has_cin",
+        "no_cin",
+        "new_30d",
+        "inactive_90d",
     }
     assert set(SEGMENTS.keys()) == expected
 
@@ -289,13 +289,13 @@ def test_build_filtered_query_with_status():
 
 def test_build_filtered_query_with_dates():
     """Date filters should add WHERE clauses."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.services.contact.import_export import ContactImportExportService
 
     query = ContactImportExportService._build_filtered_query(
-        created_after=datetime(2025, 1, 1, tzinfo=timezone.utc),
-        created_before=datetime(2025, 12, 31, tzinfo=timezone.utc),
+        created_after=datetime(2025, 1, 1, tzinfo=UTC),
+        created_before=datetime(2025, 12, 31, tzinfo=UTC),
     )
     compiled = str(query)
     assert "created_at" in compiled

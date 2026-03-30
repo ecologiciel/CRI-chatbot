@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -17,7 +17,6 @@ from app.core.tenant import TenantContext
 from app.models.enums import UnansweredStatus
 from app.schemas.audit import AuditLogCreate
 from app.schemas.feedback import UnansweredQuestionUpdate
-
 
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
@@ -39,11 +38,11 @@ def _make_question(**overrides):
     q.question = overrides.get("question", "Comment créer une SARL au Maroc ?")
     q.language = overrides.get("language", "fr")
     q.frequency = overrides.get("frequency", 1)
-    q.proposed_answer = overrides.get("proposed_answer", None)
+    q.proposed_answer = overrides.get("proposed_answer")
     q.status = overrides.get("status", UnansweredStatus.pending)
-    q.reviewed_by = overrides.get("reviewed_by", None)
-    q.review_note = overrides.get("review_note", None)
-    q.source_conversation_id = overrides.get("source_conversation_id", None)
+    q.reviewed_by = overrides.get("reviewed_by")
+    q.review_note = overrides.get("review_note")
+    q.source_conversation_id = overrides.get("source_conversation_id")
     return q
 
 
@@ -256,7 +255,7 @@ class TestGenerateAIProposal:
             return_value="Pour créer une SARL au Maroc, vous devez...",
         )
 
-        result = await service.generate_ai_proposal(tenant, question.id)
+        await service.generate_ai_proposal(tenant, question.id)
 
         # Verify retrieval was called with the question text
         retrieval.retrieve.assert_awaited_once()
@@ -325,7 +324,7 @@ class TestGenerateAIProposal:
             return_value="Je n'ai pas trouvé d'information pertinente...",
         )
 
-        result = await service.generate_ai_proposal(tenant, question.id)
+        await service.generate_ai_proposal(tenant, question.id)
 
         gemini.generate_simple.assert_awaited_once()
         # Verify the prompt mentions "Aucun document"
@@ -352,7 +351,7 @@ class TestApproveQuestion:
         )
 
         admin_id = uuid.uuid4()
-        result = await service.approve_question(
+        await service.approve_question(
             TEST_TENANT,
             returned_question.id,
             admin_id,
@@ -394,7 +393,7 @@ class TestApproveQuestion:
         )
 
         admin_id = uuid.uuid4()
-        result = await service.approve_question(tenant, question_id, admin_id)
+        await service.approve_question(tenant, question_id, admin_id)
 
         # Verify FeedbackService was called with status=approved
         feedback.update_unanswered_question.assert_awaited_once()
@@ -439,7 +438,7 @@ class TestRejectQuestion:
         )
 
         admin_id = uuid.uuid4()
-        result = await service.reject_question(
+        await service.reject_question(
             TEST_TENANT,
             returned_question.id,
             admin_id,
@@ -478,7 +477,7 @@ class TestEditProposal:
         )
 
         admin_id = uuid.uuid4()
-        result = await service.edit_proposal(
+        await service.edit_proposal(
             TEST_TENANT,
             returned_question.id,
             admin_id,
@@ -583,7 +582,8 @@ class TestDeduplicateQuestion:
         tenant = _make_mock_tenant(db_session_cm)
 
         result = await service.deduplicate_question(
-            tenant, "Comment créer une SARL au Maroc ?",
+            tenant,
+            "Comment créer une SARL au Maroc ?",
         )
 
         assert result is existing
@@ -600,7 +600,8 @@ class TestDeduplicateQuestion:
         tenant = _make_mock_tenant(db_session_cm)
 
         result = await service.deduplicate_question(
-            tenant, "Quelle est la météo ?",
+            tenant,
+            "Quelle est la météo ?",
         )
 
         assert result is None
@@ -618,7 +619,8 @@ class TestCosineSimilarity:
         from app.services.learning.service import SupervisedLearningService
 
         sim = SupervisedLearningService._cosine_similarity(
-            [1.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
         )
         assert sim == pytest.approx(1.0)
 
@@ -626,7 +628,8 @@ class TestCosineSimilarity:
         from app.services.learning.service import SupervisedLearningService
 
         sim = SupervisedLearningService._cosine_similarity(
-            [1.0, 0.0], [0.0, 1.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
         )
         assert sim == pytest.approx(0.0)
 
@@ -634,7 +637,8 @@ class TestCosineSimilarity:
         from app.services.learning.service import SupervisedLearningService
 
         sim = SupervisedLearningService._cosine_similarity(
-            [0.0, 0.0], [1.0, 1.0],
+            [0.0, 0.0],
+            [1.0, 1.0],
         )
         assert sim == 0.0
 
@@ -642,7 +646,8 @@ class TestCosineSimilarity:
         from app.services.learning.service import SupervisedLearningService
 
         sim = SupervisedLearningService._cosine_similarity(
-            [1.0, 1.0, 0.0], [1.0, 1.0, 0.1],
+            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 0.1],
         )
         assert sim > 0.9  # very similar
 

@@ -9,7 +9,6 @@ Tasks:
 
 from __future__ import annotations
 
-import io
 import time
 import uuid
 
@@ -18,7 +17,6 @@ from arq.connections import RedisSettings
 from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.core.exceptions import IngestionError
 from app.models.enums import KBDocumentStatus
 from app.models.kb import KBDocument
 from app.services.rag.extractors import extract_text
@@ -93,9 +91,7 @@ async def ingest_document_task(
 
         # 2. Fetch document record
         async with tenant.db_session() as session:
-            result = await session.execute(
-                select(KBDocument).where(KBDocument.id == doc_uuid)
-            )
+            result = await session.execute(select(KBDocument).where(KBDocument.id == doc_uuid))
             doc = result.scalar_one_or_none()
 
         if doc is None:
@@ -131,13 +127,11 @@ async def ingest_document_task(
 
         # Best-effort: mark document as error if IngestionService didn't already
         try:
-            from app.core.tenant import TenantResolver as TR
+            from app.core.tenant import TenantResolver
 
-            t = await TR.from_slug(tenant_slug)
+            t = await TenantResolver.from_slug(tenant_slug)
             async with t.db_session() as session:
-                result = await session.execute(
-                    select(KBDocument).where(KBDocument.id == doc_uuid)
-                )
+                result = await session.execute(select(KBDocument).where(KBDocument.id == doc_uuid))
                 d = result.scalar_one_or_none()
                 if d and d.status != KBDocumentStatus.error:
                     d.status = KBDocumentStatus.error
@@ -176,9 +170,7 @@ async def reindex_document_task(
 
         # Fetch document
         async with tenant.db_session() as session:
-            result = await session.execute(
-                select(KBDocument).where(KBDocument.id == doc_uuid)
-            )
+            result = await session.execute(select(KBDocument).where(KBDocument.id == doc_uuid))
             doc = result.scalar_one_or_none()
 
         if doc is None:

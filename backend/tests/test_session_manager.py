@@ -11,7 +11,6 @@ import pytest
 
 from app.services.auth.session_manager import SessionManager
 
-
 # --- Helpers ---
 
 
@@ -99,11 +98,13 @@ class TestRegisterSession:
         redis = _make_redis_mock()
         # Existing session: different IP, recent login (10 seconds ago)
         recent_ts = str(time.time() - 10)
-        redis.get = AsyncMock(side_effect=[
-            None,       # no active JTI
-            "5.6.7.8",  # previous IP (different from new)
-            recent_ts,  # last_login timestamp
-        ])
+        redis.get = AsyncMock(
+            side_effect=[
+                None,  # no active JTI
+                "5.6.7.8",  # previous IP (different from new)
+                recent_ts,  # last_login timestamp
+            ]
+        )
 
         sm = SessionManager(redis)
         result = await sm.register_session("admin-123", "new-jti", "1.2.3.4")
@@ -118,11 +119,13 @@ class TestRegisterSession:
         redis = _make_redis_mock()
         # Login was 10 minutes ago (600 seconds)
         old_ts = str(time.time() - 600)
-        redis.get = AsyncMock(side_effect=[
-            None,       # no active JTI
-            "5.6.7.8",  # previous IP
-            old_ts,     # last_login > 5 min ago
-        ])
+        redis.get = AsyncMock(
+            side_effect=[
+                None,  # no active JTI
+                "5.6.7.8",  # previous IP
+                old_ts,  # last_login > 5 min ago
+            ]
+        )
 
         sm = SessionManager(redis)
         result = await sm.register_session("admin-123", "new-jti", "1.2.3.4")
@@ -134,11 +137,13 @@ class TestRegisterSession:
         """Same IP on re-login — no alert even if recent."""
         redis = _make_redis_mock()
         recent_ts = str(time.time() - 10)
-        redis.get = AsyncMock(side_effect=[
-            None,       # no active JTI
-            "1.2.3.4",  # same IP as new login
-            recent_ts,  # recent
-        ])
+        redis.get = AsyncMock(
+            side_effect=[
+                None,  # no active JTI
+                "1.2.3.4",  # same IP as new login
+                recent_ts,  # recent
+            ]
+        )
 
         sm = SessionManager(redis)
         result = await sm.register_session("admin-123", "new-jti", "1.2.3.4")
@@ -155,10 +160,12 @@ class TestValidateSession:
         """Valid session: matching JTI, matching IP, not revoked."""
         redis = _make_redis_mock()
         redis.exists = AsyncMock(return_value=0)  # Not revoked
-        redis.get = AsyncMock(side_effect=[
-            "correct-jti",  # active JTI matches
-            "1.2.3.4",      # stored IP matches
-        ])
+        redis.get = AsyncMock(
+            side_effect=[
+                "correct-jti",  # active JTI matches
+                "1.2.3.4",  # stored IP matches
+            ]
+        )
 
         sm = SessionManager(redis)
         result = await sm.validate_session("admin-123", "correct-jti", "1.2.3.4")
@@ -181,9 +188,11 @@ class TestValidateSession:
         """Active JTI doesn't match (superseded) — session rejected."""
         redis = _make_redis_mock()
         redis.exists = AsyncMock(return_value=0)  # Not revoked
-        redis.get = AsyncMock(side_effect=[
-            "other-jti",  # Active JTI is different
-        ])
+        redis.get = AsyncMock(
+            side_effect=[
+                "other-jti",  # Active JTI is different
+            ]
+        )
 
         sm = SessionManager(redis)
         result = await sm.validate_session("admin-123", "my-jti", "1.2.3.4")
@@ -207,11 +216,13 @@ class TestValidateSession:
         """IP changed mid-session — session revoked and rejected."""
         redis = _make_redis_mock()
         redis.exists = AsyncMock(return_value=0)
-        redis.get = AsyncMock(side_effect=[
-            "correct-jti",  # JTI matches (validate_session)
-            "1.2.3.4",      # Stored IP differs from request IP (validate_session)
-            "correct-jti",  # Active JTI fetched again (invalidate_session)
-        ])
+        redis.get = AsyncMock(
+            side_effect=[
+                "correct-jti",  # JTI matches (validate_session)
+                "1.2.3.4",  # Stored IP differs from request IP (validate_session)
+                "correct-jti",  # Active JTI fetched again (invalidate_session)
+            ]
+        )
 
         sm = SessionManager(redis)
         result = await sm.validate_session("admin-123", "correct-jti", "5.6.7.8")
@@ -236,9 +247,7 @@ class TestInvalidateSession:
         await sm.invalidate_session("admin-123")
 
         # JTI should be revoked
-        redis.setex.assert_called_once_with(
-            "auth:revoked:active-jti", 1800, "revoked"
-        )
+        redis.setex.assert_called_once_with("auth:revoked:active-jti", 1800, "revoked")
         # Session keys should be deleted
         redis.delete.assert_called_once_with(
             "auth:session:admin-123:active",

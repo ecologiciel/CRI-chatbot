@@ -13,10 +13,9 @@ from app.services.internal.service import (
     WELCOME_MESSAGES,
     InternalAgentService,
 )
-from app.services.orchestrator.internal_agent import InternalAgent, _STATS_TEMPLATES
+from app.services.orchestrator.internal_agent import _STATS_TEMPLATES, InternalAgent
 from app.services.orchestrator.state import ConversationState, IntentType
 from app.services.rag.prompts import PromptTemplates
-
 
 # --- Fixtures ---
 
@@ -120,6 +119,7 @@ def _make_generation_response(
 # InternalAgentService tests
 # ==========================================================================
 
+
 class TestInternalAgentService:
     """Tests for InternalAgentService business logic."""
 
@@ -169,7 +169,9 @@ class TestInternalAgentService:
         service, *_ = _make_service()
 
         with patch.object(
-            TenantContext, "db_session", side_effect=RuntimeError("DB down"),
+            TenantContext,
+            "db_session",
+            side_effect=RuntimeError("DB down"),
         ):
             result = await service.verify_whitelist(TEST_TENANT, "+212600000000")
 
@@ -285,7 +287,9 @@ class TestInternalAgentService:
         )
 
         result = await service.search_faq(
-            TEST_TENANT, "Comment créer une SARL ?", "fr",
+            TEST_TENANT,
+            "Comment créer une SARL ?",
+            "fr",
         )
 
         assert result["response"] == "Pour créer une SARL..."
@@ -330,7 +334,9 @@ class TestInternalAgentService:
             },
         ):
             result = await service.generate_report(
-                TEST_TENANT, "fais un rapport", "fr",
+                TEST_TENANT,
+                "fais un rapport",
+                "fr",
             )
 
         assert result == "Rapport: 42 conversations"
@@ -340,6 +346,7 @@ class TestInternalAgentService:
 # ==========================================================================
 # InternalAgent (LangGraph node) tests
 # ==========================================================================
+
 
 class TestInternalAgent:
     """Tests for the InternalAgent LangGraph node."""
@@ -357,12 +364,14 @@ class TestInternalAgent:
         agent, service = self._make_agent()
         service.verify_whitelist = AsyncMock(return_value=True)
         service.classify_sub_intent = AsyncMock(return_value="faq")
-        service.search_faq = AsyncMock(return_value={
-            "response": "Voici la réponse.",
-            "confidence": 0.85,
-            "chunk_ids": ["c1"],
-            "retrieved_chunks": [{"chunk_id": "c1", "content": "...", "score": 0.9}],
-        })
+        service.search_faq = AsyncMock(
+            return_value={
+                "response": "Voici la réponse.",
+                "confidence": 0.85,
+                "chunk_ids": ["c1"],
+                "retrieved_chunks": [{"chunk_id": "c1", "content": "...", "score": 0.9}],
+            }
+        )
 
         state = _make_state(query="Comment créer une SARL ?")
         result = await agent.handle(state, TEST_TENANT)
@@ -379,11 +388,13 @@ class TestInternalAgent:
         agent, service = self._make_agent()
         service.verify_whitelist = AsyncMock(return_value=True)
         service.classify_sub_intent = AsyncMock(return_value="stats")
-        service.get_dashboard_stats = AsyncMock(return_value={
-            "total_conversations": 42,
-            "pending_unanswered": 5,
-            "total_contacts": 120,
-        })
+        service.get_dashboard_stats = AsyncMock(
+            return_value={
+                "total_conversations": 42,
+                "pending_unanswered": 5,
+                "total_contacts": 120,
+            }
+        )
 
         state = _make_state(query="statistiques du jour")
         result = await agent.handle(state, TEST_TENANT)
@@ -450,11 +461,13 @@ class TestInternalAgent:
         agent, service = self._make_agent()
         service.verify_whitelist = AsyncMock(return_value=True)
         service.classify_sub_intent = AsyncMock(return_value="stats")
-        service.get_dashboard_stats = AsyncMock(return_value={
-            "total_conversations": 0,
-            "pending_unanswered": 0,
-            "total_contacts": 0,
-        })
+        service.get_dashboard_stats = AsyncMock(
+            return_value={
+                "total_conversations": 0,
+                "pending_unanswered": 0,
+                "total_contacts": 0,
+            }
+        )
 
         state = _make_state()
         await agent.handle(state, TEST_TENANT)
@@ -501,6 +514,7 @@ class TestInternalAgent:
 # ==========================================================================
 # Module-level imports and constants tests
 # ==========================================================================
+
 
 class TestImportsAndConstants:
     """Verify module imports and structural contracts."""

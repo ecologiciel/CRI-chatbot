@@ -103,7 +103,9 @@ class RetrievalService:
         try:
             # 1. Embed the query
             query_embedding = await self._embedder.embed_single(
-                query, tenant, task_type="RETRIEVAL_QUERY",
+                query,
+                tenant,
+                task_type="RETRIEVAL_QUERY",
             )
 
             # 2. Build Qdrant filter
@@ -123,22 +125,24 @@ class RetrievalService:
             chunks: list[RetrievedChunk] = []
             for point in results:
                 payload = point.payload or {}
-                chunks.append(RetrievedChunk(
-                    chunk_id=str(point.id),
-                    document_id=payload.get("document_id", ""),
-                    content=payload.get("content", ""),
-                    score=point.score,
-                    metadata={
-                        "title": payload.get("title", ""),
-                        "language": payload.get("language", ""),
-                        "related_laws": payload.get("related_laws", []),
-                        "applicable_sectors": payload.get("applicable_sectors", []),
-                        "legal_forms": payload.get("legal_forms", []),
-                        "regions": payload.get("regions", []),
-                        "summary": payload.get("summary", ""),
-                        "chunk_index": payload.get("chunk_index", 0),
-                    },
-                ))
+                chunks.append(
+                    RetrievedChunk(
+                        chunk_id=str(point.id),
+                        document_id=payload.get("document_id", ""),
+                        content=payload.get("content", ""),
+                        score=point.score,
+                        metadata={
+                            "title": payload.get("title", ""),
+                            "language": payload.get("language", ""),
+                            "related_laws": payload.get("related_laws", []),
+                            "applicable_sectors": payload.get("applicable_sectors", []),
+                            "legal_forms": payload.get("legal_forms", []),
+                            "regions": payload.get("regions", []),
+                            "summary": payload.get("summary", ""),
+                            "chunk_index": payload.get("chunk_index", 0),
+                        },
+                    )
+                )
 
             # 5. Compute confidence
             scores = [c.score for c in chunks]
@@ -196,9 +200,7 @@ class RetrievalService:
 
         # Language filter (exact match)
         if language:
-            conditions.append(
-                FieldCondition(key="language", match=MatchValue(value=language))
-            )
+            conditions.append(FieldCondition(key="language", match=MatchValue(value=language)))
 
         # Metadata filters (MatchAny for array fields)
         if filters:

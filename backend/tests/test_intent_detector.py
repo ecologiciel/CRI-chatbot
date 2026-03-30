@@ -7,10 +7,8 @@ import pytest
 
 from app.core.tenant import TenantContext
 from app.models.enums import Language
-from app.services.guardrails.input_guard import InputGuardResult
 from app.services.orchestrator.router import Router
 from app.services.orchestrator.state import ConversationState, IntentType
-
 
 # --- Fixtures ---
 
@@ -252,7 +250,8 @@ class TestIntentDetector:
     async def test_detect_arabic_language(self, intent_detector, mock_gemini, mock_language):
         """Arabic message is detected and intent classified."""
         mock_language.detect.return_value = _make_language_result(
-            language=Language.ar, method="heuristic_arabic",
+            language=Language.ar,
+            method="heuristic_arabic",
         )
         mock_gemini.classify_intent.return_value = "faq"
         state = _make_state(query="كيف أنشئ شركة؟")

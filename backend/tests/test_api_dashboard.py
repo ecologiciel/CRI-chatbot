@@ -18,7 +18,6 @@ from app.main import app
 from app.models.enums import AdminRole
 from app.schemas.auth import AdminTokenPayload
 
-
 # ---------------------------------------------------------------------------
 # Factories
 # ---------------------------------------------------------------------------
@@ -32,9 +31,7 @@ TEST_TENANT = TenantContext(
 )
 
 
-def _make_admin_payload(
-    role: str = AdminRole.admin_tenant.value, **overrides
-) -> AdminTokenPayload:
+def _make_admin_payload(role: str = AdminRole.admin_tenant.value, **overrides) -> AdminTokenPayload:
     defaults = {
         "sub": str(uuid.uuid4()),
         "role": role,
@@ -91,13 +88,9 @@ class TestDashboardStats:
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch(
-                    "app.api.v1.dashboard.get_dashboard_service"
-                ) as mock_svc,
+                patch("app.api.v1.dashboard.get_dashboard_service") as mock_svc,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_service = MagicMock()
                 mock_service.get_stats = AsyncMock(return_value=MOCK_STATS)
                 mock_svc.return_value = mock_service
@@ -130,13 +123,9 @@ class TestDashboardStats:
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch(
-                    "app.api.v1.dashboard.get_dashboard_service"
-                ) as mock_svc,
+                patch("app.api.v1.dashboard.get_dashboard_service") as mock_svc,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_service = MagicMock()
                 mock_service.get_stats = AsyncMock(return_value=MOCK_STATS)
                 mock_svc.return_value = mock_service
@@ -161,13 +150,9 @@ class TestDashboardStats:
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch(
-                    "app.api.v1.dashboard.get_dashboard_service"
-                ) as mock_svc,
+                patch("app.api.v1.dashboard.get_dashboard_service") as mock_svc,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_service = MagicMock()
                 mock_service.get_stats = AsyncMock(return_value=MOCK_STATS)
                 mock_svc.return_value = mock_service
@@ -185,8 +170,8 @@ class TestDashboardStats:
         data = response.json()
         assert isinstance(data["active_conversations"], int)
         assert isinstance(data["messages_today"], int)
-        assert isinstance(data["resolution_rate"], (int, float))
-        assert isinstance(data["csat_score"], (int, float))
+        assert isinstance(data["resolution_rate"], int | float)
+        assert isinstance(data["csat_score"], int | float)
         assert isinstance(data["total_contacts"], int)
         assert isinstance(data["kb_documents_indexed"], int)
         assert isinstance(data["unanswered_questions"], int)

@@ -8,8 +8,6 @@ Validates:
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
 from pydantic import ValidationError
 
@@ -21,7 +19,6 @@ from app.schemas.whitelist import (
     InternalWhitelistUpdate,
     WhitelistCheckResponse,
 )
-
 
 # ── Constants ──
 
@@ -51,8 +48,14 @@ class TestInternalWhitelistModel:
         """Model defines all expected columns."""
         column_names = {c.name for c in InternalWhitelist.__table__.columns}
         expected = {
-            "id", "phone", "label", "note", "is_active",
-            "added_by", "created_at", "updated_at",
+            "id",
+            "phone",
+            "label",
+            "note",
+            "is_active",
+            "added_by",
+            "created_at",
+            "updated_at",
         }
         assert expected == column_names
 
@@ -202,8 +205,14 @@ class TestInternalWhitelistResponse:
         """Response schema contains all expected fields."""
         fields = set(InternalWhitelistResponse.model_fields.keys())
         expected = {
-            "id", "phone", "label", "note", "is_active",
-            "added_by", "created_at", "updated_at",
+            "id",
+            "phone",
+            "label",
+            "note",
+            "is_active",
+            "added_by",
+            "created_at",
+            "updated_at",
         }
         assert expected == fields
 

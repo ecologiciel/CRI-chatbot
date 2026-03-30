@@ -12,7 +12,8 @@ class InternalWhitelistCreate(BaseModel):
     """Schema for adding a phone number to the internal whitelist."""
 
     phone: str = Field(
-        ..., pattern=r"^\+[1-9]\d{6,14}$",
+        ...,
+        pattern=r"^\+[1-9]\d{6,14}$",
         description="Phone in E.164 format, e.g. +212612345678",
     )
     label: str | None = Field(default=None, max_length=255)

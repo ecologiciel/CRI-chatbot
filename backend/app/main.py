@@ -3,8 +3,8 @@
 Lifespan manages startup/shutdown of all service connections.
 """
 
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from app.api.v1.admins import router as admins_router
+from app.api.v1.analytics import router as analytics_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.campaigns import router as campaigns_router
 from app.api.v1.contacts import router as contacts_router
@@ -25,6 +27,8 @@ from app.api.v1.tenant import router as tenant_router
 from app.api.v1.webhook import router as webhook_router
 from app.api.v1.whitelist import router as whitelist_router
 from app.api.ws.escalation_ws import escalation_ws_endpoint
+from app.core.arq import close_arq_pool, init_arq_pool
+from app.core.audit_middleware import AuditMiddleware
 from app.core.config import get_settings
 from app.core.database import close_engine, get_engine
 from app.core.exceptions import (
@@ -34,8 +38,8 @@ from app.core.exceptions import (
     CRIBaseException,
     DuplicateResourceError,
     DuplicateTenantError,
-    EscalationConflictError,
     EmbeddingError,
+    EscalationConflictError,
     GeminiError,
     RateLimitExceededError,
     ResourceNotFoundError,
@@ -44,9 +48,7 @@ from app.core.exceptions import (
     TenantResolutionError,
     ValidationError,
 )
-from app.core.arq import close_arq_pool, init_arq_pool
 from app.core.logging import setup_logging
-from app.core.audit_middleware import AuditMiddleware
 from app.core.middleware import TenantMiddleware
 from app.core.minio import init_minio
 from app.core.qdrant import close_qdrant, init_qdrant
@@ -99,8 +101,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="CRI Chatbot Platform API",
         description=(
-            "Multi-tenant RAG chatbot platform for "
-            "Centres Régionaux d'Investissement du Maroc"
+            "Multi-tenant RAG chatbot platform for " "Centres Régionaux d'Investissement du Maroc"
         ),
         version="0.1.0",
         docs_url="/docs" if not settings.is_production else None,
@@ -132,9 +133,7 @@ def create_app() -> FastAPI:
 
     # --- Exception handlers ---
     @app.exception_handler(CRIBaseException)
-    async def cri_exception_handler(
-        request: Request, exc: CRIBaseException
-    ) -> JSONResponse:
+    async def cri_exception_handler(request: Request, exc: CRIBaseException) -> JSONResponse:
         logger.warning(
             "cri_exception",
             error_type=type(exc).__name__,
@@ -153,6 +152,8 @@ def create_app() -> FastAPI:
         )
 
     # --- Routes ---
+    app.include_router(admins_router, prefix="/api/v1")
+    app.include_router(analytics_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(campaigns_router, prefix="/api/v1")
     app.include_router(contacts_router, prefix="/api/v1")
@@ -168,7 +169,8 @@ def create_app() -> FastAPI:
 
     # --- WebSocket routes ---
     app.add_api_websocket_route(
-        "/ws/escalations/{tenant_slug}", escalation_ws_endpoint,
+        "/ws/escalations/{tenant_slug}",
+        escalation_ws_endpoint,
     )
 
     return app

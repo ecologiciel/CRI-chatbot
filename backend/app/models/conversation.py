@@ -55,19 +55,26 @@ class Conversation(UUIDMixin, TimestampMixin, Base):
         server_default=ConversationStatus.active.value,
     )
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True, default=None,
+        "metadata",
+        JSONB,
+        nullable=True,
+        default=None,
     )
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
     ended_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     # Relationships
     contact: Mapped[Contact] = relationship(back_populates="conversations")
     messages: Mapped[list[Message]] = relationship(
-        back_populates="conversation", cascade="all, delete-orphan",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
     )
     escalations: Mapped[list[Escalation]] = relationship(
         back_populates="conversation",
@@ -108,13 +115,19 @@ class Message(UUIDMixin, TimestampMixin, Base):
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     chunk_ids: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb"),
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
     )
     whatsapp_message_id: Mapped[str | None] = mapped_column(
-        String(100), nullable=True,
+        String(100),
+        nullable=True,
     )
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True, default=None,
+        "metadata",
+        JSONB,
+        nullable=True,
+        default=None,
     )
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -126,7 +139,8 @@ class Message(UUIDMixin, TimestampMixin, Base):
     # Relationships
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
     feedback: Mapped[list[Feedback]] = relationship(
-        back_populates="message", cascade="all, delete-orphan",
+        back_populates="message",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:

@@ -19,7 +19,7 @@ os.environ.setdefault("WHATSAPP_APP_SECRET", "test_app_secret")
 
 from app.core.tenant import TenantContext
 from app.models.enums import Language
-from app.services.ai.language import LanguageDetectionService, LanguageResult
+from app.services.ai.language import LanguageDetectionService
 
 TEST_TENANT = TenantContext(
     id=uuid.uuid4(),
@@ -149,9 +149,7 @@ class TestGeminiFallback:
         text = "SARL 2024 capital 100000 MAD"
 
         mock_gemini = AsyncMock()
-        mock_gemini.generate_simple = AsyncMock(
-            side_effect=RuntimeError("API Error")
-        )
+        mock_gemini.generate_simple = AsyncMock(side_effect=RuntimeError("API Error"))
 
         with patch(
             "app.services.ai.gemini.get_gemini_service",

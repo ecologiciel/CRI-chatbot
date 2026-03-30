@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # 1. Import tests
 # ---------------------------------------------------------------------------
@@ -173,7 +172,7 @@ class TestDetectEscalation:
 
     def _make_service(self):
         """Create an EscalationService with mocked dependencies."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import MagicMock
 
         from app.services.escalation.service import EscalationService
 

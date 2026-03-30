@@ -24,7 +24,6 @@ from app.core.tenant import TenantContext
 from app.main import app
 from app.services.whatsapp.webhook import WhatsAppWebhookService
 
-
 # --- Fixtures ---
 
 TEST_TENANT_ID = uuid.uuid4()

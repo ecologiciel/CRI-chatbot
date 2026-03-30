@@ -23,8 +23,8 @@ from app.schemas.rag import (
     ConversationTurn,
     GenerationRequest,
     GenerationResponse,
-    RetrievedChunk,
     RetrievalResult,
+    RetrievedChunk,
 )
 from app.services.ai.gemini import get_gemini_service
 from app.services.ai.language import get_language_service
@@ -56,9 +56,7 @@ GENERATION_CONFIDENCE = Histogram(
 # Compiled PII patterns (Moroccan-specific per CLAUDE.md §5.2)
 # ---------------------------------------------------------------------------
 _PII_CIN = re.compile(r"\b[A-Z]{1,2}\d{5,6}\b")
-_PII_PHONE = re.compile(
-    r"(?:\+212|0)[567][\s.\-]?\d{2}[\s.\-]?\d{2}[\s.\-]?\d{2}[\s.\-]?\d{2}"
-)
+_PII_PHONE = re.compile(r"(?:\+212|0)[567][\s.\-]?\d{2}[\s.\-]?\d{2}[\s.\-]?\d{2}[\s.\-]?\d{2}")
 _PII_EMAIL = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 _PII_AMOUNT = re.compile(
     r"\b\d{1,3}(?:[\s.,]\d{3})*(?:[.,]\d{1,2})?\s*(?:MAD|DH|dirhams?)\b",
@@ -197,9 +195,7 @@ class GenerationService:
                 temperature=0.3,
                 trace_id=trace_id,
             )
-            gemini_response: GeminiResponse = await self._gemini.generate(
-                gemini_request, tenant
-            )
+            gemini_response: GeminiResponse = await self._gemini.generate(gemini_request, tenant)
 
             # 8. Build response
             latency_ms = (time.monotonic() - start_time) * 1000
@@ -273,9 +269,7 @@ class GenerationService:
         text = _PII_AMOUNT.sub("[MONTANT]", text)
         return text
 
-    def _anonymize_chunks(
-        self, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]:
+    def _anonymize_chunks(self, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
         """Create new RetrievedChunk instances with anonymized content.
 
         Frozen dataclasses cannot be mutated — we reconstruct them.

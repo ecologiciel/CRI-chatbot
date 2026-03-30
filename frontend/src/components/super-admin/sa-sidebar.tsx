@@ -4,42 +4,38 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  MessageSquare,
-  BookOpen,
-  Users,
-  AlertTriangle,
-  Shield,
-  Send,
-  BarChart3,
+  Building,
+  Activity,
   Settings,
-  Building2,
+  ScrollText,
   ChevronLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import type { NavItem } from "@/types";
 
+// ---------------------------------------------------------------------------
+// Super-admin navigation (4 items)
+// ---------------------------------------------------------------------------
+
 const navItems: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Conversations", href: "/conversations", icon: MessageSquare },
-  { label: "Escalades", href: "/escalations", icon: AlertTriangle },
-  { label: "Base de connaissances", href: "/kb", icon: BookOpen },
-  { label: "Contacts", href: "/contacts", icon: Users },
-  { label: "Utilisateurs", href: "/users", icon: Shield },
-  { label: "Campagnes", href: "/campaigns", icon: Send },
-  { label: "Analytics", href: "/analytics", icon: BarChart3 },
-  { label: "Paramètres", href: "/settings", icon: Settings },
+  { label: "Tenants", href: "/sa/tenants", icon: Building },
+  { label: "Monitoring", href: "/sa/monitoring", icon: Activity },
+  { label: "Configuration", href: "/sa/configuration", icon: Settings },
+  { label: "Logs d'audit", href: "/sa/audit", icon: ScrollText },
 ];
 
-interface SidebarProps {
+// ---------------------------------------------------------------------------
+// Desktop sidebar
+// ---------------------------------------------------------------------------
+
+interface SASidebarProps {
   collapsed: boolean;
   onToggle: () => void;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function SASidebar({ collapsed, onToggle }: SASidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -50,13 +46,18 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       )}
       style={{ backgroundColor: "hsl(var(--sidebar-bg))" }}
     >
-      {/* Logo */}
+      {/* Header — Platform branding */}
       <div className="flex h-14 items-center gap-3 px-4">
-        <Building2 className="h-7 w-7 shrink-0 text-primary" />
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/20">
+          <Building className="h-4 w-4 text-primary" strokeWidth={2} />
+        </div>
         {!collapsed && (
-          <span className="text-lg font-bold font-heading text-white truncate">
-            CRI Platform
-          </span>
+          <div className="flex flex-col min-w-0">
+            <span className="text-sm font-bold font-heading text-white truncate">
+              CRI Platform
+            </span>
+            <span className="text-[11px] text-white/50">Administration</span>
+          </div>
         )}
       </div>
 
@@ -72,27 +73,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
           const linkContent = (
             <Link
-              href={item.disabled ? "#" : item.href}
+              href={item.href}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
                   ? "bg-primary/20 text-white border-s-[3px] border-primary"
-                  : "text-[hsl(var(--sidebar-fg))] hover:bg-white/[0.06]",
-                item.disabled && "opacity-50 cursor-not-allowed"
+                  : "text-[hsl(var(--sidebar-fg))] hover:bg-white/[0.06]"
               )}
-              onClick={item.disabled ? (e) => e.preventDefault() : undefined}
             >
               <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />
               {!collapsed && (
                 <span className="flex-1 truncate">{item.label}</span>
-              )}
-              {!collapsed && item.badge && (
-                <Badge
-                  variant="secondary"
-                  className="text-[10px] px-1.5 py-0 h-5 bg-white/10 text-white/60 border-0"
-                >
-                  {item.badge}
-                </Badge>
               )}
             </Link>
           );
@@ -112,7 +103,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         })}
       </nav>
 
-      {/* Collapse Toggle */}
+      {/* Collapse toggle */}
       <div className="px-2 py-3">
         <div className="mx-3 mb-3">
           <Separator className="bg-white/10" />
@@ -137,16 +128,26 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   );
 }
 
-/** Mobile sidebar content — used inside Sheet */
-export function SidebarMobile({ onClose }: { onClose: () => void }) {
+// ---------------------------------------------------------------------------
+// Mobile sidebar — used inside Sheet
+// ---------------------------------------------------------------------------
+
+export function SASidebarMobile({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: "hsl(var(--sidebar-bg))" }}>
-      {/* Logo */}
+      {/* Header */}
       <div className="flex h-14 items-center gap-3 px-4">
-        <Building2 className="h-7 w-7 shrink-0 text-primary" />
-        <span className="text-lg font-bold font-heading text-white">CRI Platform</span>
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/20">
+          <Building className="h-4 w-4 text-primary" strokeWidth={2} />
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-sm font-bold font-heading text-white">
+            CRI Platform
+          </span>
+          <span className="text-[11px] text-white/50">Administration</span>
+        </div>
       </div>
 
       <div className="mx-3">
@@ -162,32 +163,17 @@ export function SidebarMobile({ onClose }: { onClose: () => void }) {
           return (
             <Link
               key={item.href}
-              href={item.disabled ? "#" : item.href}
-              onClick={(e) => {
-                if (item.disabled) {
-                  e.preventDefault();
-                  return;
-                }
-                onClose();
-              }}
+              href={item.href}
+              onClick={() => onClose()}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
                   ? "bg-primary/20 text-white border-s-[3px] border-primary"
-                  : "text-[hsl(var(--sidebar-fg))] hover:bg-white/[0.06]",
-                item.disabled && "opacity-50 cursor-not-allowed"
+                  : "text-[hsl(var(--sidebar-fg))] hover:bg-white/[0.06]"
               )}
             >
               <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />
               <span className="flex-1 truncate">{item.label}</span>
-              {item.badge && (
-                <Badge
-                  variant="secondary"
-                  className="text-[10px] px-1.5 py-0 h-5 bg-white/10 text-white/60 border-0"
-                >
-                  {item.badge}
-                </Badge>
-              )}
             </Link>
           );
         })}

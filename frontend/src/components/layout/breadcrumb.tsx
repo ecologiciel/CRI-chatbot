@@ -13,6 +13,13 @@ const labelMap: Record<string, string> = {
   analytics: "Analytics",
   settings: "Paramètres",
   feedback: "Feedback",
+  // Super-admin routes
+  sa: "Super-Admin",
+  tenants: "Tenants",
+  monitoring: "Monitoring",
+  configuration: "Configuration",
+  audit: "Logs d'audit",
+  new: "Créer",
 };
 
 export function Breadcrumb() {

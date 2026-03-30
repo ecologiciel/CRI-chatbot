@@ -2,14 +2,18 @@
 
 import { useState } from "react";
 import { Plus } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLearningStats } from "@/hooks/use-learning";
 import { DocumentTable } from "./components/document-table";
 import { UploadModal } from "./components/upload-modal";
 import { UnansweredTab } from "./components/unanswered-tab";
 
 export default function KBPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
+  const { data: statsData } = useLearningStats();
+  const pendingCount = statsData?.by_status?.pending ?? 0;
 
   return (
     <div className="space-y-6">
@@ -33,7 +37,14 @@ export default function KBPage() {
       <Tabs defaultValue="documents">
         <TabsList>
           <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="unanswered">Questions non couvertes</TabsTrigger>
+          <TabsTrigger value="unanswered">
+            Questions non couvertes
+            {pendingCount > 0 && (
+              <Badge className="ms-2 h-5 min-w-[20px] px-1.5 text-xs bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))] border-0">
+                {pendingCount}
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="documents">

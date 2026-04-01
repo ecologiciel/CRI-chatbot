@@ -19,6 +19,15 @@ from app.schemas.contact import (
     ContactResponse,
     ContactUpdate,
 )
+from app.schemas.dossier import (
+    DossierCreate,
+    DossierDetail,
+    DossierFilters,
+    DossierHistoryRead,
+    DossierList,
+    DossierRead,
+    DossierStats,
+)
 from app.schemas.conversation import (
     ConversationCreate,
     ConversationList,
@@ -43,6 +52,15 @@ from app.schemas.feedback import (
     UnansweredQuestionList,
     UnansweredQuestionResponse,
     UnansweredQuestionUpdate,
+)
+from app.schemas.sync import (
+    ImportReportResponse,
+    ImportTriggerRequest,
+    SyncConfigCreate,
+    SyncConfigRead,
+    SyncConfigUpdate,
+    SyncLogList,
+    SyncLogRead,
 )
 from app.schemas.kb import (
     KBChunkResponse,
@@ -93,6 +111,14 @@ __all__ = [
     "ContactList",
     "ContactResponse",
     "ContactUpdate",
+    # Dossier
+    "DossierCreate",
+    "DossierDetail",
+    "DossierFilters",
+    "DossierHistoryRead",
+    "DossierList",
+    "DossierRead",
+    "DossierStats",
     # Conversation & Message
     "ConversationCreate",
     "ConversationList",
@@ -107,6 +133,14 @@ __all__ = [
     "UnansweredQuestionList",
     "UnansweredQuestionResponse",
     "UnansweredQuestionUpdate",
+    # Sync
+    "ImportReportResponse",
+    "ImportTriggerRequest",
+    "SyncConfigCreate",
+    "SyncConfigRead",
+    "SyncConfigUpdate",
+    "SyncLogList",
+    "SyncLogRead",
     # Knowledge Base
     "KBChunkResponse",
     "KBDocumentCreate",

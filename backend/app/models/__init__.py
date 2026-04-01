@@ -11,6 +11,7 @@ from app.models.base import TimestampMixin, UUIDMixin
 from app.models.campaign import Campaign, CampaignRecipient
 from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
+from app.models.dossier import Dossier, DossierHistory
 from app.models.enums import (
     AdminRole,
     AgentType,
@@ -28,6 +29,8 @@ from app.models.enums import (
     MessageType,
     OptInStatus,
     RecipientStatus,
+    SyncProviderType,
+    SyncSourceType,
     SyncStatus,
     TenantStatus,
     UnansweredStatus,
@@ -36,6 +39,7 @@ from app.models.escalation import Escalation
 from app.models.feedback import Feedback, UnansweredQuestion
 from app.models.incitation import IncentiveCategory, IncentiveItem
 from app.models.kb import KBChunk, KBDocument
+from app.models.sync import SyncConfig, SyncLog
 from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
 from app.models.whitelist import InternalWhitelist
@@ -52,6 +56,8 @@ __all__ = [
     "CampaignRecipient",
     "Contact",
     "Conversation",
+    "Dossier",
+    "DossierHistory",
     "Escalation",
     "Feedback",
     "IncentiveCategory",
@@ -60,6 +66,8 @@ __all__ = [
     "KBChunk",
     "KBDocument",
     "Message",
+    "SyncConfig",
+    "SyncLog",
     "Tenant",
     "TenantKey",
     "UnansweredQuestion",
@@ -69,7 +77,6 @@ __all__ = [
     "CampaignStatus",
     "ContactSource",
     "ConversationStatus",
-    "RecipientStatus",
     "DossierStatut",
     "EscalationPriority",
     "EscalationStatus",
@@ -80,6 +87,9 @@ __all__ = [
     "MessageDirection",
     "MessageType",
     "OptInStatus",
+    "RecipientStatus",
+    "SyncProviderType",
+    "SyncSourceType",
     "SyncStatus",
     "TenantStatus",
     "UnansweredStatus",

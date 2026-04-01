@@ -113,11 +113,14 @@ class EscalationPriority(str, Enum):
 
 
 class DossierStatut(str, Enum):
+    """Statuts possibles d'un dossier d'investissement."""
+
     en_cours = "en_cours"
     valide = "valide"
     rejete = "rejete"
     en_attente = "en_attente"
     complement = "complement"
+    incomplet = "incomplet"
 
 
 class CampaignStatus(str, Enum):
@@ -142,6 +145,26 @@ class RecipientStatus(str, Enum):
 
 
 class SyncStatus(str, Enum):
+    """Statuts d'une opération de synchronisation."""
+
+    pending = "pending"
     running = "running"
     completed = "completed"
     failed = "failed"
+
+
+class SyncSourceType(str, Enum):
+    """Types de sources d'import."""
+
+    excel = "excel"
+    csv = "csv"
+    api_rest = "api_rest"
+    manual = "manual"
+
+
+class SyncProviderType(str, Enum):
+    """Types de fournisseurs de données SI."""
+
+    excel_csv = "excel_csv"
+    api_rest = "api_rest"
+    db_link = "db_link"

@@ -88,6 +88,7 @@ class DossierStats(BaseModel):
     valide: int = 0
     rejete: int = 0
     en_attente: int = 0
+    complement: int = 0
     incomplet: int = 0
 
 

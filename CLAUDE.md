@@ -535,28 +535,28 @@ async def create_contact(
 
 ## 13. PHASAGE DU DÉVELOPPEMENT
 
-### Phase 1 — Socle + Agent Public FAQ/Incitations (8 semaines) ← **EN COURS**
+### Phase 1 — Socle + Agent Public FAQ/Incitations (8 semaines) ← **COMPLÈTE** (v0.1.0-phase1)
 
-1. Infrastructure Docker Compose (PostgreSQL, Qdrant, Redis, MinIO, Traefik)
-2. Middleware multi-tenant + provisionnement tenant
-3. Intégration WhatsApp Business API (webhook, envoi/réception)
-4. Pipeline RAG complet (ingestion, retrieval, génération Gemini)
-5. Module incitations (arborescence interactive WhatsApp)
-6. Multilinguisme FR/AR/EN
-7. Guardrails (input + output + PII masking)
-8. Back-office v1 (gestion KB, supervision conversations, contacts, feedback)
-9. Sécurité Phase 1 : HMAC webhook, rate limiting, TLS, headers, bcrypt+JWT+RBAC, Docker networks
-10. Tests pré-production
+1. ✅ Infrastructure Docker Compose (PostgreSQL, Qdrant, Redis, MinIO, Traefik)
+2. ✅ Middleware multi-tenant + provisionnement tenant
+3. ✅ Intégration WhatsApp Business API (webhook, envoi/réception)
+4. ✅ Pipeline RAG complet (ingestion, retrieval, génération Gemini)
+5. ✅ Module incitations (arborescence interactive WhatsApp)
+6. ✅ Multilinguisme FR/AR/EN
+7. ✅ Guardrails (input + output + PII masking)
+8. ✅ Back-office v1 (gestion KB, supervision conversations, contacts, feedback)
+9. ✅ Sécurité Phase 1 : HMAC webhook, rate limiting, TLS, headers, bcrypt+JWT+RBAC, Docker networks
+10. ✅ Tests pré-production
 
-### Phase 2 — Agent Interne + Supervision (6 semaines)
+### Phase 2 — Agent Interne + Supervision (6 semaines) ← **COMPLÈTE** (v0.2.0-phase2)
 
-11. Agent interne CRI (lecture seule, whitelist)
-12. Système d'apprentissage supervisé complet
-13. Module d'escalade agent humain (6 scénarios, WebSocket, interface BO)
-14. Audit trail append-only + archivage signé
-15. KMS logiciel + clé par tenant
-16. Gestion sessions avancée (IP check, session unique)
-17. Back-office complet (analytics, campagnes, gestion utilisateurs, super-admin)
+11. ✅ Agent interne CRI (lecture seule, whitelist)
+12. ✅ Système d'apprentissage supervisé complet
+13. ✅ Module d'escalade agent humain (6 scénarios, WebSocket, interface BO)
+14. ✅ Audit trail append-only + archivage signé
+15. ✅ KMS logiciel + clé par tenant
+16. ✅ Gestion sessions avancée (IP check, session unique)
+17. ✅ Back-office complet (analytics, campagnes, gestion utilisateurs, super-admin)
 
 ### Phase 3 — Suivi Dossier + Production (6 semaines)
 

@@ -245,6 +245,9 @@ _SINGLETON_VARS = {
     "app.services.auth.session_manager": "_session_manager",
     "app.services.campaign.service": "_campaign_service",
     "app.services.contact.segmentation": "_segmentation_service",
+    "app.services.dossier.service": "_dossier_service",
+    "app.services.dossier.otp": "_dossier_otp_service",
+    "app.services.dossier.import_service": "_dossier_import_service",
 }
 
 

@@ -7,9 +7,11 @@
 
 Chatbot WhatsApp propulse par l'IA (RAG + Gemini 2.5 Flash) pour repondre aux questions des investisseurs sur les procedures, incitations et services des CRI. Chaque CRI regional est un tenant isole avec sa propre base de connaissances, configuration WhatsApp et donnees metier. Le provisionnement d'un nouveau CRI se fait via le back-office sans redeploiement.
 
-**Phase actuelle :** Phase 1 — Socle + Agent Public FAQ/Incitations
+**Phase actuelle :** Phase 2 — Agent Interne + Supervision (complete, v0.2.0-phase2)
 
-## Fonctionnalites Phase 1
+## Fonctionnalites
+
+### Phase 1 ✅ (v0.1.0-phase1)
 
 - Agent conversationnel WhatsApp (FAQ + Incitations interactives)
 - Pipeline RAG multilingue (francais, arabe, anglais)
@@ -17,6 +19,26 @@ Chatbot WhatsApp propulse par l'IA (RAG + Gemini 2.5 Flash) pour repondre aux qu
 - Guardrails : anti-injection prompt, masquage PII, anonymisation LLM
 - Back-office d'administration (gestion KB, contacts, conversations, feedback)
 - Architecture multi-tenant isolee (schema PG, collection Qdrant, prefixe Redis, bucket MinIO)
+
+### Phase 2 ✅ (v0.2.0-phase2)
+
+- Agent interne CRI (lecture seule, whitelist de numeros autorises)
+- Systeme d'apprentissage supervise (questions non couvertes, propositions IA, validation humaine, reinjection Qdrant)
+- Module d'escalade agent humain (6 scenarios de declenchement, file d'attente prioritisee, notifications WebSocket temps reel)
+- Campagnes WhatsApp (publipostage, ciblage par audience, planification, suivi statistiques, quota 100K messages/an)
+- Gestion des contacts enrichie (segmentation, tags batch, historique interactions, opt-in/out CNDP, import/export Excel)
+- Audit trail append-only + archivage signe (SHA-256)
+- KMS logiciel — chiffrement par tenant (AES-256-GCM, envelope encryption)
+- Gestion sessions avancee (detection changement IP, session unique)
+- Back-office complet (analytics, campagnes, gestion administrateurs, super-admin cross-tenant)
+
+### Phase 3 (a venir)
+
+- Suivi de dossier (OTP, import Excel/CSV)
+- Notifications proactives
+- Tests de charge (100+ conversations simultanees, < 2s)
+- Audit conformite CNDP
+- Deploiement production Nindohost
 
 ## Stack technique
 
@@ -112,9 +134,14 @@ cri-chatbot-platform/
 | Document | Description |
 |----------|-------------|
 | [Architecture technique](docs/architecture-technique.md) | Stack, multi-tenant, RAG, LangGraph, securite |
-| [Reference API](docs/api-reference.md) | 30 endpoints REST, schemas, authentification |
+| [Reference API Phase 1](docs/api-reference.md) | 30 endpoints REST, schemas, authentification |
+| [Reference API Phase 2](docs/phase2-api-reference.md) | 44 endpoints REST + WebSocket (escalade, campagnes, apprentissage, whitelist, contacts) |
 | [Guide d'administration](docs/guide-administration.md) | Utilisation du back-office (pour admins CRI) |
 | [Guide de deploiement](docs/guide-deploiement.md) | Installation, production Nindohost, monitoring |
+| [Guide d'escalade](docs/guide-escalade.md) | Module escalade agent humain (6 scenarios) |
+| [Guide des campagnes](docs/guide-campagnes.md) | Publipostage WhatsApp (templates, audience, quota) |
+| [Guide super-admin](docs/guide-super-admin.md) | Administration cross-tenant, provisionnement, audit |
+| [Guide apprentissage supervise](docs/guide-apprentissage-supervise.md) | Validation des questions non couvertes, reinjection Qdrant |
 
 ## Services Docker
 
@@ -158,8 +185,8 @@ curl http://localhost:8000/api/v1/health
 
 ## Tests
 
-- **324 tests** dans 59 fichiers
-- Categories : isolation multi-tenant, securite, API endpoints, services metier, E2E
+- **Tests** dans 85 fichiers (Phase 1 + Phase 2)
+- Categories : isolation multi-tenant, securite, API endpoints, services metier, E2E, escalade, campagnes, apprentissage, KMS, audit
 
 ```bash
 docker compose exec backend pytest -x -q

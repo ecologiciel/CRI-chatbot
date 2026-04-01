@@ -11,4 +11,7 @@ Run the campaign worker (WhatsApp mass-messaging):
 
 Run the learning worker (supervised learning Qdrant reinjection):
     arq app.workers.learning.WorkerSettings
+
+Run the dossier import worker (scheduled + on-demand imports):
+    arq app.workers.import_dossier.WorkerSettings
 """

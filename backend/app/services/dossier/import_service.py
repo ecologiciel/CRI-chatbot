@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 import os
 import re
 import time
@@ -634,6 +635,7 @@ class DossierImportService:
             ImportReport with detailed statistics.
         """
         start = time.monotonic()
+        self._pending_notifications: list[dict[str, Any]] = []
         report = ImportReport(sync_log_id=sync_log_id, rows_total=len(rows))
 
         async with tenant.db_session() as session:
@@ -663,6 +665,10 @@ class DossierImportService:
                 if report.errors:
                     sync_log.error_details = {"errors": report.errors}
 
+        # Publish status-change events to Redis for notification worker
+        if self._pending_notifications:
+            await self._publish_notifications(tenant)
+
         report.duration_seconds = round(time.monotonic() - start, 3)
 
         self._logger.info(
@@ -676,6 +682,38 @@ class DossierImportService:
             duration_s=report.duration_seconds,
         )
         return report
+
+    # ── Notification publishing ─────────────────────────────────
+
+    async def _publish_notifications(self, tenant: TenantContext) -> None:
+        """Publish collected status changes to Redis for the notification worker.
+
+        Fire-and-forget: errors are logged but never block the import.
+        Called after the DB session commits to avoid phantom notifications.
+        """
+        try:
+            from app.core.redis import get_redis
+
+            redis = get_redis()
+            queue_key = f"{tenant.slug}:notification:dossier_changes"
+            pipe = redis.pipeline()
+            for event in self._pending_notifications:
+                pipe.rpush(queue_key, json.dumps(event))
+            await pipe.execute()
+            self._logger.info(
+                "notifications_published",
+                tenant=tenant.slug,
+                count=len(self._pending_notifications),
+            )
+        except Exception as exc:
+            self._logger.error(
+                "notification_publish_failed",
+                tenant=tenant.slug,
+                error=str(exc),
+                exc_info=True,
+            )
+        finally:
+            self._pending_notifications.clear()
 
     # ── Internal helpers ──────────────────────────────────────────
 
@@ -816,6 +854,16 @@ class DossierImportService:
                     (row.statut or "").strip().lower(),
                     existing.statut,
                 )
+                # Collect status change for notification worker
+                self._pending_notifications.append({
+                    "dossier_id": str(existing.id),
+                    "numero": existing.numero,
+                    "contact_id": str(existing.contact_id) if existing.contact_id else None,
+                    "old_statut": change.old_value,
+                    "new_statut": change.new_value,
+                    "sync_log_id": str(sync_log_id),
+                    "timestamp": datetime.now().isoformat(),
+                })
             elif change.field_name == "montant_investissement":
                 existing.montant_investissement = _parse_montant(
                     row.montant_investissement,

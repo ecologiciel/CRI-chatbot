@@ -1,24 +1,22 @@
-"""Complete LangGraph conversation graph — Wave 8 + Wave 15 + Wave 17.
+"""Complete LangGraph conversation graph — v3 (Wave 8 + 15 + 17 + 25).
 
 Assembles all nodes into a compiled StateGraph:
 
     intent_detector ─(Router)──> faq_agent ──(auto-escalation?)──> escalation_handler ──> END
                                │                    └──────────> response_validator ─┐
                                > incentives_agent ──────────────> response_validator ─┤
-                               > internal_agent ────────────────> response_validator ─┘
+                               > internal_agent ────────────────> response_validator ─┤
+                               > tracking_agent ────────────────> response_validator ─┘
                                │                                        ↓
                                │                                feedback_collector ──(feedback-escalation?)──> escalation_handler ──> END
                                │                                        └────────────────────────────────────> END
                                > greeting_response ──────> END
                                > out_of_scope_response ──> END
                                > blocked_response ───────> END
-                               > tracking_placeholder ───> END
                                > escalation_handler ──────> END
 
-Wave 17 additions:
-- ``check_auto_escalation``: faq_agent → escalation_handler on 2+ consecutive low-confidence
-- ``check_feedback_escalation``: feedback_collector → escalation_handler on agent-request keywords
-- ``conversation_id`` threaded from handler through state to escalation_handler
+Wave 17: auto/feedback escalation, conversation_id threading.
+Wave 25: tracking_placeholder → tracking_agent (OTP-authenticated dossier tracking).
 
 Entry point: ``run_conversation()`` — called from the WhatsApp webhook handler.
 """
@@ -45,8 +43,8 @@ from app.services.orchestrator.simple_nodes import (
     BlockedResponseNode,
     GreetingNode,
     OutOfScopeNode,
-    TrackingPlaceholder,
 )
+from app.services.orchestrator.tracking_agent import get_tracking_agent
 from app.services.orchestrator.state import ConversationState
 from app.services.rag.prompts import PromptTemplates
 
@@ -217,12 +215,12 @@ def build_conversation_graph() -> Any:
 
     internal_agent = get_internal_agent()
     escalation_handler = get_escalation_handler()
+    tracking_agent = get_tracking_agent()
 
     # Simple nodes (no tenant needed)
     greeting_node = GreetingNode()
     out_of_scope_node = OutOfScopeNode()
     blocked_node = BlockedResponseNode()
-    tracking_placeholder = TrackingPlaceholder()
 
     # Build graph
     graph = StateGraph(ConversationState)
@@ -261,8 +259,8 @@ def build_conversation_graph() -> Any:
         _wrap_simple_node(blocked_node.handle, "blocked_response"),
     )
     graph.add_node(
-        "tracking_placeholder",
-        _wrap_simple_node(tracking_placeholder.handle, "tracking_placeholder"),
+        "tracking_agent",
+        _wrap_tenant_node(tracking_agent.handle, "tracking_agent"),
     )
     graph.add_node(
         "escalation_handler",
@@ -286,7 +284,7 @@ def build_conversation_graph() -> Any:
             "greeting_response": "greeting_response",
             "out_of_scope_response": "out_of_scope_response",
             "blocked_response": "blocked_response",
-            "tracking_placeholder": "tracking_placeholder",
+            "tracking_agent": "tracking_agent",
             "escalation_handler": "escalation_handler",
             "internal_agent": "internal_agent",
         },
@@ -302,9 +300,10 @@ def build_conversation_graph() -> Any:
         },
     )
 
-    # ── Incentives & Internal → response_validator (no auto-escalation) ──
+    # ── Incentives, Internal & Tracking → response_validator (no auto-escalation) ──
     graph.add_edge("incentives_agent", "response_validator")
     graph.add_edge("internal_agent", "response_validator")
+    graph.add_edge("tracking_agent", "response_validator")
     graph.add_edge("response_validator", "feedback_collector")
 
     # ── Feedback → conditional feedback-escalation check ──
@@ -321,7 +320,6 @@ def build_conversation_graph() -> Any:
     graph.add_edge("greeting_response", END)
     graph.add_edge("out_of_scope_response", END)
     graph.add_edge("blocked_response", END)
-    graph.add_edge("tracking_placeholder", END)
     graph.add_edge("escalation_handler", END)
 
     return graph.compile()
@@ -354,6 +352,7 @@ async def run_conversation(
     conversation_history: list[dict] | None = None,
     incentive_state: dict | None = None,
     conversation_id: str | None = None,
+    tracking_state: str | None = None,
 ) -> dict:
     """Run a user message through the conversation graph.
 
@@ -392,6 +391,8 @@ async def run_conversation(
         "escalation_id": None,
         "consecutive_low_confidence": 0,
         "conversation_id": conversation_id,
+        "tracking_state": tracking_state,
+        "authenticated_phone": None,
     }
 
     try:
@@ -415,6 +416,7 @@ async def run_conversation(
             "confidence": final_state.get("confidence", 0.0),
             "incentive_state": final_state.get("incentive_state", {}),
             "agent_type": final_state.get("agent_type", "public"),
+            "tracking_state": final_state.get("tracking_state"),
             "error": final_state.get("error"),
         }
 

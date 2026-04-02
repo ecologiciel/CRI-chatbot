@@ -22,6 +22,36 @@ from app.services.orchestrator.state import ConversationState, IntentType
 
 logger = structlog.get_logger()
 
+# ---------------------------------------------------------------------------
+# Quick heuristic keywords for tracking intent (saves ~50 Gemini tokens)
+# ---------------------------------------------------------------------------
+
+_TRACKING_KEYWORDS_FR: set[str] = {
+    "suivi", "suivre", "dossier", "avancement", "état dossier",
+}
+_TRACKING_KEYWORDS_AR: set[str] = {
+    "متابعة", "ملف", "تتبع", "حالة",
+}
+_TRACKING_KEYWORDS_EN: set[str] = {
+    "track", "tracking", "file status", "my dossier",
+}
+_ALL_TRACKING_KEYWORDS: set[str] = (
+    _TRACKING_KEYWORDS_FR | _TRACKING_KEYWORDS_AR | _TRACKING_KEYWORDS_EN
+)
+
+
+def quick_intent_detect(query: str) -> str | None:
+    """Heuristic keyword check for tracking intent (zero LLM cost).
+
+    Returns ``IntentType.SUIVI_DOSSIER`` if any tracking keyword is found
+    in *query*, ``None`` otherwise (fall through to Gemini).
+    """
+    q = query.lower().strip()
+    for kw in _ALL_TRACKING_KEYWORDS:
+        if kw in q:
+            return IntentType.SUIVI_DOSSIER
+    return None
+
 
 class IntentDetector:
     """Detect user intent from message text.
@@ -90,6 +120,29 @@ class IntentDetector:
 
         updates["is_safe"] = True
         updates["guard_message"] = None
+
+        # Step 2.5: If tracking flow is active, maintain intent
+        # (don't re-classify OTP codes or dossier numbers mid-flow)
+        tracking_state = state.get("tracking_state")
+        if tracking_state and tracking_state not in ("idle",):
+            updates["intent"] = IntentType.SUIVI_DOSSIER
+            self._logger.info(
+                "intent_tracking_state_maintained",
+                tracking_state=tracking_state,
+                tenant=tenant.slug,
+            )
+            return updates  # type: ignore[return-value]
+
+        # Step 2.6: Quick heuristic (save ~50 Gemini tokens)
+        quick = quick_intent_detect(query)
+        if quick:
+            updates["intent"] = quick
+            self._logger.info(
+                "intent_quick_detected",
+                intent=quick,
+                tenant=tenant.slug,
+            )
+            return updates  # type: ignore[return-value]
 
         # Step 3: Classify intent via Gemini (~50 tokens)
         intent_raw = await self._gemini.classify_intent(query, tenant)

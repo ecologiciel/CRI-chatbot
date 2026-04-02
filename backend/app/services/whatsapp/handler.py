@@ -197,6 +197,19 @@ class MessageHandler:
             conv_metadata = conversation.metadata_ or {}
             incentive_state = conv_metadata.get("incentive_state")
 
+            # Pre-fetch tracking state from Redis for IntentDetector
+            tracking_state_str: str | None = None
+            try:
+                from app.services.orchestrator.tracking_state import TrackingStateManager
+
+                ts = await TrackingStateManager().get_state(phone, tenant)
+                if ts.step.value != "idle":
+                    tracking_state_str = ts.step.value
+            except Exception:
+                self._logger.warning(
+                    "tracking_state_prefetch_failed", tenant=tenant.slug
+                )
+
             from app.services.orchestrator.graph import run_conversation
 
             result = await run_conversation(
@@ -206,6 +219,7 @@ class MessageHandler:
                 conversation_history=history,
                 incentive_state=incentive_state,
                 conversation_id=str(conversation.id),
+                tracking_state=tracking_state_str,
             )
 
             response_text = result.get("response", "")

@@ -18,11 +18,13 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.campaigns import router as campaigns_router
 from app.api.v1.contacts import router as contacts_router
 from app.api.v1.dashboard import router as dashboard_router
+from app.api.v1.dossiers import router as dossiers_router
 from app.api.v1.escalation import router as escalation_router
 from app.api.v1.feedback import router as feedback_router
 from app.api.v1.health import router as health_router
 from app.api.v1.kb import router as kb_router
 from app.api.v1.learning import router as learning_router
+from app.api.v1.notifications import router as notifications_router
 from app.api.v1.tenant import router as tenant_router
 from app.api.v1.webhook import router as webhook_router
 from app.api.v1.whitelist import router as whitelist_router
@@ -158,11 +160,13 @@ def create_app() -> FastAPI:
     app.include_router(campaigns_router, prefix="/api/v1")
     app.include_router(contacts_router, prefix="/api/v1")
     app.include_router(dashboard_router, prefix="/api/v1")
+    app.include_router(dossiers_router, prefix="/api/v1")
     app.include_router(escalation_router, prefix="/api/v1")
     app.include_router(feedback_router, prefix="/api/v1")
     app.include_router(health_router, prefix="/api/v1", tags=["health"])
     app.include_router(kb_router, prefix="/api/v1")
     app.include_router(learning_router, prefix="/api/v1")
+    app.include_router(notifications_router, prefix="/api/v1")
     app.include_router(tenant_router, prefix="/api/v1")
     app.include_router(webhook_router, prefix="/api/v1")
     app.include_router(whitelist_router, prefix="/api/v1")

@@ -35,6 +35,7 @@ from app.services.orchestrator.simple_nodes import (
     TrackingPlaceholder,
 )
 from app.services.orchestrator.state import ConversationState, IntentType
+from app.services.orchestrator.tracking_agent import TrackingAgent, get_tracking_agent
 
 __all__ = [
     "BlockedResponseNode",
@@ -50,6 +51,7 @@ __all__ = [
     "OutOfScopeNode",
     "ResponseValidator",
     "Router",
+    "TrackingAgent",
     "TrackingPlaceholder",
     "build_conversation_graph",
     "get_escalation_handler",
@@ -60,5 +62,6 @@ __all__ = [
     "get_intent_detector",
     "get_internal_agent",
     "get_response_validator",
+    "get_tracking_agent",
     "run_conversation",
 ]

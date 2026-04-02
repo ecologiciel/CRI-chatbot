@@ -1,4 +1,4 @@
-"""Tests for the complete LangGraph conversation graph — Wave 8.
+"""Tests for the complete LangGraph conversation graph — Wave 8 + 25.
 
 Tests the assembled graph end-to-end with mocked node singletons.
 Each test patches the getter functions to inject AsyncMock instances,
@@ -57,6 +57,8 @@ def _make_state(**overrides) -> ConversationState:
         "escalation_id": None,
         "consecutive_low_confidence": 0,
         "conversation_id": None,
+        "tracking_state": None,
+        "authenticated_phone": None,
     }
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -170,6 +172,17 @@ def _mock_escalation_handler(response: str = "Un conseiller CRI va prendre le re
     return handler
 
 
+def _mock_tracking_agent(response: str = "Veuillez saisir votre numéro de dossier..."):
+    """Create mock TrackingAgent."""
+    agent = AsyncMock()
+
+    async def handle(state, tenant):
+        return {"response": response}
+
+    agent.handle = handle
+    return agent
+
+
 def _build_graph_with_mocks(
     intent: str = IntentType.FAQ,
     language: str = "fr",
@@ -189,6 +202,7 @@ def _build_graph_with_mocks(
     mock_collector = _mock_feedback_collector()
     mock_internal = _mock_internal_agent()
     mock_escalation = _mock_escalation_handler()
+    mock_tracking = _mock_tracking_agent()
 
     with (
         patch("app.services.orchestrator.graph.get_intent_detector", return_value=mock_detector),
@@ -204,6 +218,9 @@ def _build_graph_with_mocks(
         patch(
             "app.services.orchestrator.graph.get_escalation_handler", return_value=mock_escalation
         ),
+        patch(
+            "app.services.orchestrator.graph.get_tracking_agent", return_value=mock_tracking
+        ),
     ):
         graph = build_conversation_graph()
 
@@ -215,6 +232,7 @@ def _build_graph_with_mocks(
         "collector": mock_collector,
         "internal": mock_internal,
         "escalation": mock_escalation,
+        "tracking": mock_tracking,
     }
 
 
@@ -299,16 +317,16 @@ class TestConversationGraph:
         assert result["response"] == "Message bloqué."
 
     @pytest.mark.asyncio
-    async def test_graph_tracking_placeholder(self):
-        """Tracking intent: intent_detector → tracking_placeholder → END."""
+    async def test_graph_tracking_agent(self):
+        """Tracking intent: intent_detector → tracking_agent → validator → feedback → END."""
         graph, _mocks = _build_graph_with_mocks(intent=IntentType.SUIVI_DOSSIER)
         state = _make_state(query="Suivi de mon dossier")
 
         result = await graph.ainvoke(state)
 
         assert result["intent"] == IntentType.SUIVI_DOSSIER
-        assert "disponible prochainement" in result["response"]
-        assert "05 37 77 64 00" in result["response"]
+        # Mock tracking agent response passes through mock validator unchanged
+        assert result["response"] == "Veuillez saisir votre numéro de dossier..."
 
     @pytest.mark.asyncio
     async def test_graph_escalation_handler(self):
@@ -330,8 +348,8 @@ class TestConversationGraph:
         mock_validator = _mock_response_validator()
         mock_collector = _mock_feedback_collector()
         mock_internal = _mock_internal_agent()
-
         mock_escalation = _mock_escalation_handler()
+        mock_tracking = _mock_tracking_agent()
 
         with (
             patch(
@@ -354,6 +372,10 @@ class TestConversationGraph:
                 "app.services.orchestrator.graph.get_escalation_handler",
                 return_value=mock_escalation,
             ),
+            patch(
+                "app.services.orchestrator.graph.get_tracking_agent",
+                return_value=mock_tracking,
+            ),
             patch("app.services.orchestrator.graph._conversation_graph", None),
         ):
             result = await run_conversation(
@@ -371,6 +393,7 @@ class TestConversationGraph:
         assert "confidence" in result
         assert "incentive_state" in result
         assert "agent_type" in result
+        assert "tracking_state" in result
         assert "error" in result
         assert result["intent"] == IntentType.SALUTATION
 
@@ -390,6 +413,7 @@ class TestConversationGraph:
         incentives = _mock_incentives_agent()
         internal = _mock_internal_agent()
         escalation = _mock_escalation_handler()
+        tracking = _mock_tracking_agent()
 
         with (
             patch("app.services.orchestrator.graph.get_intent_detector", return_value=detector),
@@ -401,6 +425,7 @@ class TestConversationGraph:
             patch(
                 "app.services.orchestrator.graph.get_escalation_handler", return_value=escalation
             ),
+            patch("app.services.orchestrator.graph.get_tracking_agent", return_value=tracking),
         ):
             graph = build_conversation_graph()
 

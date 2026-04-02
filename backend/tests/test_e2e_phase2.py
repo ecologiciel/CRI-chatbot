@@ -322,7 +322,7 @@ class TestEscaladeManuelle:
         assert Router.route({"intent": IntentType.INCITATIONS, "is_safe": True}) == "incentives_agent"
         assert Router.route({"intent": IntentType.SALUTATION, "is_safe": True}) == "greeting_response"
         assert Router.route({"intent": IntentType.HORS_PERIMETRE, "is_safe": True}) == "out_of_scope_response"
-        assert Router.route({"intent": IntentType.SUIVI_DOSSIER, "is_safe": True}) == "tracking_placeholder"
+        assert Router.route({"intent": IntentType.SUIVI_DOSSIER, "is_safe": True}) == "tracking_agent"
 
         # Phase 2 intents
         assert Router.route({"intent": IntentType.INTERNE, "is_safe": True}) == "internal_agent"

@@ -196,13 +196,25 @@ class TestIntentDetector:
         assert result["is_safe"] is True
 
     @pytest.mark.asyncio
-    async def test_detect_suivi(self, intent_detector, mock_gemini):
-        mock_gemini.classify_intent.return_value = "suivi_dossier"
+    async def test_detect_suivi_via_quick(self, intent_detector, mock_gemini):
+        """Tracking query caught by quick_intent_detect (no Gemini call)."""
         state = _make_state(query="Je veux suivre mon dossier")
 
         result = await intent_detector.detect(state, TEST_TENANT)
 
         assert result["intent"] == "suivi_dossier"
+        mock_gemini.classify_intent.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_detect_suivi_via_gemini(self, intent_detector, mock_gemini):
+        """Tracking query without keywords falls through to Gemini."""
+        mock_gemini.classify_intent.return_value = "suivi_dossier"
+        state = _make_state(query="Où en est ma demande numéro 2024-001 ?")
+
+        result = await intent_detector.detect(state, TEST_TENANT)
+
+        assert result["intent"] == "suivi_dossier"
+        mock_gemini.classify_intent.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_detect_salutation(self, intent_detector, mock_gemini):
@@ -286,7 +298,7 @@ class TestRouter:
 
     def test_route_suivi(self):
         state = _make_state(intent="suivi_dossier", is_safe=True)
-        assert Router.route(state) == "tracking_placeholder"
+        assert Router.route(state) == "tracking_agent"
 
     def test_route_escalade(self):
         state = _make_state(intent="escalade", is_safe=True)
@@ -311,3 +323,110 @@ class TestRouter:
             result = Router.route(state)
             assert result != "", f"Intent {intent} has no route"
             assert isinstance(result, str)
+
+
+# --- Quick intent detection tests (Wave 25) ---
+
+
+class TestQuickIntentDetect:
+    """Tests for the quick_intent_detect heuristic function."""
+
+    def test_french_keyword_dossier(self):
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect("Je veux suivre mon dossier") == "suivi_dossier"
+
+    def test_french_keyword_suivi(self):
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect("suivi de ma demande") == "suivi_dossier"
+
+    def test_arabic_keyword(self):
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect("أريد متابعة ملفي") == "suivi_dossier"
+
+    def test_english_keyword(self):
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect("I want to track my file") == "suivi_dossier"
+
+    def test_otp_code_returns_none(self):
+        """A 6-digit OTP code should NOT match tracking keywords."""
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect("123456") is None
+
+    def test_faq_returns_none(self):
+        """A FAQ question should NOT match tracking keywords."""
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect("Quels sont les documents nécessaires ?") is None
+
+    def test_greeting_returns_none(self):
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect("Bonjour") is None
+
+
+# --- Tracking state persistence tests (Wave 25) ---
+
+
+class TestIntentDetectorTrackingPersistence:
+    """Tests for tracking state persistence in intent detection."""
+
+    @pytest.mark.asyncio
+    async def test_active_tracking_state_skips_gemini(self, intent_detector, mock_gemini):
+        """When tracking_state is 'otp_sent', intent should be suivi_dossier without Gemini."""
+        state = _make_state(query="123456", tracking_state="otp_sent")
+        result = await intent_detector.detect(state, TEST_TENANT)
+
+        assert result["intent"] == "suivi_dossier"
+        mock_gemini.classify_intent.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_awaiting_identifier_skips_gemini(self, intent_detector, mock_gemini):
+        """When tracking_state is 'awaiting_identifier', maintain suivi_dossier."""
+        state = _make_state(query="AB123456", tracking_state="awaiting_identifier")
+        result = await intent_detector.detect(state, TEST_TENANT)
+
+        assert result["intent"] == "suivi_dossier"
+        mock_gemini.classify_intent.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_authenticated_skips_gemini(self, intent_detector, mock_gemini):
+        """When tracking_state is 'authenticated', maintain suivi_dossier."""
+        state = _make_state(query="voir mon dossier", tracking_state="authenticated")
+        result = await intent_detector.detect(state, TEST_TENANT)
+
+        assert result["intent"] == "suivi_dossier"
+        mock_gemini.classify_intent.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_idle_tracking_state_uses_gemini(self, intent_detector, mock_gemini):
+        """When tracking_state is 'idle', Gemini is called normally."""
+        mock_gemini.classify_intent.return_value = "faq"
+        state = _make_state(query="Comment créer une SARL ?", tracking_state="idle")
+        result = await intent_detector.detect(state, TEST_TENANT)
+
+        assert result["intent"] == "faq"
+        mock_gemini.classify_intent.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_none_tracking_state_uses_gemini(self, intent_detector, mock_gemini):
+        """When tracking_state is None, Gemini is called normally."""
+        mock_gemini.classify_intent.return_value = "salutation"
+        state = _make_state(query="Bonjour", tracking_state=None)
+        result = await intent_detector.detect(state, TEST_TENANT)
+
+        assert result["intent"] == "salutation"
+        mock_gemini.classify_intent.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_quick_detect_bypasses_gemini(self, intent_detector, mock_gemini):
+        """When quick_intent_detect matches, Gemini is NOT called."""
+        state = _make_state(query="suivi de mon dossier")
+        result = await intent_detector.detect(state, TEST_TENANT)
+
+        assert result["intent"] == "suivi_dossier"
+        mock_gemini.classify_intent.assert_not_called()

@@ -62,6 +62,10 @@ class ConversationState(TypedDict, total=False):
     consecutive_low_confidence: int  # consecutive low-confidence RAG responses
     conversation_id: str | None  # DB conversation UUID (passed from handler)
 
+    # ── Phase 3: Dossier tracking ──
+    tracking_state: str | None  # TrackingStep: idle, awaiting_identifier, otp_sent, authenticated
+    authenticated_phone: str | None  # Phone verified via OTP (for session persistence)
+
 
 class IntentType:
     """Intent classification constants.

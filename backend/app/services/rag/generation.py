@@ -39,16 +39,18 @@ logger = structlog.get_logger()
 GENERATION_REQUESTS = Counter(
     "cri_generation_requests_total",
     "RAG generation requests processed",
-    ["status", "language"],
+    ["tenant", "status", "language"],
 )
 GENERATION_LATENCY = Histogram(
     "cri_generation_latency_seconds",
     "RAG generation pipeline latency",
+    ["tenant"],
     buckets=[0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 15.0],
 )
 GENERATION_CONFIDENCE = Histogram(
     "cri_generation_confidence",
     "Retrieval confidence for generation requests",
+    ["tenant"],
     buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
 )
 
@@ -146,12 +148,12 @@ class GenerationService:
                 confidence = retrieval_result.confidence
                 is_confident = retrieval_result.is_confident
 
-            GENERATION_CONFIDENCE.observe(confidence)
+            GENERATION_CONFIDENCE.labels(tenant=tenant.slug).observe(confidence)
 
             # 3. No chunks → early return with "no_answer"
             if not chunks:
                 latency_ms = (time.monotonic() - start_time) * 1000
-                GENERATION_REQUESTS.labels(status="no_chunks", language=language).inc()
+                GENERATION_REQUESTS.labels(tenant=tenant.slug, status="no_chunks", language=language).inc()
                 log.info("generation_no_chunks", latency_ms=round(latency_ms, 1))
                 return GenerationResponse(
                     answer=PromptTemplates.get_message("no_answer", language),
@@ -206,8 +208,8 @@ class GenerationService:
             if disclaimer:
                 answer = f"{disclaimer}\n\n{answer}"
 
-            GENERATION_REQUESTS.labels(status="success", language=language).inc()
-            GENERATION_LATENCY.observe(latency_ms / 1000)
+            GENERATION_REQUESTS.labels(tenant=tenant.slug, status="success", language=language).inc()
+            GENERATION_LATENCY.labels(tenant=tenant.slug).observe(latency_ms / 1000)
 
             log.info(
                 "generation_success",
@@ -239,7 +241,7 @@ class GenerationService:
             raise
         except Exception as exc:
             latency_ms = (time.monotonic() - start_time) * 1000
-            GENERATION_REQUESTS.labels(status="error", language=language).inc()
+            GENERATION_REQUESTS.labels(tenant=tenant.slug, status="error", language=language).inc()
             log.error(
                 "generation_error",
                 error=str(exc),

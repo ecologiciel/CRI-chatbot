@@ -14,6 +14,7 @@ import uuid
 
 import structlog
 
+from app.core.metrics import RATE_LIMIT_TRIGGERED, WHATSAPP_MESSAGES
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
 from app.models.conversation import Message
@@ -96,6 +97,7 @@ class MessageHandler:
 
             # 2. Per-user rate limit (10 msg/min)
             if await self._check_user_rate_limit(tenant, phone):
+                RATE_LIMIT_TRIGGERED.labels(tenant=tenant.slug, level="user").inc()
                 self._logger.warning(
                     "user_rate_limited",
                     tenant=tenant.slug,
@@ -167,6 +169,9 @@ class MessageHandler:
                 self._logger.warning("mark_as_read_failed", wamid=wamid)
 
             # 9. Persist inbound message
+            WHATSAPP_MESSAGES.labels(
+                tenant=tenant.slug, direction="inbound", type=msg_type.value,
+            ).inc()
             await self._conversation_service.add_message(
                 tenant,
                 conversation.id,
@@ -227,6 +232,9 @@ class MessageHandler:
                 response_text = PromptTemplates.get_message("no_answer", "fr")
 
             # 13. Send response via WhatsApp
+            WHATSAPP_MESSAGES.labels(
+                tenant=tenant.slug, direction="outbound", type="text",
+            ).inc()
             out_wamid = None
             try:
                 out_wamid = await self._sender.send_text(tenant, phone, response_text)

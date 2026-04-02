@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import CRIBaseException, ResourceNotFoundError
+from app.core.metrics import BOLA_ATTEMPTS
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
 from app.models.dossier import Dossier
@@ -208,6 +209,7 @@ class DossierService:
 
         # BOLA check: contact must exist AND own the dossier
         if contact is None or dossier.contact_id != contact.id:
+            BOLA_ATTEMPTS.labels(tenant=tenant.slug).inc()
             self._logger.warning(
                 "bola_violation",
                 tenant=tenant.slug,

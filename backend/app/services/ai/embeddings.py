@@ -35,17 +35,17 @@ logger = structlog.get_logger()
 EMBEDDING_REQUESTS = Counter(
     "cri_embedding_requests_total",
     "Total embedding API requests",
-    ["model", "status"],
+    ["tenant", "model", "status"],
 )
 EMBEDDING_TOKENS = Counter(
     "cri_embedding_tokens_total",
     "Total tokens processed for embeddings",
-    ["model"],
+    ["tenant", "model"],
 )
 EMBEDDING_LATENCY = Histogram(
     "cri_embedding_latency_seconds",
     "Embedding API call latency in seconds",
-    ["model"],
+    ["tenant", "model"],
     buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
 )
 
@@ -171,9 +171,9 @@ class EmbeddingService:
             latency_ms = (time.monotonic() - start_time) * 1000
 
             # Prometheus metrics
-            EMBEDDING_REQUESTS.labels(model=self._model, status="success").inc()
-            EMBEDDING_TOKENS.labels(model=self._model).inc(total_tokens)
-            EMBEDDING_LATENCY.labels(model=self._model).observe(latency_ms / 1000)
+            EMBEDDING_REQUESTS.labels(tenant=tenant.slug, model=self._model, status="success").inc()
+            EMBEDDING_TOKENS.labels(tenant=tenant.slug, model=self._model).inc(total_tokens)
+            EMBEDDING_LATENCY.labels(tenant=tenant.slug, model=self._model).observe(latency_ms / 1000)
 
             # Cost tracking per tenant in Redis
             await self._track_cost(tenant, total_tokens)
@@ -200,7 +200,7 @@ class EmbeddingService:
             raise
         except Exception as exc:
             latency_ms = (time.monotonic() - start_time) * 1000
-            EMBEDDING_REQUESTS.labels(model=self._model, status="error").inc()
+            EMBEDDING_REQUESTS.labels(tenant=tenant.slug, model=self._model, status="error").inc()
             self._logger.error(
                 "embedding_error",
                 trace_id=request.trace_id,

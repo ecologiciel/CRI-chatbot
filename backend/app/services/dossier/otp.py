@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from app.core.exceptions import AuthenticationError, RateLimitExceededError
+from app.core.metrics import OTP_ATTEMPTS, OTP_FAILURES, OTP_SUCCESS, RATE_LIMIT_TRIGGERED
 from app.core.redis import get_redis
 from app.schemas.audit import AuditLogCreate
 from app.services.audit import get_audit_service
@@ -119,6 +120,9 @@ class DossierOTPService:
             RateLimitExceededError: If phone has exceeded 3 attempts in 15 min.
         """
         if await self.is_rate_limited(tenant, phone):
+            OTP_ATTEMPTS.labels(tenant=tenant.slug).inc()
+            OTP_FAILURES.labels(tenant=tenant.slug).inc()
+            RATE_LIMIT_TRIGGERED.labels(tenant=tenant.slug, level="otp").inc()
             self._logger.warning(
                 "otp_rate_limited",
                 tenant=tenant.slug,
@@ -145,6 +149,7 @@ class DossierOTPService:
         if count == 1:
             await redis.expire(attempts_key, ATTEMPT_WINDOW)
 
+        OTP_ATTEMPTS.labels(tenant=tenant.slug).inc()
         self._logger.info(
             "otp_generated",
             tenant=tenant.slug,
@@ -175,6 +180,8 @@ class DossierOTPService:
         stored_hash = await redis.get(otp_key)
 
         if stored_hash is None:
+            OTP_ATTEMPTS.labels(tenant=tenant.slug).inc()
+            OTP_FAILURES.labels(tenant=tenant.slug).inc()
             self._logger.info(
                 "otp_verify_fail",
                 tenant=tenant.slug,
@@ -194,6 +201,8 @@ class DossierOTPService:
         # Compare hashes
         computed_hash = hashlib.sha256(otp_code.encode()).hexdigest()
         if computed_hash != stored_hash:
+            OTP_ATTEMPTS.labels(tenant=tenant.slug).inc()
+            OTP_FAILURES.labels(tenant=tenant.slug).inc()
             self._logger.info(
                 "otp_verify_fail",
                 tenant=tenant.slug,
@@ -209,6 +218,8 @@ class DossierOTPService:
         # Anti-replay: delete OTP key immediately
         await redis.delete(otp_key)
 
+        OTP_ATTEMPTS.labels(tenant=tenant.slug).inc()
+        OTP_SUCCESS.labels(tenant=tenant.slug).inc()
         self._logger.info(
             "otp_verify_success",
             tenant=tenant.slug,

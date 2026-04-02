@@ -121,7 +121,27 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
-  # Prometheus — Metriques (infra + IA + RAG)
+  # AlertManager — Alertes Prometheus → webhook backend
+  # ---------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: cri-alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    networks:
+      - cri-backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9093/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — Metriques (infra + IA + RAG + alertes securite)
   # ---------------------------------------------------------------------------
   prometheus:
     image: prom/prometheus:latest
@@ -130,10 +150,14 @@ services:
       - "127.0.0.1:9090:9090"
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=30d"
+    depends_on:
+      alertmanager:
+        condition: service_healthy
     networks:
       - cri-backend
       - cri-frontend    # Requis pour scraper les metriques Traefik
@@ -144,7 +168,7 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
-  # Grafana — Dashboards monitoring
+  # Grafana — Dashboards monitoring (provisionne automatiquement)
   # ---------------------------------------------------------------------------
   grafana:
     image: grafana/grafana:latest
@@ -157,6 +181,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       prometheus:
         condition: service_healthy

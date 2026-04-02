@@ -11,10 +11,12 @@ import {
   AlertTriangle,
   Shield,
   Send,
+  Bell,
   BarChart3,
   Settings,
   Building2,
   ChevronLeft,
+  FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -28,8 +30,10 @@ const navItems: NavItem[] = [
   { label: "Escalades", href: "/escalations", icon: AlertTriangle },
   { label: "Base de connaissances", href: "/kb", icon: BookOpen },
   { label: "Contacts", href: "/contacts", icon: Users },
+  { label: "Dossiers", href: "/dossiers", icon: FolderOpen },
   { label: "Utilisateurs", href: "/users", icon: Shield },
   { label: "Campagnes", href: "/campaigns", icon: Send },
+  { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Paramètres", href: "/settings", icon: Settings },
 ];

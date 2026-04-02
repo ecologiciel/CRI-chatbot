@@ -32,16 +32,18 @@ logger = structlog.get_logger()
 RETRIEVAL_REQUESTS = Counter(
     "cri_retrieval_requests_total",
     "Retrieval requests processed",
-    ["status"],
+    ["tenant", "status"],
 )
 RETRIEVAL_LATENCY = Histogram(
     "cri_retrieval_latency_seconds",
     "Retrieval pipeline latency",
+    ["tenant"],
     buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
 )
 RETRIEVAL_CONFIDENCE = Histogram(
     "cri_retrieval_confidence",
     "Retrieval confidence score distribution",
+    ["tenant"],
     buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
 )
 
@@ -151,9 +153,9 @@ class RetrievalService:
 
             # Metrics
             latency = time.monotonic() - start_time
-            RETRIEVAL_REQUESTS.labels(status="success").inc()
-            RETRIEVAL_LATENCY.observe(latency)
-            RETRIEVAL_CONFIDENCE.observe(confidence)
+            RETRIEVAL_REQUESTS.labels(tenant=tenant.slug, status="success").inc()
+            RETRIEVAL_LATENCY.labels(tenant=tenant.slug).observe(latency)
+            RETRIEVAL_CONFIDENCE.labels(tenant=tenant.slug).observe(confidence)
 
             log.info(
                 "retrieval_complete",
@@ -175,8 +177,8 @@ class RetrievalService:
             raise
         except Exception as exc:
             latency = time.monotonic() - start_time
-            RETRIEVAL_REQUESTS.labels(status="error").inc()
-            RETRIEVAL_LATENCY.observe(latency)
+            RETRIEVAL_REQUESTS.labels(tenant=tenant.slug, status="error").inc()
+            RETRIEVAL_LATENCY.labels(tenant=tenant.slug).observe(latency)
 
             log.error("retrieval_failed", error=str(exc))
 

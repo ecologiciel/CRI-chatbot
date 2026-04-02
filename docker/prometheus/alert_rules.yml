@@ -1,0 +1,72 @@
+# =============================================================================
+# CRI Chatbot Platform — Prometheus Alert Rules (Phase 3 Security)
+# CLAUDE.md §15 "Alertes Phase 3"
+# =============================================================================
+
+groups:
+  - name: cri_security_alerts
+    rules:
+      # ===== Alerte 1 : WhatsApp User Flood =====
+      # Un utilisateur envoie > 50 messages/heure par tenant
+      # → possible aspiration de base de connaissances
+      - alert: WhatsAppUserFlood
+        expr: >
+          sum by (tenant) (
+            increase(cri_whatsapp_messages_total{direction="inbound"}[1h])
+          ) > 50
+        for: 5m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Flood WhatsApp detecte sur tenant {{ $labels.tenant }}"
+          description: >
+            Le tenant {{ $labels.tenant }} recoit un volume anormal de messages
+            WhatsApp entrants ({{ $value | printf "%.0f" }} msg/h, seuil: 50).
+            Verifier s'il s'agit d'une tentative d'aspiration de base de connaissances.
+          runbook: "docs/runbooks/whatsapp-flood.md"
+
+      # ===== Alerte 2 : OTP Bruteforce Coordonne =====
+      # Taux d'echec OTP > 20% sur 1h avec au moins 5 tentatives
+      # → bruteforce coordonne multi-numeros
+      - alert: OTPBruteforceCoordinated
+        expr: >
+          (
+            sum by (tenant) (increase(cri_otp_failures_total[1h]))
+            /
+            clamp_min(sum by (tenant) (increase(cri_otp_attempts_total[1h])), 1)
+          ) > 0.2
+          and
+          sum by (tenant) (increase(cri_otp_attempts_total[1h])) > 5
+        for: 10m
+        labels:
+          severity: critical
+          category: security
+        annotations:
+          summary: "Bruteforce OTP coordonne sur tenant {{ $labels.tenant }}"
+          description: >
+            Le taux d'echec OTP sur le tenant {{ $labels.tenant }} depasse 20%
+            avec plus de 5 tentatives/heure.
+            Possible attaque bruteforce coordonnee multi-numeros.
+          runbook: "docs/runbooks/otp-bruteforce.md"
+
+      # ===== Alerte 3 : Gemini Cost Anomaly =====
+      # Consommation tokens horaire > 2x la moyenne 24h par tenant
+      # → anomalie d'usage (injection prompt massive, boucle conversationnelle)
+      - alert: GeminiCostAnomaly
+        expr: >
+          sum by (tenant) (increase(cri_gemini_tokens_total[1h]))
+          > 2 * (
+            sum by (tenant) (increase(cri_gemini_tokens_total[24h])) / 24
+          )
+        for: 15m
+        labels:
+          severity: warning
+          category: cost
+        annotations:
+          summary: "Anomalie cout Gemini sur tenant {{ $labels.tenant }}"
+          description: >
+            La consommation de tokens Gemini horaire du tenant {{ $labels.tenant }}
+            est 2x superieure a la moyenne des 24 dernieres heures.
+            Possible injection prompt massive ou boucle conversationnelle anormale.
+          runbook: "docs/runbooks/gemini-cost-anomaly.md"

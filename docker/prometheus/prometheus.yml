@@ -2,6 +2,16 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Alert rules (Phase 3 security alerts)
+rule_files:
+  - "alert_rules.yml"
+
+# AlertManager integration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: "prometheus"
     static_configs:

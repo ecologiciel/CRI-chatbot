@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import structlog
 from prometheus_client import Counter
 
+from app.core.metrics import INJECTION_DETECTED
 from app.core.tenant import TenantContext
 from app.schemas.ai import GeminiRequest
 from app.services.ai.gemini import get_gemini_service
@@ -26,7 +27,7 @@ logger = structlog.get_logger()
 GUARDRAIL_INPUT_CHECKS = Counter(
     "cri_guardrail_input_checks_total",
     "Total input guard checks",
-    ["result"],  # allow, block, warn
+    ["tenant", "result"],  # allow, block, warn
 )
 
 # ---------------------------------------------------------------------------
@@ -172,7 +173,7 @@ class InputGuardService:
             InputGuardResult with safety verdict and reason.
         """
         if not text or not text.strip():
-            GUARDRAIL_INPUT_CHECKS.labels(result="allow").inc()
+            GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result="allow").inc()
             return InputGuardResult(
                 is_safe=True,
                 action="allow",
@@ -185,7 +186,7 @@ class InputGuardService:
         # 1. Length check (instant)
         length_result = self._check_length(stripped)
         if length_result is not None:
-            GUARDRAIL_INPUT_CHECKS.labels(result=length_result.action).inc()
+            GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result=length_result.action).inc()
             self._logger.warning(
                 "input_blocked",
                 category=length_result.category,
@@ -195,9 +196,9 @@ class InputGuardService:
             return length_result
 
         # 2. Injection regex (instant)
-        injection_result = self._check_injection(stripped)
+        injection_result = self._check_injection(stripped, tenant.slug)
         if injection_result is not None:
-            GUARDRAIL_INPUT_CHECKS.labels(result=injection_result.action).inc()
+            GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result=injection_result.action).inc()
             self._logger.warning(
                 "input_blocked",
                 category=injection_result.category,
@@ -208,7 +209,7 @@ class InputGuardService:
         # 3. Topic classification via Gemini (~20 tokens)
         topic_result = await self._check_topic(stripped, tenant, language)
         if topic_result is not None:
-            GUARDRAIL_INPUT_CHECKS.labels(result=topic_result.action).inc()
+            GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result=topic_result.action).inc()
             self._logger.info(
                 "input_warned",
                 category=topic_result.category,
@@ -217,7 +218,7 @@ class InputGuardService:
             return topic_result
 
         # All checks passed
-        GUARDRAIL_INPUT_CHECKS.labels(result="allow").inc()
+        GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result="allow").inc()
         return InputGuardResult(
             is_safe=True,
             action="allow",
@@ -236,11 +237,12 @@ class InputGuardService:
             )
         return None
 
-    def _check_injection(self, text: str) -> InputGuardResult | None:
+    def _check_injection(self, text: str, tenant_slug: str = "") -> InputGuardResult | None:
         """Return block result if injection patterns found, else None."""
         for pattern, subcategory in _INJECTION_PATTERNS:
             match = pattern.search(text)
             if match:
+                INJECTION_DETECTED.labels(tenant=tenant_slug, type=subcategory).inc()
                 return InputGuardResult(
                     is_safe=False,
                     action="block",

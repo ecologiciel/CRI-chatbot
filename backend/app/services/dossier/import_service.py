@@ -32,6 +32,7 @@ import structlog
 from openpyxl import load_workbook
 from sqlalchemy import select
 
+from app.core.metrics import IMPORT_DURATION, IMPORT_ROWS
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
 from app.models.dossier import Dossier, DossierHistory
@@ -670,6 +671,12 @@ class DossierImportService:
             await self._publish_notifications(tenant)
 
         report.duration_seconds = round(time.monotonic() - start, 3)
+
+        # Prometheus metrics
+        IMPORT_ROWS.labels(tenant=tenant.slug, status="imported").inc(report.rows_imported)
+        IMPORT_ROWS.labels(tenant=tenant.slug, status="updated").inc(report.rows_updated)
+        IMPORT_ROWS.labels(tenant=tenant.slug, status="errored").inc(report.rows_errored)
+        IMPORT_DURATION.labels(tenant=tenant.slug).observe(report.duration_seconds)
 
         self._logger.info(
             "import_completed",

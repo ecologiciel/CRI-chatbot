@@ -21,6 +21,8 @@ from datetime import UTC, datetime
 
 import structlog
 
+from app.core.metrics import ACTIVE_SESSIONS
+
 logger = structlog.get_logger()
 
 # Redis key templates
@@ -117,6 +119,10 @@ class SessionManager:
         pipe.setex(key_last, _LAST_LOGIN_TTL, now_ts)
         await pipe.execute()
 
+        # Prometheus: track active sessions (approximate — resets on restart)
+        if not result["previous_session_invalidated"]:
+            ACTIVE_SESSIONS.labels(tenant="").inc()
+
         return result
 
     async def validate_session(
@@ -199,6 +205,7 @@ class SessionManager:
             )
 
         await self._redis.delete(key_active, key_ip)
+        ACTIVE_SESSIONS.labels(tenant="").dec()
         logger.info("session_invalidated", admin_id=admin_id, reason="explicit")
 
     async def is_token_revoked(self, jti: str) -> bool:

@@ -1,0 +1,43 @@
+# =============================================================================
+# CRI Chatbot Platform — AlertManager Configuration
+# Webhook receiver → backend endpoint for email relay to super_admins
+# =============================================================================
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'tenant', 'category']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'cri-webhook'
+
+  routes:
+    # Alertes critiques → notification quasi-immediate
+    - match:
+        severity: critical
+      receiver: 'cri-webhook'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Alertes cout → intervalle plus long (eviter le spam)
+    - match:
+        category: cost
+      receiver: 'cri-webhook'
+      repeat_interval: 6h
+
+receivers:
+  - name: 'cri-webhook'
+    webhook_configs:
+      - url: 'http://backend:8000/api/v1/internal/alerts'
+        send_resolved: true
+
+inhibit_rules:
+  # Si un tenant est en flood WhatsApp, inhiber l'alerte OTP bruteforce
+  # (le flood genere mecaniquement des echecs OTP)
+  - source_match:
+      alertname: 'WhatsAppUserFlood'
+    target_match:
+      alertname: 'OTPBruteforceCoordinated'
+    equal: ['tenant']

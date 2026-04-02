@@ -37,15 +37,17 @@ logger = structlog.get_logger()
 INGESTION_DOCS = Counter(
     "cri_ingestion_documents_total",
     "Documents processed by ingestion pipeline",
-    ["status"],
+    ["tenant", "status"],
 )
 INGESTION_CHUNKS = Counter(
     "cri_ingestion_chunks_total",
     "Chunks created during ingestion",
+    ["tenant"],
 )
 INGESTION_LATENCY = Histogram(
     "cri_ingestion_latency_seconds",
     "Document ingestion pipeline latency",
+    ["tenant"],
     buckets=[1, 5, 10, 30, 60, 120, 300],
 )
 
@@ -174,9 +176,9 @@ class IngestionService:
 
             # Metrics
             latency = time.monotonic() - start_time
-            INGESTION_DOCS.labels(status="success").inc()
-            INGESTION_CHUNKS.inc(len(chunk_results))
-            INGESTION_LATENCY.observe(latency)
+            INGESTION_DOCS.labels(tenant=tenant.slug, status="success").inc()
+            INGESTION_CHUNKS.labels(tenant=tenant.slug).inc(len(chunk_results))
+            INGESTION_LATENCY.labels(tenant=tenant.slug).observe(latency)
 
             log.info(
                 "document_ingested",
@@ -190,8 +192,8 @@ class IngestionService:
             raise
         except Exception as exc:
             latency = time.monotonic() - start_time
-            INGESTION_DOCS.labels(status="error").inc()
-            INGESTION_LATENCY.observe(latency)
+            INGESTION_DOCS.labels(tenant=tenant.slug, status="error").inc()
+            INGESTION_LATENCY.labels(tenant=tenant.slug).observe(latency)
 
             log.error("ingestion_failed", error=str(exc))
 

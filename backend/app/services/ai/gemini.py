@@ -36,17 +36,17 @@ logger = structlog.get_logger()
 GEMINI_REQUESTS = Counter(
     "cri_gemini_requests_total",
     "Total Gemini API requests",
-    ["model", "status"],
+    ["tenant", "model", "status"],
 )
 GEMINI_TOKENS = Counter(
     "cri_gemini_tokens_total",
     "Total tokens consumed by Gemini",
-    ["model", "direction"],
+    ["tenant", "model", "direction"],
 )
 GEMINI_LATENCY = Histogram(
     "cri_gemini_latency_seconds",
     "Gemini API call latency in seconds",
-    ["model"],
+    ["tenant", "model"],
     buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
 )
 
@@ -121,7 +121,7 @@ class GeminiService:
             raise
         except Exception as exc:
             latency_ms = (time.monotonic() - start_time) * 1000
-            GEMINI_REQUESTS.labels(model=self._model, status="error").inc()
+            GEMINI_REQUESTS.labels(tenant=tenant.slug, model=self._model, status="error").inc()
             self._logger.error(
                 "gemini_error",
                 trace_id=trace_id,
@@ -177,10 +177,10 @@ class GeminiService:
         )
 
         # Prometheus metrics
-        GEMINI_REQUESTS.labels(model=self._model, status="success").inc()
-        GEMINI_TOKENS.labels(model=self._model, direction="input").inc(input_tokens)
-        GEMINI_TOKENS.labels(model=self._model, direction="output").inc(output_tokens)
-        GEMINI_LATENCY.labels(model=self._model).observe(latency_ms / 1000)
+        GEMINI_REQUESTS.labels(tenant=tenant.slug, model=self._model, status="success").inc()
+        GEMINI_TOKENS.labels(tenant=tenant.slug, model=self._model, direction="input").inc(input_tokens)
+        GEMINI_TOKENS.labels(tenant=tenant.slug, model=self._model, direction="output").inc(output_tokens)
+        GEMINI_LATENCY.labels(tenant=tenant.slug, model=self._model).observe(latency_ms / 1000)
 
         # Cost tracking per tenant in Redis
         await self._track_cost(tenant, input_tokens, output_tokens)

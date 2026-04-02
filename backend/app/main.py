@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1.admins import router as admins_router
+from app.api.v1.alerts import router as alerts_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.campaigns import router as campaigns_router
@@ -155,6 +156,7 @@ def create_app() -> FastAPI:
 
     # --- Routes ---
     app.include_router(admins_router, prefix="/api/v1")
+    app.include_router(alerts_router, prefix="/api/v1")
     app.include_router(analytics_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(campaigns_router, prefix="/api/v1")

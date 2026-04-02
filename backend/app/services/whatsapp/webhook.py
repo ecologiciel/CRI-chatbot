@@ -20,6 +20,7 @@ from app.core.exceptions import (
     RateLimitExceededError,
     WhatsAppSignatureError,
 )
+from app.core.metrics import RATE_LIMIT_TRIGGERED
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext, TenantResolver
 from app.schemas.whatsapp import IncomingMessage, StatusInfo, WhatsAppWebhookPayload
@@ -245,6 +246,7 @@ class WhatsAppWebhookService:
             await redis.expire(key, RATE_LIMIT_WINDOW)
 
         if count > RATE_LIMIT_MAX:
+            RATE_LIMIT_TRIGGERED.labels(tenant=slug, level="webhook").inc()
             logger.warning(
                 "whatsapp_webhook_rate_limited",
                 tenant_slug=slug,

@@ -1,0 +1,369 @@
+{
+  "uid": "cri-security",
+  "title": "CRI - Securite",
+  "description": "Dashboard de securite Phase 3 — alertes, BOLA, injections, OTP, rate limiting, sessions, cout Gemini",
+  "tags": ["cri", "security", "phase3"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(cri_whatsapp_messages_total, tenant)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Alertes Actives",
+      "description": "Alertes Prometheus actuellement en cours (firing)",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 6 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "ALERTS{alertstate=\"firing\", tenant=~\"$tenant\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "severity" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "critical": { "color": "#B5544B", "text": "CRITICAL" } } },
+                  { "type": "value", "options": { "warning": { "color": "#C4944B", "text": "WARNING" } } }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "__name__": true, "Value": true },
+            "renameByName": {
+              "alertname": "Alerte",
+              "tenant": "Tenant",
+              "severity": "Severite",
+              "category": "Categorie"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Tentatives BOLA (24h)",
+      "description": "Tentatives d'acces non autorise a des dossiers (anti-BOLA)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 6, "w": 6, "h": 5 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(cri_bola_attempts_total{tenant=~\"$tenant\"}[24h]))",
+          "legendFormat": "Total BOLA",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#5F8B5F", "value": null },
+              { "color": "#C4944B", "value": 5 },
+              { "color": "#B5544B", "value": 20 }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Injections Detectees (24h)",
+      "description": "Tentatives d'injection prompt/SQL detectees par les guardrails",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 6, "w": 6, "h": 5 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(cri_injection_detected_total{tenant=~\"$tenant\"}[24h]))",
+          "legendFormat": "Total Injections",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#5F8B5F", "value": null },
+              { "color": "#C4944B", "value": 10 },
+              { "color": "#B5544B", "value": 50 }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Taux Echec OTP par Tenant",
+      "description": "Pourcentage d'echecs OTP — vert < 10%, orange 10-20%, rouge > 20%",
+      "type": "gauge",
+      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 5 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant) (increase(cri_otp_failures_total{tenant=~\"$tenant\"}[1h])) / clamp_min(sum by (tenant) (increase(cri_otp_attempts_total{tenant=~\"$tenant\"}[1h])), 1) * 100",
+          "legendFormat": "{{ tenant }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#5F8B5F", "value": null },
+              { "color": "#C4944B", "value": 10 },
+              { "color": "#B5544B", "value": 20 }
+            ]
+          },
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "noValue": "0"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false
+      }
+    },
+    {
+      "id": 5,
+      "title": "Rate Limiting Triggers",
+      "description": "Declenchements rate limit par niveau (webhook, user, otp)",
+      "type": "barchart",
+      "gridPos": { "x": 0, "y": 11, "w": 12, "h": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (level) (increase(cri_rate_limit_triggered_total{tenant=~\"$tenant\"}[$__range]))",
+          "legendFormat": "{{ level }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "webhook" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#C4704B", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "user" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#D4A574", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "otp" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#7A8B5F", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "stacking": {
+          "mode": "normal"
+        },
+        "orientation": "auto",
+        "barWidth": 0.8,
+        "showValue": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Sessions Admin Actives",
+      "description": "Nombre de sessions admin actives (approximatif — reinitialise au redemarrage)",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 11, "w": 12, "h": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "cri_active_sessions",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#5F8B5F", "value": null },
+              { "color": "#C4944B", "value": 5 },
+              { "color": "#B5544B", "value": 10 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Value" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-text" }
+              },
+              { "id": "displayName", "value": "Sessions" }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true }
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Cout Gemini par Tenant (tokens/h)",
+      "description": "Consommation de tokens Gemini par heure et par tenant",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 19, "w": 24, "h": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant) (increase(cri_gemini_tokens_total{tenant=~\"$tenant\"}[1h]))",
+          "legendFormat": "{{ tenant }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15,
+            "lineWidth": 2,
+            "pointSize": 5
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "lastNotNull"]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

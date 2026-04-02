@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.exceptions import AccountLockedError, AuthenticationError
+from app.core.metrics import LOGIN_ATTEMPTS
 from app.core.redis import get_redis
 from app.models.admin import Admin
 from app.schemas.auth import AdminTokenPayload, AuthTokenResponse
@@ -83,12 +84,14 @@ class AuthService:
 
         if not admin:
             await self._record_failed_attempt(email)
+            LOGIN_ATTEMPTS.labels(tenant="", status="failed").inc()
             log.warning("login_failed", reason="admin_not_found_or_inactive")
             raise AuthenticationError("Invalid credentials")
 
         # 3. Verify password
         if not self.verify_password(password, admin.password_hash):
             await self._record_failed_attempt(email)
+            LOGIN_ATTEMPTS.labels(tenant="", status="failed").inc()
             log.warning("login_failed", reason="wrong_password", admin_id=str(admin.id))
             raise AuthenticationError("Invalid credentials")
 
@@ -123,6 +126,7 @@ class AuthService:
             await session.commit()
 
         settings = get_settings()
+        LOGIN_ATTEMPTS.labels(tenant="", status="success").inc()
         log.info("login_success", admin_id=str(admin.id), role=admin.role.value)
 
         return AuthTokenResponse(
@@ -308,6 +312,7 @@ class AuthService:
         lockout_ttl = await redis.ttl(lockout_key)
 
         if lockout_ttl > 0:
+            LOGIN_ATTEMPTS.labels(tenant="", status="locked").inc()
             self.logger.warning("login_locked_out", email=email, remaining=lockout_ttl)
             raise AccountLockedError(remaining_seconds=lockout_ttl)
 

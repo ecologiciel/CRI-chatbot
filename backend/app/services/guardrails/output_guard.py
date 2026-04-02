@@ -25,7 +25,7 @@ logger = structlog.get_logger()
 GUARDRAIL_OUTPUT_CHECKS = Counter(
     "cri_guardrail_output_checks_total",
     "Total output guard checks",
-    ["result"],  # pass, flagged
+    ["tenant", "result"],  # pass, flagged
 )
 
 # ---------------------------------------------------------------------------
@@ -103,6 +103,7 @@ class OutputGuardService:
         text: str,
         confidence: float,
         language: str = "fr",
+        tenant_slug: str = "",
     ) -> OutputGuardResult:
         """Validate and clean LLM output.
 
@@ -110,6 +111,7 @@ class OutputGuardService:
             text: Raw LLM-generated text.
             confidence: RAG confidence score from retrieval [0.0, 1.0].
             language: Response language code (fr/ar/en).
+            tenant_slug: Tenant slug for metrics labeling.
 
         Returns:
             OutputGuardResult with cleaned text and issue report.
@@ -137,7 +139,7 @@ class OutputGuardService:
 
         # Metrics and logging
         result_label = "pass" if not issues else "flagged"
-        GUARDRAIL_OUTPUT_CHECKS.labels(result=result_label).inc()
+        GUARDRAIL_OUTPUT_CHECKS.labels(tenant=tenant_slug, result=result_label).inc()
 
         if issues:
             self._logger.info(

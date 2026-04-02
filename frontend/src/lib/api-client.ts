@@ -222,6 +222,13 @@ export class ApiClient {
     });
   }
 
+  async put<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>(path, {
+      method: "PUT",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
   async del(path: string): Promise<void> {
     return this.request<void>(path, { method: "DELETE" });
   }

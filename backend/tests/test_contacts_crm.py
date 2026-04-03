@@ -207,6 +207,44 @@ class TestStopCommand:
 
         assert SegmentationService.is_stop_command("") is False
 
+    # --- Arabe (Art. 9 loi 09-08) ---
+
+    def test_arabic_tawaquf(self):
+        from app.services.contact.segmentation import SegmentationService
+
+        assert SegmentationService.is_stop_command("توقف") is True
+
+    def test_arabic_ilghaa(self):
+        from app.services.contact.segmentation import SegmentationService
+
+        assert SegmentationService.is_stop_command("إلغاء") is True
+
+    def test_arabic_waqf(self):
+        from app.services.contact.segmentation import SegmentationService
+
+        assert SegmentationService.is_stop_command("وقف") is True
+
+    def test_arabic_iqaf(self):
+        from app.services.contact.segmentation import SegmentationService
+
+        assert SegmentationService.is_stop_command("ايقاف") is True
+
+    def test_arabic_alghaa_variant(self):
+        from app.services.contact.segmentation import SegmentationService
+
+        assert SegmentationService.is_stop_command("الغاء") is True
+
+    def test_arabic_with_spaces(self):
+        from app.services.contact.segmentation import SegmentationService
+
+        assert SegmentationService.is_stop_command("  توقف  ") is True
+
+    def test_arabic_sentence_not_optout(self):
+        """An Arabic sentence must NOT trigger opt-out."""
+        from app.services.contact.segmentation import SegmentationService
+
+        assert SegmentationService.is_stop_command("أريد متابعة ملفي") is False
+
 
 # ---------------------------------------------------------------------------
 # 4. Segmentation — predefined segments

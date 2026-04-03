@@ -14,4 +14,7 @@ Run the learning worker (supervised learning Qdrant reinjection):
 
 Run the dossier import worker (scheduled + on-demand imports):
     arq app.workers.import_dossier.WorkerSettings
+
+Run the purge worker (CNDP daily data retention purge):
+    arq app.workers.purge.WorkerSettings
 """

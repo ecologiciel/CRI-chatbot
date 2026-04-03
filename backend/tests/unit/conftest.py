@@ -248,6 +248,7 @@ _SINGLETON_VARS = {
     "app.services.dossier.service": "_dossier_service",
     "app.services.dossier.otp": "_dossier_otp_service",
     "app.services.dossier.import_service": "_dossier_import_service",
+    "app.services.whatsapp.privacy": "_privacy_notice_service",
 }
 
 

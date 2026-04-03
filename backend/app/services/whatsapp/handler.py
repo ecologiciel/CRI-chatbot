@@ -33,6 +33,7 @@ from app.services.conversation.service import get_conversation_service
 from app.services.feedback.service import get_feedback_service
 from app.services.rag.prompts import PromptTemplates
 from app.services.whatsapp.media import WhatsAppMediaHandler
+from app.services.whatsapp.privacy import get_privacy_notice_service
 from app.services.whatsapp.sender import WhatsAppSenderService
 from app.services.whatsapp.session import WhatsAppSessionManager
 
@@ -68,6 +69,7 @@ class MessageHandler:
         self._contact_service = get_contact_service()
         self._conversation_service = get_conversation_service()
         self._feedback_service = get_feedback_service()
+        self._privacy_service = get_privacy_notice_service()
 
     async def handle_message(
         self,
@@ -128,6 +130,12 @@ class MessageHandler:
                 phone,
                 sender_name,
             )
+
+            # 4.5 CNDP privacy notice — first contact (loi 09-08, Art. 9)
+            with contextlib.suppress(Exception):
+                await self._privacy_service.send_privacy_notice(
+                    tenant, phone, language=contact.language.value,
+                )
 
             # 5. Get or create conversation (30min inactivity timeout)
             conversation = await self._conversation_service.get_or_create(

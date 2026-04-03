@@ -25,14 +25,22 @@ from app.schemas.contacts_extended import SegmentInfo
 logger = structlog.get_logger()
 
 # Keywords that trigger CNDP opt-out (entire message must match).
+# Covers FR / EN / AR per Art. 9 loi 09-08.
 STOP_KEYWORDS: frozenset[str] = frozenset(
     {
+        # Latin (FR/EN)
         "stop",
         "arreter",
         "arrêter",
         "desabonner",
         "désabonner",
         "unsubscribe",
+        # Arabe (Art. 9 loi 09-08 — droit d'opposition)
+        "توقف",  # tawaquf — "arrêter"
+        "إلغاء",  # ilghaa — "annuler"
+        "وقف",  # waqf — "stop"
+        "ايقاف",  # iqaf — "arrêt"
+        "الغاء",  # alghaa — variante sans hamza
     }
 )
 

@@ -1,0 +1,21 @@
+# =============================================================================
+# CRI Chatbot Platform — Automated Backup Schedule
+# Installed by init_vps.sh as /etc/cron.d/cri-backup
+# Timezone: Africa/Casablanca
+#
+# Manual install:
+#   sudo cp scripts/backup/crontab.template /etc/cron.d/cri-backup
+#   sudo chmod 644 /etc/cron.d/cri-backup
+# =============================================================================
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Daily PostgreSQL backup at 02:00 (low traffic window)
+0 2 * * * backup /opt/cri-platform/scripts/backup/pg_backup.sh >> /var/log/cri-backup/pg_backup.log 2>&1
+
+# Weekly Qdrant snapshot — Sunday 03:00
+0 3 * * 0 backup /opt/cri-platform/scripts/backup/qdrant_snapshot.sh >> /var/log/cri-backup/qdrant_snapshot.log 2>&1
+
+# Weekly MinIO mirror — Sunday 04:00
+0 4 * * 0 backup /opt/cri-platform/scripts/backup/minio_mirror.sh >> /var/log/cri-backup/minio_mirror.log 2>&1

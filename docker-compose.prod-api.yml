@@ -1,0 +1,190 @@
+# =============================================================================
+# CRI Chatbot Platform — VPS Prod 1 : API Layer
+# Backend API x2, ARQ Workers x2, Qdrant
+# Specs : 8 vCPU, 32 Go RAM, 500 Go SSD NVMe
+# Usage : docker compose -f docker-compose.prod-api.yml up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend API Instance 1 — FastAPI (port 8001 via private IP)
+  # Budget memoire : 4 Go — 4 uvicorn workers
+  # ---------------------------------------------------------------------------
+  backend-api-1:
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/backend:${IMAGE_TAG:-latest}
+    container_name: cri-backend-api-1
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=${VPS2_PRIVATE_IP}
+      - REDIS_HOST=${VPS2_PRIVATE_IP}
+      - QDRANT_HOST=qdrant
+      - MINIO_ENDPOINT=${VPS2_PRIVATE_IP}:9000
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    ports:
+      - "${VPS1_PRIVATE_IP}:8001:8000"
+    networks:
+      - cri-api
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/v1/health'); exit(0 if r.status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    mem_limit: 4g
+    memswap_limit: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # ---------------------------------------------------------------------------
+  # Backend API Instance 2 — FastAPI (port 8002 via private IP)
+  # Budget memoire : 4 Go — 4 uvicorn workers
+  # ---------------------------------------------------------------------------
+  backend-api-2:
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/backend:${IMAGE_TAG:-latest}
+    container_name: cri-backend-api-2
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=${VPS2_PRIVATE_IP}
+      - REDIS_HOST=${VPS2_PRIVATE_IP}
+      - QDRANT_HOST=qdrant
+      - MINIO_ENDPOINT=${VPS2_PRIVATE_IP}:9000
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    ports:
+      - "${VPS1_PRIVATE_IP}:8002:8000"
+    networks:
+      - cri-api
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/api/v1/health'); exit(0 if r.status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    mem_limit: 4g
+    memswap_limit: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # ---------------------------------------------------------------------------
+  # ARQ Worker Group 1 — Import, Notification, Campaign, Purge
+  # Budget memoire : 4 Go — 4 ARQ processes
+  # ---------------------------------------------------------------------------
+  arq-worker-1:
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/backend:${IMAGE_TAG:-latest}
+    container_name: cri-arq-worker-1
+    command: bash /app/scripts/start-worker-group1.sh
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=${VPS2_PRIVATE_IP}
+      - REDIS_HOST=${VPS2_PRIVATE_IP}
+      - QDRANT_HOST=qdrant
+      - MINIO_ENDPOINT=${VPS2_PRIVATE_IP}:9000
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./docker/workers/start-worker-group1.sh:/app/scripts/start-worker-group1.sh:ro
+    networks:
+      - cri-api
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -c -f 'arq app.workers' | grep -qE '^[3-4]$'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 4g
+    memswap_limit: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # ---------------------------------------------------------------------------
+  # ARQ Worker Group 2 — Ingestion, Learning, Archive
+  # Budget memoire : 4 Go — 3 ARQ processes
+  # ---------------------------------------------------------------------------
+  arq-worker-2:
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/backend:${IMAGE_TAG:-latest}
+    container_name: cri-arq-worker-2
+    command: bash /app/scripts/start-worker-group2.sh
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=${VPS2_PRIVATE_IP}
+      - REDIS_HOST=${VPS2_PRIVATE_IP}
+      - QDRANT_HOST=qdrant
+      - MINIO_ENDPOINT=${VPS2_PRIVATE_IP}:9000
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./docker/workers/start-worker-group2.sh:/app/scripts/start-worker-group2.sh:ro
+    networks:
+      - cri-api
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -c -f 'arq app.workers' | grep -qE '^[2-3]$'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 4g
+    memswap_limit: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — Base vectorielle (collection par tenant)
+  # Budget memoire : 8 Go — HNSW index en RAM
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    container_name: cri-qdrant
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - cri-api
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:6333/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    mem_limit: 8g
+    memswap_limit: 8g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+# =============================================================================
+# Reseau — Interne VPS 1 uniquement
+# =============================================================================
+networks:
+  cri-api:
+    driver: bridge
+    name: cri-api
+
+# =============================================================================
+# Volumes nommes
+# =============================================================================
+volumes:
+  qdrant_data:

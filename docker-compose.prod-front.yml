@@ -1,0 +1,211 @@
+# =============================================================================
+# CRI Chatbot Platform — VPS Prod 3 : Frontend + Reverse Proxy + Monitoring
+# Frontend Next.js, Traefik v3, Prometheus, Grafana, AlertManager
+# Specs : 4 vCPU, 8 Go RAM, 100 Go SSD NVMe
+# Usage : docker compose -f docker-compose.prod-front.yml up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Traefik v3 — Reverse proxy + TLS Let's Encrypt
+  # Seul point d'entree public (ports 80/443)
+  # File provider uniquement — pas de Docker socket (backends sur VPS 1)
+  # Budget memoire : 512 Mo
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.2
+    container_name: cri-traefik
+    command:
+      - "--api.dashboard=false"
+      - "--ping=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--providers.docker=false"
+      - "--providers.file.filename=/etc/traefik/dynamic-prod.yml"
+      - "--providers.file.watch=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?ACME_EMAIL is required}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--metrics.prometheus=true"
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - VPS1_PRIVATE_IP=${VPS1_PRIVATE_IP}
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./docker/traefik/dynamic-prod.yml:/etc/traefik/dynamic-prod.yml:ro
+      - traefik_certs:/letsencrypt
+    networks:
+      - cri-front
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # ---------------------------------------------------------------------------
+  # Frontend Next.js — Back-Office
+  # Budget memoire : 1 Go — Pas de port public (acces via Traefik file route)
+  # ---------------------------------------------------------------------------
+  frontend:
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/frontend:${IMAGE_TAG:-latest}
+    container_name: cri-frontend
+    environment:
+      - NODE_ENV=production
+    networks:
+      - cri-front
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — Metriques (infra + IA + RAG + alertes securite)
+  # Budget memoire : 1 Go — Retention 30 jours
+  # Config template : envsubst remplace ${VPS1_PRIVATE_IP} au demarrage
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cri-prometheus
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cat /etc/prometheus/prometheus-prod.yml.tpl | sed "s/\$${VPS1_PRIVATE_IP}/$${VPS1_PRIVATE_IP}/g" > /tmp/prometheus.yml
+        exec /bin/prometheus \
+          --config.file=/tmp/prometheus.yml \
+          --storage.tsdb.retention.time=30d \
+          --web.enable-lifecycle
+    environment:
+      - VPS1_PRIVATE_IP=${VPS1_PRIVATE_IP}
+    volumes:
+      - ./docker/prometheus/prometheus-prod.yml:/etc/prometheus/prometheus-prod.yml.tpl:ro
+      - ./docker/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      alertmanager:
+        condition: service_healthy
+    networks:
+      - cri-front
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # ---------------------------------------------------------------------------
+  # Grafana — Dashboards monitoring
+  # Budget memoire : 1 Go
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cri-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - cri-front
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # ---------------------------------------------------------------------------
+  # AlertManager — Alertes Prometheus -> webhook backend (VPS 1)
+  # Budget memoire : 256 Mo
+  # Config template : envsubst remplace ${VPS1_PRIVATE_IP} au demarrage
+  # ---------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: cri-alertmanager
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cat /etc/alertmanager/alertmanager-prod.yml.tpl | sed "s/\$${VPS1_PRIVATE_IP}/$${VPS1_PRIVATE_IP}/g" > /tmp/alertmanager.yml
+        exec /bin/alertmanager \
+          --config.file=/tmp/alertmanager.yml
+    environment:
+      - VPS1_PRIVATE_IP=${VPS1_PRIVATE_IP}
+    volumes:
+      - ./docker/alertmanager/alertmanager-prod.yml:/etc/alertmanager/alertmanager-prod.yml.tpl:ro
+    networks:
+      - cri-front
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9093/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+# =============================================================================
+# Reseau — VPS 3
+# =============================================================================
+networks:
+  cri-front:
+    driver: bridge
+    name: cri-front
+
+# =============================================================================
+# Volumes nommes
+# =============================================================================
+volumes:
+  traefik_certs:
+  prometheus_data:
+  grafana_data:

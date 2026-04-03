@@ -1,0 +1,42 @@
+# =============================================================================
+# CRI Chatbot Platform — Prometheus Configuration (Production Multi-VPS)
+# Template: ${VPS1_PRIVATE_IP} replaced via envsubst at deploy time
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "alertmanager:9093"
+
+scrape_configs:
+  # --- Prometheus self-monitoring ---
+  - job_name: "prometheus"
+    static_configs:
+      - targets:
+          - "localhost:9090"
+
+  # --- Traefik metrics (local on VPS 3) ---
+  - job_name: "traefik"
+    static_configs:
+      - targets:
+          - "traefik:8080"
+    metrics_path: /metrics
+
+  # --- FastAPI backend instances (VPS 1 via private network) ---
+  - job_name: "fastapi"
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - "${VPS1_PRIVATE_IP}:8001"
+          - "${VPS1_PRIVATE_IP}:8002"
+        labels:
+          vps: "prod-1"
+    metrics_path: /metrics

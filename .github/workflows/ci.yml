@@ -1,6 +1,6 @@
 # =============================================================================
 # CRI Chatbot Platform — CI Pipeline
-# Lint + Test (Phase 1 & Phase 2) on every push and PR
+# Lint + Test (Phase 1-3) + Docker Build + Security Scan
 # =============================================================================
 
 name: CI
@@ -141,7 +141,19 @@ jobs:
             --ignore=tests/test_whitelist_api.py \
             --ignore=tests/test_audit.py \
             --ignore=tests/test_kms.py \
-            --ignore=tests/test_contacts_crm.py
+            --ignore=tests/test_contacts_crm.py \
+            --ignore=tests/test_models_phase3.py \
+            --ignore=tests/test_dossier_service.py \
+            --ignore=tests/test_dossier_import.py \
+            --ignore=tests/test_api_dossiers.py \
+            --ignore=tests/test_api_notifications.py \
+            --ignore=tests/test_notification_service.py \
+            --ignore=tests/test_tracking_agent.py \
+            --ignore=tests/test_worker_import.py \
+            --ignore=tests/test_worker_purge.py \
+            --ignore=tests/test_privacy_notice.py \
+            --ignore=tests/test_orchestrator_graph.py \
+            --ignore=tests/test_intent_detector.py
         working-directory: backend
 
       - name: Upload coverage report
@@ -244,6 +256,91 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
+  # Test Backend — Phase 3 (dossiers, notifications, tracking, privacy, purge)
+  # ---------------------------------------------------------------------------
+  test-backend-phase3:
+    name: Test Backend (Phase 3)
+    needs: lint
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cri_platform
+          POSTGRES_USER: cri_admin
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cri_admin -d cri_platform"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run Phase 3 tests
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: cri_platform
+          POSTGRES_USER: cri_admin
+          POSTGRES_PASSWORD: test-password
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          REDIS_PASSWORD: ""
+          MINIO_ROOT_PASSWORD: test-password
+          JWT_SECRET_KEY: test-jwt-secret-ci-only
+          KMS_MASTER_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          ENVIRONMENT: development
+        run: |
+          pytest \
+            tests/test_models_phase3.py \
+            tests/test_dossier_service.py \
+            tests/test_dossier_import.py \
+            tests/test_api_dossiers.py \
+            tests/test_api_notifications.py \
+            tests/test_notification_service.py \
+            tests/test_tracking_agent.py \
+            tests/test_worker_import.py \
+            tests/test_worker_purge.py \
+            tests/test_privacy_notice.py \
+            tests/test_orchestrator_graph.py \
+            tests/test_intent_detector.py \
+            -v --tb=short -x
+        working-directory: backend
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-phase3
+          path: backend/coverage.xml
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
   # Test Frontend — TypeScript build check (parallel with test-backend jobs)
   # ---------------------------------------------------------------------------
   test-frontend:
@@ -267,3 +364,93 @@ jobs:
       - name: Build (TypeScript type check)
         run: npm run build
         working-directory: frontend
+
+  # ---------------------------------------------------------------------------
+  # Docker Build + Security Scan (only on push to develop/main, after all tests)
+  # ---------------------------------------------------------------------------
+  docker-build-scan:
+    name: Docker Build & Security Scan
+    needs: [test-backend-phase1, test-backend-phase2, test-backend-phase3, test-frontend]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    env:
+      REPO_LC: ${{ github.repository }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase repo name
+        run: echo "REPO_LC=${REPO_LC,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LC }}/backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/docker/frontend.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LC }}/frontend:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LC }}/frontend:latest
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://api.${{ vars.DOMAIN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy scan backend
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Trivy scan frontend
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ env.REPO_LC }}/frontend:${{ github.sha }}
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF (backend)
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend
+
+      - name: Upload Trivy SARIF (frontend)
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-frontend.sarif
+          category: trivy-frontend

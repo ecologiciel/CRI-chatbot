@@ -1,0 +1,254 @@
+# =============================================================================
+# CRI Chatbot Platform — Deploy to Production (Multi-VPS)
+# Sequential: VPS 2 (data) → VPS 1 (API + rollback) → VPS 3 (frontend)
+# =============================================================================
+
+name: Deploy Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy-production" to confirm'
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate — Require confirmation for manual dispatch
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm != 'deploy-production'
+        run: |
+          echo "::error::Confirmation required. Type 'deploy-production' to proceed."
+          exit 1
+      - name: Confirmed
+        run: echo "Deployment authorized for ${{ github.sha }}"
+
+  # ---------------------------------------------------------------------------
+  # VPS 2 — Data services (PostgreSQL, Redis, MinIO)
+  # ---------------------------------------------------------------------------
+  deploy-data:
+    name: Deploy Data Services (VPS 2)
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_PROD_DATA_SSH_KEY }}
+
+      - name: Add host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_PROD_DATA_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy data services
+        run: |
+          ssh ${{ secrets.VPS_PROD_DATA_USER }}@${{ secrets.VPS_PROD_DATA_HOST }} bash -s << 'DEPLOY_SCRIPT'
+            set -euo pipefail
+            cd /opt/cri-platform
+
+            echo "--- Syncing repository ---"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "--- Pulling data service images ---"
+            docker compose -f docker-compose.prod-data.yml pull
+
+            echo "--- Starting data services ---"
+            docker compose -f docker-compose.prod-data.yml up -d
+
+            echo "--- Verifying data services ---"
+            sleep 15
+            docker compose -f docker-compose.prod-data.yml ps
+            echo "VPS 2 (data) deployment complete"
+          DEPLOY_SCRIPT
+
+      - name: Health check data services
+        run: |
+          ssh ${{ secrets.VPS_PROD_DATA_USER }}@${{ secrets.VPS_PROD_DATA_HOST }} bash -s << 'CHECK'
+            set -euo pipefail
+            # Check PostgreSQL
+            docker exec cri-postgres pg_isready -U cri_admin -d cri_platform
+            # Check Redis
+            docker exec cri-redis redis-cli ping | grep -q PONG
+            echo "Data services healthy"
+          CHECK
+
+  # ---------------------------------------------------------------------------
+  # VPS 1 — API services (Backend, Qdrant, ARQ workers) + rollback
+  # ---------------------------------------------------------------------------
+  deploy-api:
+    name: Deploy API Services (VPS 1)
+    needs: deploy-data
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_PROD_API_SSH_KEY }}
+
+      - name: Add host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_PROD_API_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy API with rollback support
+        id: deploy_api
+        run: |
+          ssh ${{ secrets.VPS_PROD_API_USER }}@${{ secrets.VPS_PROD_API_HOST }} bash -s << DEPLOY_SCRIPT
+            set -euo pipefail
+            cd /opt/cri-platform
+
+            echo "--- Syncing repository ---"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "--- Saving rollback tag ---"
+            PREV_TAG=\$(grep "^IMAGE_TAG=" .env | cut -d= -f2 || echo "latest")
+            echo "Previous IMAGE_TAG: \${PREV_TAG}"
+
+            echo "--- Updating IMAGE_TAG ---"
+            NEW_TAG="${{ github.sha }}"
+            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=\${NEW_TAG}/" .env \
+              || echo "IMAGE_TAG=\${NEW_TAG}" >> .env
+
+            echo "--- Pulling API images ---"
+            docker compose -f docker-compose.prod-api.yml pull
+
+            echo "--- Running Alembic migrations ---"
+            if ! docker compose -f docker-compose.prod-api.yml run --rm backend alembic upgrade head; then
+              echo "Migration FAILED — rolling back to \${PREV_TAG}"
+              sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=\${PREV_TAG}/" .env
+              exit 1
+            fi
+
+            echo "--- Starting API services ---"
+            docker compose -f docker-compose.prod-api.yml up -d
+
+            echo "--- Health check (3 attempts x 30s) ---"
+            for attempt in 1 2 3; do
+              echo "Health check attempt \${attempt}/3..."
+              sleep 30
+              STATUS=\$(curl -sf http://localhost:8000/api/v1/health 2>/dev/null \
+                | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null \
+                || echo "unreachable")
+              if [ "\${STATUS}" = "healthy" ] || [ "\${STATUS}" = "degraded" ]; then
+                echo "Health check PASSED: \${STATUS}"
+                docker image prune -f
+                echo "VPS 1 (API) deployment complete"
+                exit 0
+              fi
+              echo "Status: \${STATUS}"
+            done
+
+            echo "Health check FAILED — rolling back to \${PREV_TAG}"
+            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=\${PREV_TAG}/" .env
+            docker compose -f docker-compose.prod-api.yml pull
+            docker compose -f docker-compose.prod-api.yml up -d
+            exit 1
+          DEPLOY_SCRIPT
+
+  # ---------------------------------------------------------------------------
+  # VPS 3 — Frontend + Traefik + Monitoring
+  # ---------------------------------------------------------------------------
+  deploy-front:
+    name: Deploy Frontend (VPS 3)
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_PROD_FRONT_SSH_KEY }}
+
+      - name: Add host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_PROD_FRONT_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy frontend + monitoring
+        run: |
+          ssh ${{ secrets.VPS_PROD_FRONT_USER }}@${{ secrets.VPS_PROD_FRONT_HOST }} bash -s << DEPLOY_SCRIPT
+            set -euo pipefail
+            cd /opt/cri-platform
+
+            echo "--- Syncing repository ---"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "--- Updating IMAGE_TAG ---"
+            NEW_TAG="${{ github.sha }}"
+            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=\${NEW_TAG}/" .env \
+              || echo "IMAGE_TAG=\${NEW_TAG}" >> .env
+
+            echo "--- Pulling frontend images ---"
+            docker compose -f docker-compose.prod-front.yml pull
+
+            echo "--- Starting frontend + monitoring ---"
+            docker compose -f docker-compose.prod-front.yml up -d
+
+            echo "--- Cleanup ---"
+            docker image prune -f
+            sleep 10
+            docker compose -f docker-compose.prod-front.yml ps
+            echo "VPS 3 (frontend + monitoring) deployment complete"
+          DEPLOY_SCRIPT
+
+      - name: External health check
+        run: |
+          for i in $(seq 1 10); do
+            HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
+              "https://api.${{ vars.DOMAIN }}/api/v1/health" 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "External health check PASSED (HTTP 200)"
+              exit 0
+            fi
+            echo "Attempt $i/10: HTTP $HTTP_CODE"
+            sleep 10
+          done
+          echo "::error::External health check failed after 10 attempts"
+          exit 1
+
+      - name: Notify success
+        if: success()
+        run: |
+          echo "::notice::Production deployment SUCCESS for ${{ github.sha }}"
+          if [ -n "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" \
+              -H 'Content-Type: application/json' \
+              -d '{"text":"Production deployed: ${{ github.sha }} by ${{ github.actor }}"}' || true
+          fi
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "::error::Production deployment FAILED for ${{ github.sha }}"
+          if [ -n "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" \
+              -H 'Content-Type: application/json' \
+              -d '{"text":"FAILED production deploy: ${{ github.sha }} — check rollback status"}' || true
+          fi

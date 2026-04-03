@@ -1,0 +1,109 @@
+# =============================================================================
+# CRI Chatbot Platform — Deploy to Staging (Pre-Prod)
+# Automatic on push to develop, sequential restart: data → API → frontend
+# =============================================================================
+
+name: Deploy Staging
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_STAGING_SSH_KEY }}
+
+      - name: Add host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_STAGING_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to staging VPS
+        run: |
+          ssh ${{ secrets.VPS_STAGING_USER }}@${{ secrets.VPS_STAGING_HOST }} bash -s << DEPLOY_SCRIPT
+            set -euo pipefail
+            cd /opt/cri-platform
+
+            echo "--- Syncing repository ---"
+            git fetch origin develop
+            git reset --hard origin/develop
+
+            echo "--- Updating IMAGE_TAG ---"
+            export IMAGE_TAG="${{ github.sha }}"
+            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=\${IMAGE_TAG}/" .env \
+              || echo "IMAGE_TAG=\${IMAGE_TAG}" >> .env
+
+            echo "--- Pulling images ---"
+            docker compose -f docker-compose.staging.yml pull
+
+            echo "--- Restarting data services ---"
+            docker compose -f docker-compose.staging.yml up -d postgres redis qdrant minio
+            sleep 10
+
+            echo "--- Running Alembic migrations ---"
+            docker compose -f docker-compose.staging.yml run --rm backend alembic upgrade head
+
+            echo "--- Restarting API ---"
+            docker compose -f docker-compose.staging.yml up -d backend arq-worker
+            sleep 15
+
+            echo "--- Restarting frontend + proxy ---"
+            docker compose -f docker-compose.staging.yml up -d frontend traefik prometheus grafana alertmanager
+            sleep 10
+
+            echo "--- Cleanup unused images ---"
+            docker image prune -f
+
+            echo "Staging deployment complete"
+          DEPLOY_SCRIPT
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 20); do
+            STATUS=$(ssh ${{ secrets.VPS_STAGING_USER }}@${{ secrets.VPS_STAGING_HOST }} \
+              "curl -sf http://localhost:8000/api/v1/health 2>/dev/null" || echo '{"status":"unreachable"}')
+            HEALTH=$(echo "$STATUS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unreachable")
+            if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "degraded" ]; then
+              echo "Health check PASSED: $HEALTH"
+              exit 0
+            fi
+            echo "Attempt $i/20: $HEALTH"
+            sleep 5
+          done
+          echo "::error::Health check failed after 20 attempts"
+          exit 1
+
+      - name: Notify success
+        if: success()
+        run: |
+          echo "::notice::Staging deployment SUCCESS for ${{ github.sha }}"
+          if [ -n "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" \
+              -H 'Content-Type: application/json' \
+              -d '{"text":"Staging deployed: ${{ github.sha }} by ${{ github.actor }}"}' || true
+          fi
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "::error::Staging deployment FAILED for ${{ github.sha }}"
+          if [ -n "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" \
+              -H 'Content-Type: application/json' \
+              -d '{"text":"FAILED staging deploy: ${{ github.sha }} by ${{ github.actor }}"}' || true
+          fi

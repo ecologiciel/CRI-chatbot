@@ -1,0 +1,193 @@
+# =============================================================================
+# CRI Chatbot Platform — Automated Backup (PRA)
+# Daily: PostgreSQL dump | Weekly (Sunday): Qdrant snapshot + MinIO mirror
+# Retention: 30 days rolling (PG), 4 weekly snapshots (Qdrant/MinIO)
+# =============================================================================
+
+name: Automated Backup (PRA)
+
+on:
+  schedule:
+    - cron: "0 2 * * *"    # Daily at 02:00 UTC
+    - cron: "0 2 * * 0"    # Sunday at 02:00 UTC (weekly tasks)
+  workflow_dispatch:
+    inputs:
+      force_weekly:
+        description: "Run weekly tasks (Qdrant snapshot + MinIO mirror)"
+        type: boolean
+        default: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — Daily pg_dump (VPS 2)
+  # ---------------------------------------------------------------------------
+  backup-postgres:
+    name: PostgreSQL Daily Backup
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_PROD_DATA_SSH_KEY }}
+
+      - name: Add host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_PROD_DATA_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Run PostgreSQL backup
+        run: |
+          ssh ${{ secrets.VPS_PROD_DATA_USER }}@${{ secrets.VPS_PROD_DATA_HOST }} bash -s << 'BACKUP_SCRIPT'
+            set -euo pipefail
+            BACKUP_DIR="/opt/cri-backups/postgres"
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            BACKUP_FILE="${BACKUP_DIR}/cri_platform_${TIMESTAMP}.sql.gz"
+            mkdir -p "${BACKUP_DIR}"
+
+            echo "--- Running pg_dump ---"
+            docker exec cri-postgres pg_dump -U cri_admin -d cri_platform \
+              --format=custom --compress=6 > "${BACKUP_FILE}"
+
+            echo "--- Verifying backup ---"
+            BACKUP_SIZE=$(stat -c%s "${BACKUP_FILE}")
+            if [ "${BACKUP_SIZE}" -lt 1000 ]; then
+              echo "Backup suspiciously small (${BACKUP_SIZE} bytes)"
+              exit 1
+            fi
+            echo "Backup created: ${BACKUP_FILE} ($(du -h "${BACKUP_FILE}" | cut -f1))"
+
+            echo "--- Retention cleanup (>30 days) ---"
+            find "${BACKUP_DIR}" -name "cri_platform_*.sql.gz" -mtime +30 -delete
+            echo "PostgreSQL backup complete"
+          BACKUP_SCRIPT
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — Weekly snapshot (VPS 1, Sunday only)
+  # ---------------------------------------------------------------------------
+  backup-qdrant:
+    name: Qdrant Weekly Snapshot
+    if: github.event.schedule == '0 2 * * 0' || github.event.inputs.force_weekly == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_PROD_API_SSH_KEY }}
+
+      - name: Add host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_PROD_API_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Run Qdrant snapshot
+        run: |
+          ssh ${{ secrets.VPS_PROD_API_USER }}@${{ secrets.VPS_PROD_API_HOST }} bash -s << 'BACKUP_SCRIPT'
+            set -euo pipefail
+            BACKUP_DIR="/opt/cri-backups/qdrant"
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            mkdir -p "${BACKUP_DIR}"
+
+            echo "--- Triggering Qdrant full snapshot ---"
+            RESPONSE=$(curl -sf -X POST http://localhost:6333/snapshots)
+            SNAPSHOT_NAME=$(echo "${RESPONSE}" | python3 -c \
+              "import sys,json; print(json.load(sys.stdin)['result']['name'])")
+            echo "Snapshot created: ${SNAPSHOT_NAME}"
+
+            echo "--- Downloading snapshot ---"
+            curl -sf "http://localhost:6333/snapshots/${SNAPSHOT_NAME}" \
+              -o "${BACKUP_DIR}/qdrant_${TIMESTAMP}.snapshot"
+
+            echo "--- Verifying snapshot ---"
+            SNAPSHOT_SIZE=$(stat -c%s "${BACKUP_DIR}/qdrant_${TIMESTAMP}.snapshot")
+            if [ "${SNAPSHOT_SIZE}" -lt 1000 ]; then
+              echo "Snapshot suspiciously small (${SNAPSHOT_SIZE} bytes)"
+              exit 1
+            fi
+            echo "Qdrant snapshot: $(du -h "${BACKUP_DIR}/qdrant_${TIMESTAMP}.snapshot" | cut -f1)"
+
+            echo "--- Retention cleanup (keep last 4) ---"
+            ls -t "${BACKUP_DIR}"/qdrant_*.snapshot 2>/dev/null | tail -n +5 | xargs -r rm
+            echo "Qdrant snapshot complete"
+          BACKUP_SCRIPT
+
+  # ---------------------------------------------------------------------------
+  # MinIO — Weekly mirror (VPS 2, Sunday only)
+  # ---------------------------------------------------------------------------
+  backup-minio:
+    name: MinIO Weekly Mirror
+    if: github.event.schedule == '0 2 * * 0' || github.event.inputs.force_weekly == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_PROD_DATA_SSH_KEY }}
+
+      - name: Add host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_PROD_DATA_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Run MinIO mirror
+        run: |
+          ssh ${{ secrets.VPS_PROD_DATA_USER }}@${{ secrets.VPS_PROD_DATA_HOST }} bash -s << 'BACKUP_SCRIPT'
+            set -euo pipefail
+            BACKUP_DIR="/opt/cri-backups/minio"
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            TARGET_DIR="${BACKUP_DIR}/${TIMESTAMP}"
+            mkdir -p "${TARGET_DIR}"
+
+            echo "--- Setting up MinIO client alias ---"
+            source /opt/cri-platform/.env
+            docker exec cri-minio mc alias set local \
+              http://localhost:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" 2>/dev/null || true
+
+            echo "--- Mirroring all buckets ---"
+            docker exec cri-minio mc mirror --overwrite local/ /tmp/minio-backup/
+            docker cp cri-minio:/tmp/minio-backup/ "${TARGET_DIR}/"
+            docker exec cri-minio rm -rf /tmp/minio-backup/
+
+            MIRROR_SIZE=$(du -sh "${TARGET_DIR}" | cut -f1)
+            echo "MinIO mirror: ${MIRROR_SIZE}"
+
+            echo "--- Retention cleanup (keep last 4) ---"
+            ls -dt "${BACKUP_DIR}"/20* 2>/dev/null | tail -n +5 | xargs -r rm -rf
+            echo "MinIO mirror complete"
+          BACKUP_SCRIPT
+
+  # ---------------------------------------------------------------------------
+  # Notify — Report backup status
+  # ---------------------------------------------------------------------------
+  notify:
+    name: Notify Backup Status
+    needs: [backup-postgres, backup-qdrant, backup-minio]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report status
+        run: |
+          PG_STATUS="${{ needs.backup-postgres.result }}"
+          QD_STATUS="${{ needs.backup-qdrant.result }}"
+          MC_STATUS="${{ needs.backup-minio.result }}"
+          DATE=$(date +%Y-%m-%d)
+
+          MSG="PRA Backup ${DATE}: PostgreSQL=${PG_STATUS}, Qdrant=${QD_STATUS}, MinIO=${MC_STATUS}"
+
+          if [ "$PG_STATUS" = "failure" ] || [ "$QD_STATUS" = "failure" ] || [ "$MC_STATUS" = "failure" ]; then
+            echo "::error::${MSG}"
+          else
+            echo "::notice::${MSG}"
+          fi
+
+          if [ -n "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" \
+              -H 'Content-Type: application/json' \
+              -d "{\"text\":\"${MSG}\"}" || true
+          fi

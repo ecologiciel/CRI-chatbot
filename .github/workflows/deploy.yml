@@ -1,13 +1,17 @@
 # =============================================================================
-# CRI Chatbot Platform — CD Pipeline
-# Test + Build + Push + Deploy on push to main
+# CRI Chatbot Platform — CD Pipeline (DEPRECATED)
+#
+# DEPRECATED: This workflow is replaced by:
+#   - ci.yml (Docker build + security scan)
+#   - deploy-production.yml (multi-VPS deployment with rollback)
+#
+# Kept as manual emergency fallback only.
 # =============================================================================
 
-name: Deploy
+name: Deploy (Legacy)
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-production
@@ -78,7 +82,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------------------
-  # Deploy — SSH to Nindohost and run deploy script
+  # Deploy — SSH to Nindohost and run deploy script (single VPS)
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy to Production

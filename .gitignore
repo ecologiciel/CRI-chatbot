@@ -58,5 +58,9 @@ logs/
 tmp/
 temp/
 
+# Load test generated data
+backend/tests/load/data/*.xlsx
+backend/tests/load/data/*.csv
+
 # Claude Code local settings
 settings.json

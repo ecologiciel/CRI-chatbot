@@ -88,7 +88,10 @@ class TestShouldSend:
 
     @pytest.mark.asyncio
     async def test_returns_true_for_new_contact(
-        self, service: PrivacyNoticeService, tenant: TenantContext, mock_redis: AsyncMock,
+        self,
+        service: PrivacyNoticeService,
+        tenant: TenantContext,
+        mock_redis: AsyncMock,
     ) -> None:
         """SET NX returns True → should_send returns True."""
         mock_redis.set = AsyncMock(return_value=True)
@@ -98,7 +101,10 @@ class TestShouldSend:
 
     @pytest.mark.asyncio
     async def test_returns_false_for_existing_contact(
-        self, service: PrivacyNoticeService, tenant: TenantContext, mock_redis: AsyncMock,
+        self,
+        service: PrivacyNoticeService,
+        tenant: TenantContext,
+        mock_redis: AsyncMock,
     ) -> None:
         """SET NX returns None → should_send returns False."""
         mock_redis.set = AsyncMock(return_value=None)
@@ -108,7 +114,10 @@ class TestShouldSend:
 
     @pytest.mark.asyncio
     async def test_redis_key_format(
-        self, service: PrivacyNoticeService, tenant: TenantContext, mock_redis: AsyncMock,
+        self,
+        service: PrivacyNoticeService,
+        tenant: TenantContext,
+        mock_redis: AsyncMock,
     ) -> None:
         """The Redis key follows the {slug}:privacy_sent:{phone} pattern."""
         with patch(_REDIS_PATCH, return_value=mock_redis):
@@ -121,7 +130,10 @@ class TestShouldSend:
 
     @pytest.mark.asyncio
     async def test_no_ttl_on_key(
-        self, service: PrivacyNoticeService, tenant: TenantContext, mock_redis: AsyncMock,
+        self,
+        service: PrivacyNoticeService,
+        tenant: TenantContext,
+        mock_redis: AsyncMock,
     ) -> None:
         """The key has no TTL — privacy notice is permanent."""
         with patch(_REDIS_PATCH, return_value=mock_redis):
@@ -155,7 +167,10 @@ class TestSendPrivacyNotice:
             await service.send_privacy_notice(tenant, TEST_PHONE, language="fr")
 
         mock_sender.send_template.assert_awaited_once_with(
-            tenant, TEST_PHONE, PRIVACY_TEMPLATE_NAME, "fr",
+            tenant,
+            TEST_PHONE,
+            PRIVACY_TEMPLATE_NAME,
+            "fr",
         )
         mock_sender.send_text.assert_not_awaited()
 
@@ -185,7 +200,9 @@ class TestSendPrivacyNotice:
             await service.send_privacy_notice(tenant, TEST_PHONE, language="fr")
 
         mock_sender.send_text.assert_awaited_once_with(
-            tenant, TEST_PHONE, PRIVACY_FALLBACK_TEXT["fr"],
+            tenant,
+            TEST_PHONE,
+            PRIVACY_FALLBACK_TEXT["fr"],
         )
 
         audit_call = mock_audit.log_action.call_args[0][0]
@@ -227,7 +244,9 @@ class TestSendPrivacyNotice:
             await service.send_privacy_notice(tenant, TEST_PHONE, language="ar")
 
         mock_sender.send_text.assert_awaited_once_with(
-            tenant, TEST_PHONE, PRIVACY_FALLBACK_TEXT["ar"],
+            tenant,
+            TEST_PHONE,
+            PRIVACY_FALLBACK_TEXT["ar"],
         )
 
     @pytest.mark.asyncio
@@ -250,7 +269,9 @@ class TestSendPrivacyNotice:
             await service.send_privacy_notice(tenant, TEST_PHONE, language="en")
 
         mock_sender.send_text.assert_awaited_once_with(
-            tenant, TEST_PHONE, PRIVACY_FALLBACK_TEXT["en"],
+            tenant,
+            TEST_PHONE,
+            PRIVACY_FALLBACK_TEXT["en"],
         )
 
     @pytest.mark.asyncio
@@ -273,7 +294,9 @@ class TestSendPrivacyNotice:
             await service.send_privacy_notice(tenant, TEST_PHONE, language="de")
 
         mock_sender.send_text.assert_awaited_once_with(
-            tenant, TEST_PHONE, PRIVACY_FALLBACK_TEXT["fr"],
+            tenant,
+            TEST_PHONE,
+            PRIVACY_FALLBACK_TEXT["fr"],
         )
 
     @pytest.mark.asyncio
@@ -341,16 +364,21 @@ class TestPipelineIntegration:
         mock_contact.language = MagicMock()
         mock_contact.language.value = "fr"
 
-        msg = IncomingMessage.model_validate({
-            "id": "wamid.test123",
-            "from": TEST_PHONE,
-            "timestamp": "1700000000",
-            "type": "text",
-            "text": {"body": "Bonjour"},
-        })
+        msg = IncomingMessage.model_validate(
+            {
+                "id": "wamid.test123",
+                "from": TEST_PHONE,
+                "timestamp": "1700000000",
+                "type": "text",
+                "text": {"body": "Bonjour"},
+            }
+        )
 
         with (
-            patch("app.services.whatsapp.handler.get_privacy_notice_service", return_value=mock_privacy),
+            patch(
+                "app.services.whatsapp.handler.get_privacy_notice_service",
+                return_value=mock_privacy,
+            ),
             patch("app.services.whatsapp.handler.get_contact_service") as mock_cs,
             patch("app.services.whatsapp.handler.get_conversation_service") as mock_conv,
             patch("app.services.whatsapp.handler.get_feedback_service"),
@@ -408,7 +436,9 @@ class TestPipelineIntegration:
                     pass  # Pipeline may fail on downstream mocks; we only check privacy
 
             mock_privacy.send_privacy_notice.assert_awaited_once_with(
-                tenant, TEST_PHONE, language="fr",
+                tenant,
+                TEST_PHONE,
+                language="fr",
             )
 
     @pytest.mark.asyncio
@@ -426,16 +456,21 @@ class TestPipelineIntegration:
         mock_contact.language = MagicMock()
         mock_contact.language.value = "fr"
 
-        msg = IncomingMessage.model_validate({
-            "id": "wamid.test456",
-            "from": TEST_PHONE,
-            "timestamp": "1700000000",
-            "type": "text",
-            "text": {"body": "Bonjour"},
-        })
+        msg = IncomingMessage.model_validate(
+            {
+                "id": "wamid.test456",
+                "from": TEST_PHONE,
+                "timestamp": "1700000000",
+                "type": "text",
+                "text": {"body": "Bonjour"},
+            }
+        )
 
         with (
-            patch("app.services.whatsapp.handler.get_privacy_notice_service", return_value=mock_privacy),
+            patch(
+                "app.services.whatsapp.handler.get_privacy_notice_service",
+                return_value=mock_privacy,
+            ),
             patch("app.services.whatsapp.handler.get_contact_service") as mock_cs,
             patch("app.services.whatsapp.handler.get_conversation_service") as mock_conv,
             patch("app.services.whatsapp.handler.get_feedback_service"),

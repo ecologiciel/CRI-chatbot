@@ -4,7 +4,7 @@ All settings are loaded from environment variables or .env file.
 NEVER use os.getenv() directly anywhere in the codebase — always inject Settings via Depends.
 """
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     environment: str = Field(
         default="development", description="development | staging | production"
     )
-    log_level: str = Field(default="DEBUG", description="DEBUG | INFO | WARNING | ERROR")
-    debug: bool = Field(default=True)
+    log_level: str = Field(default="INFO", description="DEBUG | INFO | WARNING | ERROR")
+    debug: bool = Field(default=False)
 
     # --- PostgreSQL ---
     postgres_host: str = Field(default="postgres")
@@ -131,6 +131,35 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment == "production"
 
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        """Reject unsafe or incomplete settings before serving production traffic."""
+        if not self.is_production:
+            return self
+
+        if self.debug:
+            raise ValueError("debug must be false in production")
+        if self.log_level == "DEBUG":
+            raise ValueError("log_level must not be DEBUG in production")
+        if not self.backoffice_url.startswith("https://"):
+            raise ValueError("backoffice_url must use HTTPS in production")
+
+        required_secrets = {
+            "postgres_password": self.postgres_password,
+            "redis_password": self.redis_password,
+            "minio_root_password": self.minio_root_password,
+            "gemini_api_key": self.gemini_api_key,
+            "whatsapp_app_secret": self.whatsapp_app_secret,
+            "whatsapp_verify_token": self.whatsapp_verify_token,
+            "jwt_secret_key": self.jwt_secret_key,
+            "kms_master_key": self.kms_master_key,
+        }
+        invalid = [name for name, value in required_secrets.items() if _is_placeholder(value)]
+        if invalid:
+            msg = f"production requires configured secrets: {', '.join(invalid)}"
+            raise ValueError(msg)
+        return self
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -154,6 +183,18 @@ class Settings(BaseSettings):
             msg = "kms_master_key must be a valid hex string"
             raise ValueError(msg) from None
         return v
+
+
+def _is_placeholder(value: str) -> bool:
+    """Return whether a required secret is missing or an example value."""
+    normalized = value.strip().lower()
+    return not normalized or normalized in {
+        "change_me",
+        "change-me",
+        "change-me-in-production",
+        "example",
+        "placeholder",
+    }
 
 
 # Singleton — importable partout

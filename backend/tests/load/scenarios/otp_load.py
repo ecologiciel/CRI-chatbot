@@ -83,6 +83,7 @@ class OTPBurstUser(HttpUser):
 # Post-test Prometheus verification for OTP rate limiting
 # ---------------------------------------------------------------------------
 
+
 @events.test_stop.add_listener
 def on_test_stop(environment, **kwargs) -> None:
     """Verify OTP rate limiting fired via Prometheus metrics."""
@@ -116,7 +117,7 @@ def on_test_stop(environment, **kwargs) -> None:
                     break
 
         print("=" * 60)
-        print("PASS criteria: cri_rate_limit_triggered_total{level=\"otp\"} > 0")
+        print('PASS criteria: cri_rate_limit_triggered_total{level="otp"} > 0')
         print("=" * 60 + "\n")
     except Exception as exc:
         print(f"[METRICS] Scrape failed: {exc}")

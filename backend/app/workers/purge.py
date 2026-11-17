@@ -115,10 +115,7 @@ async def _purge_tenant_conversations(
                 .where(Conversation.ended_at < cutoff)
                 .limit(BATCH_SIZE)
             )
-            stmt = (
-                delete(Conversation)
-                .where(Conversation.id.in_(subq))
-            )
+            stmt = delete(Conversation).where(Conversation.id.in_(subq))
             result = await session.execute(stmt)
             batch_deleted = result.rowcount
 

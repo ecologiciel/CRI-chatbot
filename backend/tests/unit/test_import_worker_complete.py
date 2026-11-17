@@ -139,8 +139,11 @@ class TestSyncLogComplete:
         tenant = _make_tenant_with_session(session)
 
         validation = MagicMock(
-            is_valid=True, is_duplicate=False, file_hash="abc123",
-            file_size=1024, error=None,
+            is_valid=True,
+            is_duplicate=False,
+            file_hash="abc123",
+            file_size=1024,
+            error=None,
         )
         mock_import_service = MagicMock()
         mock_import_service.validate_file = AsyncMock(return_value=validation)
@@ -164,7 +167,11 @@ class TestSyncLogComplete:
             )
 
             result = await task_import_dossier(
-                {}, "imports/pending/test.xlsx", None, TEST_TENANT_SLUG, None,
+                {},
+                "imports/pending/test.xlsx",
+                None,
+                TEST_TENANT_SLUG,
+                None,
             )
 
         # SyncLog should have been updated with results
@@ -192,8 +199,11 @@ class TestEdgeCasesComplete:
         tenant = _make_tenant_with_session(session)
 
         validation = MagicMock(
-            is_valid=True, is_duplicate=False, file_hash="empty_hash",
-            file_size=128, error=None,
+            is_valid=True,
+            is_duplicate=False,
+            file_hash="empty_hash",
+            file_size=128,
+            error=None,
         )
         mock_import_service = MagicMock()
         mock_import_service.validate_file = AsyncMock(return_value=validation)
@@ -217,7 +227,11 @@ class TestEdgeCasesComplete:
             )
 
             result = await task_import_dossier(
-                {}, "imports/pending/empty.xlsx", None, TEST_TENANT_SLUG, None,
+                {},
+                "imports/pending/empty.xlsx",
+                None,
+                TEST_TENANT_SLUG,
+                None,
             )
 
         assert result["status"] == "completed"
@@ -241,8 +255,10 @@ class TestWatchComplete:
         class MockAsyncIter:
             def __init__(self, items):
                 self._items = iter(items)
+
             def __aiter__(self):
                 return self
+
             async def __anext__(self):
                 try:
                     return next(self._items)

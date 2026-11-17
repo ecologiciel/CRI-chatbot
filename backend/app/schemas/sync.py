@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import SyncProviderType, SyncSourceType, SyncStatus
 
-
 # ── SyncLog schemas ──────────────────────────────────────────────
 
 
@@ -51,12 +50,8 @@ class SyncConfigCreate(BaseModel):
 
     provider_type: SyncProviderType = SyncProviderType.excel_csv
     config_json: dict = Field(default_factory=dict)
-    column_mapping: dict = Field(
-        ..., description="Mapping colonne_source → champ_dossier"
-    )
-    schedule_cron: str | None = Field(
-        None, max_length=100, pattern=r"^[\d\s\*\/\-\,]+$"
-    )
+    column_mapping: dict = Field(..., description="Mapping colonne_source → champ_dossier")
+    schedule_cron: str | None = Field(None, max_length=100, pattern=r"^[\d\s\*\/\-\,]+$")
     watched_folder: str | None = Field(None, max_length=500)
     is_active: bool = True
 
@@ -94,9 +89,7 @@ class SyncConfigRead(BaseModel):
 class ImportTriggerRequest(BaseModel):
     """Request to trigger an import manually."""
 
-    file_path: str = Field(
-        ..., description="Chemin MinIO du fichier à importer"
-    )
+    file_path: str = Field(..., description="Chemin MinIO du fichier à importer")
     sync_config_id: uuid.UUID | None = Field(
         None, description="Config à utiliser, sinon config active par défaut"
     )

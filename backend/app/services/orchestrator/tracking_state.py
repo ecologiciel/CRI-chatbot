@@ -87,7 +87,9 @@ class TrackingStateManager:
         return f"{tenant.slug}:tracking_state:{phone}"
 
     async def get_state(
-        self, phone: str, tenant: TenantContext,
+        self,
+        phone: str,
+        tenant: TenantContext,
     ) -> TrackingUserState:
         """Load tracking state from Redis, or return default (idle).
 
@@ -152,7 +154,9 @@ class TrackingStateManager:
         )
 
     async def clear_state(
-        self, phone: str, tenant: TenantContext,
+        self,
+        phone: str,
+        tenant: TenantContext,
     ) -> None:
         """Delete tracking state from Redis (reset flow).
 

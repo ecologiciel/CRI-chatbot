@@ -10,11 +10,6 @@ Couvre :
 from __future__ import annotations
 
 import os
-import re
-import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 # Env vars must be set BEFORE importing app modules
 os.environ.setdefault("POSTGRES_PASSWORD", "test-password")

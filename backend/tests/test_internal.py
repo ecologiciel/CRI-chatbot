@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import uuid
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -173,8 +173,8 @@ class TestInternalAgentNode:
     @pytest.mark.asyncio
     async def test_whitelisted_user_gets_response(self):
         """Numero whiteliste -> reponse normale (pas de refus)."""
-        from app.services.orchestrator.internal_agent import InternalAgent
         from app.services.internal.service import REFUSAL_MESSAGES
+        from app.services.orchestrator.internal_agent import InternalAgent
 
         internal_svc = MagicMock()
         internal_svc.verify_whitelist = AsyncMock(return_value=True)
@@ -199,14 +199,14 @@ class TestInternalAgentNode:
         result = await agent.handle(state, tenant)
         assert result.get("response") is not None
         # Should NOT contain any refusal message
-        for lang, msg in REFUSAL_MESSAGES.items():
+        for _lang, msg in REFUSAL_MESSAGES.items():
             assert result.get("response") != msg
 
     @pytest.mark.asyncio
     async def test_non_whitelisted_user_gets_refusal(self):
         """Numero non whiteliste -> message de refus poli."""
-        from app.services.orchestrator.internal_agent import InternalAgent
         from app.services.internal.service import REFUSAL_MESSAGES
+        from app.services.orchestrator.internal_agent import InternalAgent
 
         internal_svc = MagicMock()
         internal_svc.verify_whitelist = AsyncMock(return_value=False)
@@ -268,6 +268,7 @@ class TestIntentDetectorPhase2:
     def test_graph_module_references_internal_agent(self):
         """Le module graph.py reference le noeud 'internal_agent'."""
         import inspect
+
         from app.services.orchestrator import graph as graph_module
 
         source = inspect.getsource(graph_module)

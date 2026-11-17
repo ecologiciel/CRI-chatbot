@@ -200,7 +200,7 @@ class TestVerifyOTP:
     @pytest.mark.asyncio
     async def test_wrong_code_returns_false(self, tenant_context):
         """Wrong OTP code must return False, key NOT deleted."""
-        correct_hash = hashlib.sha256("123456".encode()).hexdigest()
+        correct_hash = hashlib.sha256(b"123456").hexdigest()
         redis = _make_redis(otp_hash=correct_hash)
         audit = _mock_audit()
         svc = DossierOTPService()
@@ -300,17 +300,21 @@ class TestDossierSession:
     async def test_validate_success_refreshes_ttl(self, tenant_context):
         """Valid session must refresh TTL (sliding window)."""
         token = "a" * 64
-        session_data = json.dumps({
-            "token": token,
-            "phone": TEST_PHONE,
-            "created_at": "2026-01-01T00:00:00+00:00",
-        })
+        session_data = json.dumps(
+            {
+                "token": token,
+                "phone": TEST_PHONE,
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }
+        )
         redis = _make_redis(session_json=session_data)
         svc = DossierOTPService()
 
         with patch(_REDIS, return_value=redis):
             result = await svc.validate_dossier_session(
-                TEST_PHONE, token, tenant_context,
+                TEST_PHONE,
+                token,
+                tenant_context,
             )
 
         assert result is True
@@ -320,17 +324,21 @@ class TestDossierSession:
     @pytest.mark.asyncio
     async def test_validate_wrong_token_returns_false(self, tenant_context):
         """Wrong session token must return False."""
-        session_data = json.dumps({
-            "token": "a" * 64,
-            "phone": TEST_PHONE,
-            "created_at": "2026-01-01T00:00:00+00:00",
-        })
+        session_data = json.dumps(
+            {
+                "token": "a" * 64,
+                "phone": TEST_PHONE,
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }
+        )
         redis = _make_redis(session_json=session_data)
         svc = DossierOTPService()
 
         with patch(_REDIS, return_value=redis):
             result = await svc.validate_dossier_session(
-                TEST_PHONE, "b" * 64, tenant_context,
+                TEST_PHONE,
+                "b" * 64,
+                tenant_context,
             )
 
         assert result is False
@@ -344,7 +352,9 @@ class TestDossierSession:
 
         with patch(_REDIS, return_value=redis):
             result = await svc.validate_dossier_session(
-                TEST_PHONE, "a" * 64, tenant_context,
+                TEST_PHONE,
+                "a" * 64,
+                tenant_context,
             )
 
         assert result is False

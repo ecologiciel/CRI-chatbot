@@ -130,11 +130,7 @@ class Dossier(UUIDMixin, TimestampMixin, Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<Dossier id={self.id} "
-            f"numero={self.numero!r} "
-            f"statut={self.statut.value}>"
-        )
+        return f"<Dossier id={self.id} " f"numero={self.numero!r} " f"statut={self.statut.value}>"
 
 
 class DossierHistory(UUIDMixin, Base):

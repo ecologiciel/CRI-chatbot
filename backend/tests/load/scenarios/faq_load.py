@@ -30,7 +30,6 @@ from helpers import (
     ALL_FAQ_QUESTIONS,
     TENANTS,
     generate_phone,
-    scrape_metrics,
     send_webhook_message,
 )
 
@@ -64,6 +63,7 @@ class FAQLoadUser(HttpUser):
 # ---------------------------------------------------------------------------
 # Post-test Prometheus verification
 # ---------------------------------------------------------------------------
+
 
 @events.test_stop.add_listener
 def on_test_stop(environment, **kwargs) -> None:

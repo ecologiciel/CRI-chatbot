@@ -216,11 +216,11 @@ async def process_all_notifications(ctx: dict) -> dict[str, Any]:
     Returns:
         Aggregate stats dict.
     """
+    from sqlalchemy import select, text
+
     from app.core.database import get_session_factory
     from app.models.enums import TenantStatus
     from app.models.tenant import Tenant
-
-    from sqlalchemy import select, text
 
     log = logger.bind(task="process_all_notifications")
 

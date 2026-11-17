@@ -19,6 +19,14 @@ from app.schemas.contact import (
     ContactResponse,
     ContactUpdate,
 )
+from app.schemas.conversation import (
+    ConversationCreate,
+    ConversationList,
+    ConversationResponse,
+    ConversationUpdate,
+    MessageCreate,
+    MessageResponse,
+)
 from app.schemas.dossier import (
     DossierCreate,
     DossierDetail,
@@ -27,14 +35,6 @@ from app.schemas.dossier import (
     DossierList,
     DossierRead,
     DossierStats,
-)
-from app.schemas.conversation import (
-    ConversationCreate,
-    ConversationList,
-    ConversationResponse,
-    ConversationUpdate,
-    MessageCreate,
-    MessageResponse,
 )
 from app.schemas.escalation import (
     EscalationAssign,
@@ -53,6 +53,14 @@ from app.schemas.feedback import (
     UnansweredQuestionResponse,
     UnansweredQuestionUpdate,
 )
+from app.schemas.kb import (
+    KBChunkResponse,
+    KBDocumentCreate,
+    KBDocumentDetailResponse,
+    KBDocumentList,
+    KBDocumentResponse,
+    KBDocumentUpdate,
+)
 from app.schemas.sync import (
     ImportReportResponse,
     ImportTriggerRequest,
@@ -61,14 +69,6 @@ from app.schemas.sync import (
     SyncConfigUpdate,
     SyncLogList,
     SyncLogRead,
-)
-from app.schemas.kb import (
-    KBChunkResponse,
-    KBDocumentCreate,
-    KBDocumentDetailResponse,
-    KBDocumentList,
-    KBDocumentResponse,
-    KBDocumentUpdate,
 )
 from app.schemas.tenant import (
     TenantAdminResponse,

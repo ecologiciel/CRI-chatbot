@@ -22,7 +22,7 @@ from sqlalchemy import select
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
-from app.models.enums import DossierStatut, Language, OptInStatus
+from app.models.enums import DossierStatut, OptInStatus
 from app.schemas.audit import AuditLogCreate
 from app.services.audit.service import AuditService, get_audit_service
 from app.services.whatsapp.sender import WhatsAppSenderService
@@ -233,10 +233,7 @@ class NotificationService:
 
         # Date formatting
         now = datetime.now(UTC)
-        if language_code == "ar":
-            date_str = now.strftime("%Y/%m/%d")
-        else:
-            date_str = now.strftime("%d/%m/%Y")
+        date_str = now.strftime("%Y/%m/%d") if language_code == "ar" else now.strftime("%d/%m/%Y")
 
         parameters = [
             {"type": "text", "text": contact_name or "Investisseur"},

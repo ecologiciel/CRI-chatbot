@@ -85,9 +85,7 @@ async def list_dossiers(
         search=search,
     )
     service = get_dossier_service()
-    return await service.list_dossiers(
-        tenant, filters=filters, page=page, page_size=page_size
-    )
+    return await service.list_dossiers(tenant, filters=filters, page=page, page_size=page_size)
 
 
 # ---------------------------------------------------------------------------
@@ -117,9 +115,7 @@ async def import_dossiers(
     file: UploadFile,
     sync_config_id: uuid.UUID | None = Query(default=None),
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> dict:
     """Upload a dossier file and enqueue an import task.
 
@@ -190,9 +186,7 @@ async def list_sync_logs(
     page_size: int = Query(default=20, ge=1, le=100),
     status: SyncStatus | None = Query(default=None),
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> SyncLogList:
     """List sync logs with pagination and optional status filter."""
     async with tenant.db_session() as session:
@@ -231,9 +225,7 @@ async def list_sync_logs(
 async def get_sync_log(
     sync_log_id: uuid.UUID,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> SyncLogRead:
     """Get a single sync log entry by ID."""
     async with tenant.db_session() as session:
@@ -255,17 +247,15 @@ async def get_sync_log(
 @router.get("/sync-configs", response_model=list[SyncConfigRead])
 async def list_sync_configs(
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> list[SyncConfigRead]:
     """List all sync configurations for the current tenant."""
     async with tenant.db_session() as session:
         rows = (
-            await session.execute(
-                select(SyncConfig).order_by(SyncConfig.created_at.desc())
-            )
-        ).scalars().all()
+            (await session.execute(select(SyncConfig).order_by(SyncConfig.created_at.desc())))
+            .scalars()
+            .all()
+        )
 
     return [SyncConfigRead.model_validate(r) for r in rows]
 
@@ -279,9 +269,7 @@ async def list_sync_configs(
 async def create_sync_config(
     data: SyncConfigCreate,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> SyncConfigRead:
     """Create a new sync configuration."""
     log = logger.bind(tenant=tenant.slug, admin_id=admin.sub)
@@ -314,9 +302,7 @@ async def update_sync_config(
     config_id: uuid.UUID,
     data: SyncConfigUpdate,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(
-        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
-    ),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> SyncConfigRead:
     """Update an existing sync configuration (partial update)."""
     async with tenant.db_session() as session:
@@ -357,9 +343,7 @@ async def get_dossier(
     """Get dossier detail including full change history."""
     async with tenant.db_session() as session:
         result = await session.execute(
-            select(Dossier)
-            .where(Dossier.id == dossier_id)
-            .options(selectinload(Dossier.history))
+            select(Dossier).where(Dossier.id == dossier_id).options(selectinload(Dossier.history))
         )
         dossier = result.scalar_one_or_none()
 

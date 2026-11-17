@@ -59,21 +59,46 @@ REGIONS = [
 ]
 
 PRENOMS = [
-    "Mohamed", "Ahmed", "Youssef", "Karim", "Hassan",
-    "Fatima", "Amina", "Khadija", "Nadia", "Sara",
+    "Mohamed",
+    "Ahmed",
+    "Youssef",
+    "Karim",
+    "Hassan",
+    "Fatima",
+    "Amina",
+    "Khadija",
+    "Nadia",
+    "Sara",
 ]
 
 NOMS = [
-    "Alaoui", "Benali", "El Idrissi", "Berrada", "Tazi",
-    "Fassi", "Cherkaoui", "Benmoussa", "Lahlou", "Sqalli",
+    "Alaoui",
+    "Benali",
+    "El Idrissi",
+    "Berrada",
+    "Tazi",
+    "Fassi",
+    "Cherkaoui",
+    "Benmoussa",
+    "Lahlou",
+    "Sqalli",
 ]
 
 FORMES_JURIDIQUES = ["SARL", "SA", "SNC", "Auto-entrepreneur", "Coopérative"]
 
 ACTIVITES = [
-    "Import-Export", "Consulting", "Agroalimentaire", "Textile",
-    "Immobilier", "Restauration", "Logistique", "Formation",
-    "BTP", "Technologies", "Énergie", "Tourisme",
+    "Import-Export",
+    "Consulting",
+    "Agroalimentaire",
+    "Textile",
+    "Immobilier",
+    "Restauration",
+    "Logistique",
+    "Formation",
+    "BTP",
+    "Technologies",
+    "Énergie",
+    "Tourisme",
 ]
 
 ROW_COUNT = 50_000
@@ -113,16 +138,16 @@ def generate() -> None:
 
     # Headers matching import_service.py alias sets
     headers = [
-        "Numéro Dossier",        # -> numero (NUMERO_ALIASES)
-        "Statut",                 # -> statut (STATUT_ALIASES)
-        "Type Projet",            # -> type_projet (TYPE_PROJET_ALIASES)
-        "Raison Sociale",         # -> raison_sociale (RAISON_SOCIALE_ALIASES)
-        "Montant Investissement", # -> montant_investissement (MONTANT_ALIASES)
-        "Région",                 # -> region (REGION_ALIASES)
-        "Secteur",                # -> secteur (SECTEUR_ALIASES)
-        "Date Dépôt",            # -> date_depot (DATE_DEPOT_ALIASES)
-        "Téléphone",             # -> phone (PHONE_ALIASES)
-        "Observations",           # -> observations (OBSERVATIONS_ALIASES)
+        "Numéro Dossier",  # -> numero (NUMERO_ALIASES)
+        "Statut",  # -> statut (STATUT_ALIASES)
+        "Type Projet",  # -> type_projet (TYPE_PROJET_ALIASES)
+        "Raison Sociale",  # -> raison_sociale (RAISON_SOCIALE_ALIASES)
+        "Montant Investissement",  # -> montant_investissement (MONTANT_ALIASES)
+        "Région",  # -> region (REGION_ALIASES)
+        "Secteur",  # -> secteur (SECTEUR_ALIASES)
+        "Date Dépôt",  # -> date_depot (DATE_DEPOT_ALIASES)
+        "Téléphone",  # -> phone (PHONE_ALIASES)
+        "Observations",  # -> observations (OBSERVATIONS_ALIASES)
     ]
     ws.append(headers)
 
@@ -131,15 +156,15 @@ def generate() -> None:
 
     for i in range(ROW_COUNT):
         row = [
-            f"2024-{i + 1:06d}",                   # Numéro Dossier
-            random.choice(STATUTS),                  # Statut
-            random.choice(TYPES_PROJET),             # Type Projet
-            _random_company(),                       # Raison Sociale
-            _random_montant(),                       # Montant Investissement
-            random.choice(REGIONS),                  # Région
-            random.choice(SECTEURS),                 # Secteur
-            _random_date(start_date, end_date),      # Date Dépôt
-            _random_phone(),                         # Téléphone
+            f"2024-{i + 1:06d}",  # Numéro Dossier
+            random.choice(STATUTS),  # Statut
+            random.choice(TYPES_PROJET),  # Type Projet
+            _random_company(),  # Raison Sociale
+            _random_montant(),  # Montant Investissement
+            random.choice(REGIONS),  # Région
+            random.choice(SECTEURS),  # Secteur
+            _random_date(start_date, end_date),  # Date Dépôt
+            _random_phone(),  # Téléphone
             f"Observation {i + 1}" if random.random() > 0.7 else None,  # Observations
         ]
         ws.append(row)

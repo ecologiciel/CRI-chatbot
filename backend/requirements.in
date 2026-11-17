@@ -1,0 +1,47 @@
+# Direct runtime and development dependencies. Compile with:
+# python -m piptools compile --generate-hashes --output-file requirements.txt requirements.in
+
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic[email]==2.10.4
+pydantic-settings==2.7.1
+
+# Database and infrastructure
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.1
+redis[hiredis]==5.2.1
+qdrant-client==1.12.1
+miniopy-async==1.21.1
+arq==0.26.1
+
+# AI and HTTP
+google-genai>=1.0.0
+google-api-core>=2.0.0
+tenacity>=9.0.0
+tiktoken>=0.7.0
+langchain==0.3.14
+langgraph==0.2.60
+httpx==0.28.1
+
+# Security, observability, and document ingestion
+structlog==24.4.0
+cryptography>=43.0.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.20
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.2
+pdfplumber>=0.11.0
+python-docx>=1.1.0
+openpyxl>=3.1.0
+reportlab>=4.1.0
+
+# Test and quality tooling
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-json-report==1.5.0
+pytest-cov==7.1.0
+ruff==0.8.6
+mypy==1.14.1

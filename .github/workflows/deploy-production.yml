@@ -6,14 +6,10 @@
 name: Deploy Production
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type "deploy-production" to confirm'
-        required: true
-        type: string
+    types: [completed]
 
 concurrency:
   group: deploy-production
@@ -21,19 +17,15 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Gate — Require confirmation for manual dispatch
+  # Gate — deploy only the exact commit validated by CI.
   # ---------------------------------------------------------------------------
   validate:
     name: Validate Deployment
     runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Check confirmation
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm != 'deploy-production'
-        run: |
-          echo "::error::Confirmation required. Type 'deploy-production' to proceed."
-          exit 1
-      - name: Confirmed
-        run: echo "Deployment authorized for ${{ github.sha }}"
+      - name: Confirm validated commit
+        run: echo "Deployment authorized for ${{ github.event.workflow_run.head_sha }}"
 
   # ---------------------------------------------------------------------------
   # VPS 2 — Data services (PostgreSQL, Redis, MinIO)
@@ -45,10 +37,12 @@ jobs:
     environment: production
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
         with:
           ssh-private-key: ${{ secrets.VPS_PROD_DATA_SSH_KEY }}
 
@@ -64,8 +58,8 @@ jobs:
             cd /opt/cri-platform
 
             echo "--- Syncing repository ---"
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin ${{ github.event.workflow_run.head_sha }}
+            git checkout --detach FETCH_HEAD
 
             echo "--- Pulling data service images ---"
             docker compose -f docker-compose.prod-data.yml pull
@@ -84,7 +78,7 @@ jobs:
           ssh ${{ secrets.VPS_PROD_DATA_USER }}@${{ secrets.VPS_PROD_DATA_HOST }} bash -s << 'CHECK'
             set -euo pipefail
             # Check PostgreSQL
-            docker exec cri-postgres pg_isready -U cri_admin -d cri_platform
+            docker exec cri-postgresql pg_isready -U cri_admin -d cri_platform
             # Check Redis
             docker exec cri-redis redis-cli ping | grep -q PONG
             echo "Data services healthy"
@@ -100,10 +94,12 @@ jobs:
     environment: production
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
         with:
           ssh-private-key: ${{ secrets.VPS_PROD_API_SSH_KEY }}
 
@@ -120,15 +116,15 @@ jobs:
             cd /opt/cri-platform
 
             echo "--- Syncing repository ---"
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin ${{ github.event.workflow_run.head_sha }}
+            git checkout --detach FETCH_HEAD
 
             echo "--- Saving rollback tag ---"
             PREV_TAG=\$(grep "^IMAGE_TAG=" .env | cut -d= -f2 || echo "latest")
             echo "Previous IMAGE_TAG: \${PREV_TAG}"
 
             echo "--- Updating IMAGE_TAG ---"
-            NEW_TAG="${{ github.sha }}"
+            NEW_TAG="${{ github.event.workflow_run.head_sha }}"
             sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=\${NEW_TAG}/" .env \
               || echo "IMAGE_TAG=\${NEW_TAG}" >> .env
 
@@ -136,7 +132,7 @@ jobs:
             docker compose -f docker-compose.prod-api.yml pull
 
             echo "--- Running Alembic migrations ---"
-            if ! docker compose -f docker-compose.prod-api.yml run --rm backend alembic upgrade head; then
+            if ! docker compose -f docker-compose.prod-api.yml run --rm backend-api-1 alembic upgrade head; then
               echo "Migration FAILED — rolling back to \${PREV_TAG}"
               sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=\${PREV_TAG}/" .env
               exit 1
@@ -178,10 +174,12 @@ jobs:
     environment: production
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
         with:
           ssh-private-key: ${{ secrets.VPS_PROD_FRONT_SSH_KEY }}
 
@@ -197,11 +195,11 @@ jobs:
             cd /opt/cri-platform
 
             echo "--- Syncing repository ---"
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin ${{ github.event.workflow_run.head_sha }}
+            git checkout --detach FETCH_HEAD
 
             echo "--- Updating IMAGE_TAG ---"
-            NEW_TAG="${{ github.sha }}"
+            NEW_TAG="${{ github.event.workflow_run.head_sha }}"
             sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=\${NEW_TAG}/" .env \
               || echo "IMAGE_TAG=\${NEW_TAG}" >> .env
 
@@ -236,19 +234,19 @@ jobs:
       - name: Notify success
         if: success()
         run: |
-          echo "::notice::Production deployment SUCCESS for ${{ github.sha }}"
+          echo "::notice::Production deployment SUCCESS for ${{ github.event.workflow_run.head_sha }}"
           if [ -n "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" ]; then
             curl -sf -X POST "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" \
               -H 'Content-Type: application/json' \
-              -d '{"text":"Production deployed: ${{ github.sha }} by ${{ github.actor }}"}' || true
+            -d '{"text":"Production deployed: ${{ github.event.workflow_run.head_sha }} by ${{ github.actor }}"}' || true
           fi
 
       - name: Notify failure
         if: failure()
         run: |
-          echo "::error::Production deployment FAILED for ${{ github.sha }}"
+          echo "::error::Production deployment FAILED for ${{ github.event.workflow_run.head_sha }}"
           if [ -n "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" ]; then
             curl -sf -X POST "${{ secrets.NOTIFICATION_WEBHOOK_URL }}" \
               -H 'Content-Type: application/json' \
-              -d '{"text":"FAILED production deploy: ${{ github.sha }} — check rollback status"}' || true
+            -d '{"text":"FAILED production deploy: ${{ github.event.workflow_run.head_sha }} — check rollback status"}' || true
           fi

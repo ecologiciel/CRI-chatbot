@@ -106,7 +106,7 @@ def create_app() -> FastAPI:
         description=(
             "Multi-tenant RAG chatbot platform for " "Centres Régionaux d'Investissement du Maroc"
         ),
-        version="0.1.0",
+        version="0.3.0-rc.1",
         docs_url="/docs" if not settings.is_production else None,
         redoc_url="/redoc" if not settings.is_production else None,
         lifespan=lifespan,

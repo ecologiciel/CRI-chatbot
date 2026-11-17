@@ -16,8 +16,7 @@ import pytest
 from app.core.exceptions import CRIBaseException, ResourceNotFoundError
 from app.core.tenant import TenantContext
 from app.models.enums import DossierStatut, Language
-from app.schemas.dossier import DossierDetail, DossierFilters, DossierHistoryRead
-
+from app.schemas.dossier import DossierDetail, DossierFilters
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -154,9 +153,9 @@ class TestStatutLabels:
 
         for lang in Language:
             for statut in DossierStatut:
-                assert statut in STATUT_LABELS[lang], (
-                    f"Missing label for {lang.value}/{statut.value}"
-                )
+                assert (
+                    statut in STATUT_LABELS[lang]
+                ), f"Missing label for {lang.value}/{statut.value}"
 
     def test_labels_are_nonempty_strings(self):
         from app.services.dossier.service import STATUT_LABELS
@@ -285,17 +284,13 @@ class TestGetDossierWithBolaCheck:
         return DossierService(audit=audit_mock)
 
     @pytest.mark.asyncio
-    async def test_allows_access_when_phone_owns_dossier(
-        self, service, audit_mock
-    ):
+    async def test_allows_access_when_phone_owns_dossier(self, service, audit_mock):
         """Anti-BOLA: access granted when phone matches dossier's contact."""
         contact_id = uuid.uuid4()
         dossier_id = uuid.uuid4()
         phone = "+212612345678"
 
-        dossier_orm = _make_dossier_orm(
-            id=dossier_id, contact_id=contact_id
-        )
+        dossier_orm = _make_dossier_orm(id=dossier_id, contact_id=contact_id)
         contact_orm = _make_contact_orm(id=contact_id, phone=phone)
 
         # Mock session: first execute returns dossier, second returns contact
@@ -319,9 +314,7 @@ class TestGetDossierWithBolaCheck:
 
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
-            result = await service.get_dossier_with_bola_check(
-                tenant, dossier_id, phone
-            )
+            result = await service.get_dossier_with_bola_check(tenant, dossier_id, phone)
 
         assert result is not None
         assert result.id == dossier_id
@@ -331,9 +324,7 @@ class TestGetDossierWithBolaCheck:
         assert call_args.action == "access"
 
     @pytest.mark.asyncio
-    async def test_denies_access_when_phone_does_not_own_dossier(
-        self, service, audit_mock
-    ):
+    async def test_denies_access_when_phone_does_not_own_dossier(self, service, audit_mock):
         """Anti-BOLA: access DENIED when phone's contact != dossier's contact."""
         from app.services.dossier.service import UnauthorizedDossierAccess
 
@@ -342,12 +333,8 @@ class TestGetDossierWithBolaCheck:
         dossier_id = uuid.uuid4()
         attacker_phone = "+212699999999"
 
-        dossier_orm = _make_dossier_orm(
-            id=dossier_id, contact_id=owner_contact_id
-        )
-        attacker_contact = _make_contact_orm(
-            id=attacker_contact_id, phone=attacker_phone
-        )
+        dossier_orm = _make_dossier_orm(id=dossier_id, contact_id=owner_contact_id)
+        attacker_contact = _make_contact_orm(id=attacker_contact_id, phone=attacker_phone)
 
         mock_session = AsyncMock()
         call_count = 0
@@ -370,9 +357,7 @@ class TestGetDossierWithBolaCheck:
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
             with pytest.raises(UnauthorizedDossierAccess):
-                await service.get_dossier_with_bola_check(
-                    tenant, dossier_id, attacker_phone
-                )
+                await service.get_dossier_with_bola_check(tenant, dossier_id, attacker_phone)
 
         # Verify denial was audit-logged
         audit_mock.log_action.assert_called_once()
@@ -410,14 +395,10 @@ class TestGetDossierWithBolaCheck:
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
             with pytest.raises(UnauthorizedDossierAccess):
-                await service.get_dossier_with_bola_check(
-                    tenant, dossier_id, "+212600000000"
-                )
+                await service.get_dossier_with_bola_check(tenant, dossier_id, "+212600000000")
 
     @pytest.mark.asyncio
-    async def test_raises_not_found_when_dossier_missing(
-        self, service, audit_mock
-    ):
+    async def test_raises_not_found_when_dossier_missing(self, service, audit_mock):
         """ResourceNotFoundError when the dossier doesn't exist."""
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -430,9 +411,7 @@ class TestGetDossierWithBolaCheck:
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
             with pytest.raises(ResourceNotFoundError):
-                await service.get_dossier_with_bola_check(
-                    tenant, uuid.uuid4(), "+212612345678"
-                )
+                await service.get_dossier_with_bola_check(tenant, uuid.uuid4(), "+212612345678")
 
         # No audit log for "not found" (not a BOLA violation)
         audit_mock.log_action.assert_not_called()
@@ -463,9 +442,7 @@ class TestGetDossiersByPhone:
 
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
-            result = await service.get_dossiers_by_phone(
-                tenant, "+212600000000"
-            )
+            result = await service.get_dossiers_by_phone(tenant, "+212600000000")
 
         assert result == []
 
@@ -502,9 +479,7 @@ class TestGetDossiersByPhone:
 
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
-            result = await service.get_dossiers_by_phone(
-                tenant, "+212612345678"
-            )
+            result = await service.get_dossiers_by_phone(tenant, "+212612345678")
 
         assert len(result) == 2
         assert result[0].numero == "D-001"
@@ -537,9 +512,7 @@ class TestGetDossierByNumero:
 
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
-            result = await service.get_dossier_by_numero(
-                tenant, "2024-RSK-0042"
-            )
+            result = await service.get_dossier_by_numero(tenant, "2024-RSK-0042")
 
         assert result is not None
         assert result.numero == "2024-RSK-0042"
@@ -557,9 +530,7 @@ class TestGetDossierByNumero:
 
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
-            result = await service.get_dossier_by_numero(
-                tenant, "NONEXISTENT"
-            )
+            result = await service.get_dossier_by_numero(tenant, "NONEXISTENT")
 
         assert result is None
 
@@ -672,9 +643,7 @@ class TestListDossiers:
 
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
-            result = await service.list_dossiers(
-                tenant, page=1, page_size=20
-            )
+            result = await service.list_dossiers(tenant, page=1, page_size=20)
 
         assert result.total == 1
         assert result.page == 1
@@ -706,9 +675,7 @@ class TestListDossiers:
         filters = DossierFilters(statut=DossierStatut.valide)
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
-            result = await service.list_dossiers(
-                tenant, filters=filters, page=1, page_size=10
-            )
+            result = await service.list_dossiers(tenant, filters=filters, page=1, page_size=10)
 
         assert result.total == 0
         assert result.items == []
@@ -736,9 +703,7 @@ class TestListDossiers:
         filters = DossierFilters(search="SARL")
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
-            result = await service.list_dossiers(
-                tenant, filters=filters, page=1, page_size=10
-            )
+            result = await service.list_dossiers(tenant, filters=filters, page=1, page_size=10)
 
         assert result.total == 0
         # Importantly: session.execute was called (filter applied, no crash)

@@ -218,9 +218,7 @@ def _build_graph_with_mocks(
         patch(
             "app.services.orchestrator.graph.get_escalation_handler", return_value=mock_escalation
         ),
-        patch(
-            "app.services.orchestrator.graph.get_tracking_agent", return_value=mock_tracking
-        ),
+        patch("app.services.orchestrator.graph.get_tracking_agent", return_value=mock_tracking),
     ):
         graph = build_conversation_graph()
 

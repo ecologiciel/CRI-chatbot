@@ -318,19 +318,23 @@ class TestGetNotificationStats:
 
         action_result = MagicMock()
         action_result.__iter__ = MagicMock(
-            return_value=iter([
-                ("notification_sent", 10),
-                ("notification_skipped", 3),
-                ("notification_failed", 1),
-            ])
+            return_value=iter(
+                [
+                    ("notification_sent", 10),
+                    ("notification_skipped", 3),
+                    ("notification_failed", 1),
+                ]
+            )
         )
 
         event_result = MagicMock()
         event_result.__iter__ = MagicMock(
-            return_value=iter([
-                ("decision_finale", 8),
-                ("status_update", 6),
-            ])
+            return_value=iter(
+                [
+                    ("decision_finale", 8),
+                    ("status_update", 6),
+                ]
+            )
         )
 
         mock_factory, _ = _mock_public_session(
@@ -414,23 +418,13 @@ class TestSendManualNotification:
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch.object(
-                    TenantContext, "db_session", return_value=mock_session
-                ),
-                patch(
-                    "app.api.v1.notifications.WhatsAppSenderService"
-                ) as MockSender,
-                patch(
-                    "app.api.v1.notifications.get_audit_service"
-                ) as mock_get_audit,
+                patch.object(TenantContext, "db_session", return_value=mock_session),
+                patch("app.api.v1.notifications.WhatsAppSenderService") as MockSender,
+                patch("app.api.v1.notifications.get_audit_service") as mock_get_audit,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_sender_inst = MockSender.return_value
-                mock_sender_inst.send_template = AsyncMock(
-                    return_value="wamid.test123"
-                )
+                mock_sender_inst.send_template = AsyncMock(return_value="wamid.test123")
                 mock_audit = MagicMock()
                 mock_audit.log_action = AsyncMock()
                 mock_get_audit.return_value = mock_audit
@@ -465,13 +459,9 @@ class TestSendManualNotification:
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch.object(
-                    TenantContext, "db_session", return_value=mock_session
-                ),
+                patch.object(TenantContext, "db_session", return_value=mock_session),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
@@ -515,13 +505,9 @@ class TestSendManualNotification:
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch.object(
-                    TenantContext, "db_session", return_value=mock_session
-                ),
+                patch.object(TenantContext, "db_session", return_value=mock_session),
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
@@ -549,9 +535,7 @@ class TestSendManualNotification:
         _setup_overrides(role=AdminRole.supervisor.value)
         try:
             with patch("app.core.middleware.TenantResolver") as MockResolver:
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
@@ -575,9 +559,7 @@ class TestSendManualNotification:
         _setup_overrides(role=AdminRole.admin_tenant.value)
         try:
             with patch("app.core.middleware.TenantResolver") as MockResolver:
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
@@ -608,9 +590,7 @@ class TestListTemplates:
         _setup_overrides(role=AdminRole.supervisor.value)
         try:
             with patch("app.core.middleware.TenantResolver") as MockResolver:
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
@@ -678,13 +658,9 @@ class TestUpdateTemplate:
                     "app.api.v1.notifications.get_redis",
                     return_value=mock_redis,
                 ),
-                patch(
-                    "app.api.v1.notifications.get_audit_service"
-                ) as mock_get_audit,
+                patch("app.api.v1.notifications.get_audit_service") as mock_get_audit,
             ):
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_audit = MagicMock()
                 mock_audit.log_action = AsyncMock()
                 mock_get_audit.return_value = mock_audit
@@ -711,9 +687,7 @@ class TestUpdateTemplate:
         _setup_overrides(role=AdminRole.admin_tenant.value)
         try:
             with patch("app.core.middleware.TenantResolver") as MockResolver:
-                MockResolver.from_tenant_id_header = AsyncMock(
-                    return_value=TEST_TENANT
-                )
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:

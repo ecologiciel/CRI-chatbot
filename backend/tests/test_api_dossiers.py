@@ -186,16 +186,12 @@ class TestListDossiers:
     async def test_list_success(self):
         """GET /dossiers returns paginated list."""
         _setup_overrides()
-        dossier_list = DossierList(
-            items=[], total=0, page=1, page_size=20
-        )
+        dossier_list = DossierList(items=[], total=0, page=1, page_size=20)
 
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch(
-                    "app.api.v1.dossiers.get_dossier_service"
-                ) as mock_svc_factory,
+                patch("app.api.v1.dossiers.get_dossier_service") as mock_svc_factory,
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_svc = MagicMock()
@@ -223,16 +219,12 @@ class TestListDossiers:
     async def test_list_with_filters(self):
         """GET /dossiers?statut=en_cours passes filters to service."""
         _setup_overrides()
-        dossier_list = DossierList(
-            items=[], total=0, page=1, page_size=20
-        )
+        dossier_list = DossierList(items=[], total=0, page=1, page_size=20)
 
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch(
-                    "app.api.v1.dossiers.get_dossier_service"
-                ) as mock_svc_factory,
+                patch("app.api.v1.dossiers.get_dossier_service") as mock_svc_factory,
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_svc = MagicMock()
@@ -291,16 +283,19 @@ class TestDossierStats:
         """GET /dossiers/stats returns KPIs."""
         _setup_overrides()
         stats = DossierStats(
-            total=100, en_cours=30, valide=25, rejete=10,
-            en_attente=20, complement=10, incomplet=5,
+            total=100,
+            en_cours=30,
+            valide=25,
+            rejete=10,
+            en_attente=20,
+            complement=10,
+            incomplet=5,
         )
 
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
-                patch(
-                    "app.api.v1.dossiers.get_dossier_service"
-                ) as mock_svc_factory,
+                patch("app.api.v1.dossiers.get_dossier_service") as mock_svc_factory,
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_svc = MagicMock()
@@ -354,7 +349,13 @@ class TestImportDossiers:
                 ) as client:
                     response = await client.post(
                         "/api/v1/dossiers/import",
-                        files={"file": ("dossiers.xlsx", b"PK\x03\x04test", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                        files={
+                            "file": (
+                                "dossiers.xlsx",
+                                b"PK\x03\x04test",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            )
+                        },
                         headers=_headers(),
                     )
         finally:
@@ -405,7 +406,13 @@ class TestImportDossiers:
                 ) as client:
                     response = await client.post(
                         "/api/v1/dossiers/import",
-                        files={"file": ("big.xlsx", b"x" * (10 * 1024 * 1024 + 1), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                        files={
+                            "file": (
+                                "big.xlsx",
+                                b"x" * (10 * 1024 * 1024 + 1),
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            )
+                        },
                         headers=_headers(),
                     )
         finally:
@@ -480,15 +487,15 @@ class TestSyncLogs:
         mock_scalars.all.return_value = [sl]
         data_result.scalars.return_value = mock_scalars
 
-        mock_session = _mock_tenant_db_session(
-            execute_side_effect=[count_result, data_result]
-        )
+        mock_session = _mock_tenant_db_session(execute_side_effect=[count_result, data_result])
 
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
@@ -519,7 +526,9 @@ class TestSyncLogs:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
@@ -548,7 +557,9 @@ class TestSyncLogs:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
@@ -587,7 +598,9 @@ class TestSyncConfigs:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
@@ -632,7 +645,9 @@ class TestSyncConfigs:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
@@ -676,7 +691,9 @@ class TestSyncConfigs:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
@@ -705,7 +722,9 @@ class TestSyncConfigs:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
@@ -753,7 +772,9 @@ class TestDossierDetail:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
@@ -786,7 +807,9 @@ class TestDossierDetail:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch.object(
-                    TenantContext, "db_session", return_value=mock_session,
+                    TenantContext,
+                    "db_session",
+                    return_value=mock_session,
                 ),
             ):
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)

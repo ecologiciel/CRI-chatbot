@@ -19,10 +19,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.tenant import TenantContext
-from app.models.enums import Language
 from app.services.orchestrator.state import ConversationState
 from app.services.orchestrator.tracking_agent import (
-    MAX_OTP_ATTEMPTS,
     TrackingAgent,
     _extract_identifier,
     _is_cancel,
@@ -228,7 +226,10 @@ class TestTrackingStateManager:
             await mgr.set_state(TEST_PHONE, state, TEST_TENANT)
 
         call_args = mock_redis.set.call_args
-        assert call_args.kwargs.get("ex") == TRACKING_STATE_TTL or call_args[1].get("ex") == TRACKING_STATE_TTL
+        assert (
+            call_args.kwargs.get("ex") == TRACKING_STATE_TTL
+            or call_args[1].get("ex") == TRACKING_STATE_TTL
+        )
         # Verify JSON is valid
         raw_json = call_args[0][1] if len(call_args[0]) > 1 else call_args.kwargs.get("value")
         data = json.loads(raw_json)
@@ -599,7 +600,9 @@ class TestTrackingAgentAuthenticated:
 
         assert "2024-001" in result["response"]
         otp.validate_dossier_session.assert_called_once_with(
-            TEST_PHONE, "valid_token", TEST_TENANT,
+            TEST_PHONE,
+            "valid_token",
+            TEST_TENANT,
         )
 
     @pytest.mark.asyncio
@@ -668,7 +671,9 @@ class TestTrackingAgentAuthenticated:
 
         assert "2024-999" in result["response"]
         dossier.get_dossier_with_bola_check.assert_called_once_with(
-            TEST_TENANT, dossier_id, TEST_PHONE,
+            TEST_TENANT,
+            dossier_id,
+            TEST_PHONE,
         )
 
     @pytest.mark.asyncio
@@ -817,7 +822,8 @@ class TestNoGeminiCalls:
 
         # Check that no attribute referencing Gemini exists
         module_source = ta_module.__file__ or ""
-        assert "GeminiService" not in open(module_source).read()
+        with open(module_source) as source_file:
+            assert "GeminiService" not in source_file.read()
 
 
 # =============================================================================

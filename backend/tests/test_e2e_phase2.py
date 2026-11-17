@@ -17,7 +17,6 @@ import hashlib
 import json
 import secrets
 import uuid
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,13 +30,10 @@ from .conftest_phase2 import (
     TEST_ADMIN_ID,
     TEST_TENANT_ID,
     TEST_TENANT_SLUG,
-    _make_async_cm,
     make_admin_payload,
     make_campaign_orm,
-    make_contact_orm,
-    make_escalation_orm,
-    make_question_orm,
     make_mock_tenant,
+    make_question_orm,
     make_whitelist_orm,
     mock_session_for_crud,
     mock_session_for_list,
@@ -245,14 +241,16 @@ class TestEscaladeManuelle:
             tenant = make_mock_tenant()
             svc_mock = AsyncMock()
             svc_mock.get_escalations = AsyncMock(return_value=([], 0))
-            svc_mock.get_escalation_stats = AsyncMock(return_value={
-                "total_pending": 2,
-                "total_in_progress": 1,
-                "avg_wait_seconds": 300.0,
-                "avg_resolution_seconds": 1200.0,
-                "by_trigger": {"explicit_request": 2, "rag_failure": 1},
-                "by_priority": {"high": 2, "medium": 1},
-            })
+            svc_mock.get_escalation_stats = AsyncMock(
+                return_value={
+                    "total_pending": 2,
+                    "total_in_progress": 1,
+                    "avg_wait_seconds": 300.0,
+                    "avg_resolution_seconds": 1200.0,
+                    "by_trigger": {"explicit_request": 2, "rag_failure": 1},
+                    "by_priority": {"high": 2, "medium": 1},
+                }
+            )
 
             with (
                 patch(_TENANT_RESOLVER_PATCH, return_value=tenant),
@@ -284,32 +282,37 @@ class TestEscaladeManuelle:
         from app.services.orchestrator.graph import check_feedback_escalation
 
         # Français + low confidence → escalade
-        assert check_feedback_escalation(
-            {"query": "je veux parler à un agent", "confidence": 0.3}
-        ) == "escalation_handler"
-        assert check_feedback_escalation(
-            {"query": "je veux un conseiller", "confidence": 0.4}
-        ) == "escalation_handler"
+        assert (
+            check_feedback_escalation({"query": "je veux parler à un agent", "confidence": 0.3})
+            == "escalation_handler"
+        )
+        assert (
+            check_feedback_escalation({"query": "je veux un conseiller", "confidence": 0.4})
+            == "escalation_handler"
+        )
 
         # Arabe + low confidence → escalade
-        assert check_feedback_escalation(
-            {"query": "أريد التحدث مع موظف", "confidence": 0.2}
-        ) == "escalation_handler"
+        assert (
+            check_feedback_escalation({"query": "أريد التحدث مع موظف", "confidence": 0.2})
+            == "escalation_handler"
+        )
 
         # Anglais + low confidence → escalade
-        assert check_feedback_escalation(
-            {"query": "I want to talk to a human advisor", "confidence": 0.1}
-        ) == "escalation_handler"
+        assert (
+            check_feedback_escalation(
+                {"query": "I want to talk to a human advisor", "confidence": 0.1}
+            )
+            == "escalation_handler"
+        )
 
         # Keywords present BUT high confidence → NO escalade
-        assert check_feedback_escalation(
-            {"query": "je veux parler à un agent", "confidence": 0.8}
-        ) == END
+        assert (
+            check_feedback_escalation({"query": "je veux parler à un agent", "confidence": 0.8})
+            == END
+        )
 
         # No keywords → NO escalade
-        assert check_feedback_escalation(
-            {"query": "merci beaucoup", "confidence": 0.3}
-        ) == END
+        assert check_feedback_escalation({"query": "merci beaucoup", "confidence": 0.3}) == END
 
     @pytest.mark.asyncio
     async def test_router_phase2_intents(self):
@@ -319,14 +322,25 @@ class TestEscaladeManuelle:
 
         # Phase 1 intents
         assert Router.route({"intent": IntentType.FAQ, "is_safe": True}) == "faq_agent"
-        assert Router.route({"intent": IntentType.INCITATIONS, "is_safe": True}) == "incentives_agent"
-        assert Router.route({"intent": IntentType.SALUTATION, "is_safe": True}) == "greeting_response"
-        assert Router.route({"intent": IntentType.HORS_PERIMETRE, "is_safe": True}) == "out_of_scope_response"
-        assert Router.route({"intent": IntentType.SUIVI_DOSSIER, "is_safe": True}) == "tracking_agent"
+        assert (
+            Router.route({"intent": IntentType.INCITATIONS, "is_safe": True}) == "incentives_agent"
+        )
+        assert (
+            Router.route({"intent": IntentType.SALUTATION, "is_safe": True}) == "greeting_response"
+        )
+        assert (
+            Router.route({"intent": IntentType.HORS_PERIMETRE, "is_safe": True})
+            == "out_of_scope_response"
+        )
+        assert (
+            Router.route({"intent": IntentType.SUIVI_DOSSIER, "is_safe": True}) == "tracking_agent"
+        )
 
         # Phase 2 intents
         assert Router.route({"intent": IntentType.INTERNE, "is_safe": True}) == "internal_agent"
-        assert Router.route({"intent": IntentType.ESCALADE, "is_safe": True}) == "escalation_handler"
+        assert (
+            Router.route({"intent": IntentType.ESCALADE, "is_safe": True}) == "escalation_handler"
+        )
 
         # Safety override
         assert Router.route({"intent": IntentType.FAQ, "is_safe": False}) == "blocked_response"
@@ -353,13 +367,15 @@ class TestApprentissageSupervise:
             question = make_question_orm()
             svc_mock = AsyncMock()
             svc_mock.get_unanswered_questions = AsyncMock(return_value=([question], 1))
-            svc_mock.get_learning_stats = AsyncMock(return_value={
-                "total": 5,
-                "by_status": {"pending": 3, "approved": 1, "rejected": 1},
-                "approval_rate": 0.5,
-                "avg_review_time_hours": 2.5,
-                "top_questions": [{"question": question.question, "frequency": 3}],
-            })
+            svc_mock.get_learning_stats = AsyncMock(
+                return_value={
+                    "total": 5,
+                    "by_status": {"pending": 3, "approved": 1, "rejected": 1},
+                    "approval_rate": 0.5,
+                    "avg_review_time_hours": 2.5,
+                    "top_questions": [{"question": question.question, "frequency": 3}],
+                }
+            )
 
             with (
                 patch(_TENANT_RESOLVER_PATCH, return_value=tenant),
@@ -535,10 +551,12 @@ class TestCampagnes:
             svc_mock = AsyncMock()
             svc_mock.create_campaign = AsyncMock(return_value=campaign)
             svc_mock.get_campaign = AsyncMock(return_value=campaign)
-            svc_mock.preview_audience = AsyncMock(return_value=MagicMock(
-                count=7,
-                sample=[{"phone": "+212610000001", "name": "Contact 1"}],
-            ))
+            svc_mock.preview_audience = AsyncMock(
+                return_value=MagicMock(
+                    count=7,
+                    sample=[{"phone": "+212610000001", "name": "Contact 1"}],
+                )
+            )
 
             with (
                 patch(_TENANT_RESOLVER_PATCH, return_value=tenant),
@@ -583,14 +601,16 @@ class TestCampagnes:
         try:
             tenant = make_mock_tenant()
             svc_mock = AsyncMock()
-            svc_mock.check_quota = AsyncMock(return_value={
-                "used": 5000,
-                "limit": 100000,
-                "remaining": 95000,
-                "percentage": 5.0,
-                "warning": False,
-                "critical": False,
-            })
+            svc_mock.check_quota = AsyncMock(
+                return_value={
+                    "used": 5000,
+                    "limit": 100000,
+                    "remaining": 95000,
+                    "percentage": 5.0,
+                    "warning": False,
+                    "critical": False,
+                }
+            )
 
             with (
                 patch(_TENANT_RESOLVER_PATCH, return_value=tenant),
@@ -675,13 +695,14 @@ class TestCampagnes:
             campaign = make_campaign_orm()
             svc_mock = AsyncMock()
             svc_mock.get_campaign = AsyncMock(return_value=campaign)
-            svc_mock.preview_audience = AsyncMock(return_value=MagicMock(
-                count=7,
-                sample=[
-                    {"phone": f"+2126100000{i:02d}", "name": f"Contact {i}"}
-                    for i in range(5)
-                ],
-            ))
+            svc_mock.preview_audience = AsyncMock(
+                return_value=MagicMock(
+                    count=7,
+                    sample=[
+                        {"phone": f"+2126100000{i:02d}", "name": f"Contact {i}"} for i in range(5)
+                    ],
+                )
+            )
 
             with (
                 patch(_TENANT_RESOLVER_PATCH, return_value=tenant),
@@ -744,9 +765,7 @@ class TestSecuritePhase2:
         #   2. get(key_ip) → "1.2.3.4" (different from 5.6.7.8)
         # invalidate_session.get calls:
         #   3. get(key_active) → "valid-jti" (to revoke it)
-        redis_mock.get = AsyncMock(
-            side_effect=["valid-jti", "1.2.3.4", "valid-jti"]
-        )
+        redis_mock.get = AsyncMock(side_effect=["valid-jti", "1.2.3.4", "valid-jti"])
         redis_mock.setex = AsyncMock()
         redis_mock.delete = AsyncMock()
 
@@ -762,8 +781,8 @@ class TestSecuritePhase2:
         redis_mock = AsyncMock()
         redis_mock.get = AsyncMock(
             side_effect=[
-                "old-jti",     # active session → old JTI (will be revoked)
-                "1.2.3.4",     # previous IP
+                "old-jti",  # active session → old JTI (will be revoked)
+                "1.2.3.4",  # previous IP
                 "1700000000",  # last login timestamp (old enough → no alert)
             ]
         )
@@ -829,8 +848,13 @@ class TestSecuritePhase2:
 
         # Verify they are valid keys of ConversationState
         annotations = ConversationState.__annotations__
-        for key in ("is_internal_user", "escalation_id", "consecutive_low_confidence",
-                     "conversation_id", "agent_type"):
+        for key in (
+            "is_internal_user",
+            "escalation_id",
+            "consecutive_low_confidence",
+            "conversation_id",
+            "agent_type",
+        ):
             assert key in annotations, f"Missing Phase 2 field: {key}"
 
 
@@ -919,8 +943,16 @@ class TestIsolationMultiTenant:
 
 def _copy_attrs(target, source):
     """Copy attributes from source mock to target (for session.refresh)."""
-    for attr in ("id", "phone", "label", "note", "is_active", "added_by",
-                 "created_at", "updated_at"):
+    for attr in (
+        "id",
+        "phone",
+        "label",
+        "note",
+        "is_active",
+        "added_by",
+        "created_at",
+        "updated_at",
+    ):
         if hasattr(source, attr):
             try:
                 setattr(target, attr, getattr(source, attr))

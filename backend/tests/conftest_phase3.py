@@ -15,8 +15,6 @@ import importlib
 import os
 import secrets
 import uuid
-from datetime import UTC, datetime
-from io import BytesIO
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -26,7 +24,7 @@ import pytest
 from app.models.enums import DossierStatut, Language, OptInStatus
 from app.services.dossier.service import DossierService
 from app.services.orchestrator.tracking_agent import TrackingAgent
-from app.services.orchestrator.tracking_state import TrackingStep, TrackingUserState
+from app.services.orchestrator.tracking_state import TrackingUserState
 
 # ── Constants ────────────────────────────────────────────────────────
 
@@ -97,7 +95,10 @@ class InMemoryTrackingStateManager:
         return self._store.get(key, TrackingUserState())
 
     async def set_state(
-        self, phone: str, state: TrackingUserState, tenant: Any,
+        self,
+        phone: str,
+        state: TrackingUserState,
+        tenant: Any,
     ) -> None:
         key = self._key(phone, tenant)
         self._store[key] = state
@@ -135,6 +136,7 @@ class InMemoryOTPStore:
     async def generate_otp(self, phone: str, tenant: Any) -> str:
         if await self.is_rate_limited(tenant, phone):
             from app.core.exceptions import RateLimitExceededError
+
             raise RateLimitExceededError("OTP rate limit exceeded")
 
         otp = str(secrets.randbelow(900000) + 100000)
@@ -171,7 +173,10 @@ class InMemoryOTPStore:
         return token
 
     async def validate_dossier_session(
-        self, phone: str, session_token: str, tenant: Any,
+        self,
+        phone: str,
+        session_token: str,
+        tenant: Any,
     ) -> bool:
         session_key = self._key(tenant, "dossier_session", phone)
         stored = self._sessions.get(session_key)
@@ -317,20 +322,28 @@ def sample_import_xlsx() -> str:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Dossiers"
-    ws.append([
-        "Numéro", "Statut", "Type Projet", "Raison Sociale",
-        "Téléphone", "Observations",
-    ])
+    ws.append(
+        [
+            "Numéro",
+            "Statut",
+            "Type Projet",
+            "Raison Sociale",
+            "Téléphone",
+            "Observations",
+        ]
+    )
     statuts = ["en_cours", "valide", "en_attente", "incomplet", "en_cours"]
     for i in range(10):
-        ws.append([
-            f"2024-IMP-{i + 1:03d}",
-            statuts[i % len(statuts)],
-            "Industrie" if i % 2 == 0 else "Services",
-            f"Entreprise Test {i + 1}",
-            f"+2126400000{i:02d}",
-            f"Observation {i + 1}" if i % 3 == 0 else "",
-        ])
+        ws.append(
+            [
+                f"2024-IMP-{i + 1:03d}",
+                statuts[i % len(statuts)],
+                "Industrie" if i % 2 == 0 else "Services",
+                f"Entreprise Test {i + 1}",
+                f"+2126400000{i:02d}",
+                f"Observation {i + 1}" if i % 3 == 0 else "",
+            ]
+        )
 
     file_path = os.path.join(FIXTURES_DIR, "sample_import.xlsx")
     wb.save(file_path)
@@ -347,36 +360,71 @@ def sample_import_errors_xlsx() -> str:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Dossiers"
-    ws.append([
-        "Numéro", "Statut", "Type Projet", "Raison Sociale",
-        "Téléphone", "Observations",
-    ])
+    ws.append(
+        [
+            "Numéro",
+            "Statut",
+            "Type Projet",
+            "Raison Sociale",
+            "Téléphone",
+            "Observations",
+        ]
+    )
     # Row 2: valid
-    ws.append([
-        "2024-ERR-001", "en_cours", "Industrie", "Normal Company",
-        "+212640000001", "OK",
-    ])
+    ws.append(
+        [
+            "2024-ERR-001",
+            "en_cours",
+            "Industrie",
+            "Normal Company",
+            "+212640000001",
+            "OK",
+        ]
+    )
     # Row 3: missing numero
-    ws.append([
-        "", "en_cours", "Industrie", "Missing Numero",
-        "+212640000002", "",
-    ])
+    ws.append(
+        [
+            "",
+            "en_cours",
+            "Industrie",
+            "Missing Numero",
+            "+212640000002",
+            "",
+        ]
+    )
     # Row 4: SQL injection in raison_sociale
-    ws.append([
-        "2024-ERR-003", "en_cours", "Industrie",
-        "'; DROP TABLE dossiers; --",
-        "+212640000003", "",
-    ])
+    ws.append(
+        [
+            "2024-ERR-003",
+            "en_cours",
+            "Industrie",
+            "'; DROP TABLE dossiers; --",
+            "+212640000003",
+            "",
+        ]
+    )
     # Row 5: XSS in observations
-    ws.append([
-        "2024-ERR-004", "en_cours", "Industrie", "XSS Company",
-        "+212640000004", "<script>alert('xss')</script>",
-    ])
+    ws.append(
+        [
+            "2024-ERR-004",
+            "en_cours",
+            "Industrie",
+            "XSS Company",
+            "+212640000004",
+            "<script>alert('xss')</script>",
+        ]
+    )
     # Row 6: valid
-    ws.append([
-        "2024-ERR-005", "valide", "Services", "Valid Company",
-        "+212640000005", "Observations normales",
-    ])
+    ws.append(
+        [
+            "2024-ERR-005",
+            "valide",
+            "Services",
+            "Valid Company",
+            "+212640000005",
+            "Observations normales",
+        ]
+    )
 
     file_path = os.path.join(FIXTURES_DIR, "sample_import_errors.xlsx")
     wb.save(file_path)

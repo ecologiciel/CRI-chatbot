@@ -7,7 +7,7 @@
 
 Chatbot WhatsApp propulse par l'IA (RAG + Gemini 2.5 Flash) pour repondre aux questions des investisseurs sur les procedures, incitations et services des CRI. Chaque CRI regional est un tenant isole avec sa propre base de connaissances, configuration WhatsApp et donnees metier. Le provisionnement d'un nouveau CRI se fait via le back-office sans redeploiement.
 
-**Phase actuelle :** Phase 2 — Agent Interne + Supervision (complete, v0.2.0-phase2)
+**Phase actuelle :** Phase 3 — Release candidate `0.3.0-rc.1` (validation finale de charge et production requise)
 
 ## Fonctionnalites
 
@@ -32,13 +32,12 @@ Chatbot WhatsApp propulse par l'IA (RAG + Gemini 2.5 Flash) pour repondre aux qu
 - Gestion sessions avancee (detection changement IP, session unique)
 - Back-office complet (analytics, campagnes, gestion administrateurs, super-admin cross-tenant)
 
-### Phase 3 (a venir)
+### Phase 3 — Release candidate `0.3.0-rc.1`
 
 - Suivi de dossier (OTP, import Excel/CSV)
 - Notifications proactives
-- Tests de charge (100+ conversations simultanees, < 2s)
-- Audit conformite CNDP
-- Deploiement production Nindohost
+- Tests de charge (100+ conversations simultanees, < 2 s) et audit final CNDP avant mise en production
+- Déploiement Nindohost via CI/CD bloquante et validation post-déploiement
 
 ## Stack technique
 

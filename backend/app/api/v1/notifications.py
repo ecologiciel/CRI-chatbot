@@ -39,9 +39,9 @@ from app.schemas.notification import (
 )
 from app.services.audit.service import get_audit_service
 from app.services.notification.service import (
+    _EVENT_TEMPLATE_MAP,
     NotificationEventType,
     NotificationPriority,
-    _EVENT_TEMPLATE_MAP,
     get_notification_service,
 )
 from app.services.whatsapp.sender import WhatsAppSenderService
@@ -167,9 +167,7 @@ async def list_notifications(
         # Paginated data
         offset = (page - 1) * page_size
         data_result = await session.execute(
-            base.order_by(AuditLog.created_at.desc())
-            .offset(offset)
-            .limit(page_size),
+            base.order_by(AuditLog.created_at.desc()).offset(offset).limit(page_size),
         )
         logs = list(data_result.scalars().all())
 
@@ -205,9 +203,7 @@ async def get_notification_stats(
 
         # Counts by action
         action_rows = await session.execute(
-            select(AuditLog.action, func.count())
-            .where(*base_where)
-            .group_by(AuditLog.action),
+            select(AuditLog.action, func.count()).where(*base_where).group_by(AuditLog.action),
         )
         action_counts: dict[str, int] = {}
         for action, cnt in action_rows:
@@ -432,12 +428,9 @@ async def update_template(
     )
 
     # Return the updated single template
-    default_name = _EVENT_TEMPLATE_MAP[NotificationEventType(event_type)]
     return NotificationTemplateRead(
         event_type=event_type,
         template_name=data.template_name,
         description=_EVENT_DESCRIPTIONS.get(event_type, ""),
-        priority=_EVENT_DEFAULT_PRIORITIES.get(
-            event_type, NotificationPriority.medium.value
-        ),
+        priority=_EVENT_DEFAULT_PRIORITIES.get(event_type, NotificationPriority.medium.value),
     )

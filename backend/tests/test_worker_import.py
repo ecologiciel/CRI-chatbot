@@ -199,7 +199,11 @@ class TestTaskImportDossier:
             )
 
             result = await task_import_dossier(
-                {}, "imports/pending/test.xlsx", None, TEST_TENANT_SLUG, None,
+                {},
+                "imports/pending/test.xlsx",
+                None,
+                TEST_TENANT_SLUG,
+                None,
             )
 
         assert result["status"] == "skipped"
@@ -239,7 +243,11 @@ class TestTaskImportDossier:
             )
 
             result = await task_import_dossier(
-                {}, "imports/pending/test.txt", None, TEST_TENANT_SLUG, None,
+                {},
+                "imports/pending/test.txt",
+                None,
+                TEST_TENANT_SLUG,
+                None,
             )
 
         assert result["status"] == "failed"
@@ -306,7 +314,11 @@ class TestTaskImportDossier:
             )
 
             result = await task_import_dossier(
-                {}, "imports/pending/dossiers.xlsx", None, TEST_TENANT_SLUG, None,
+                {},
+                "imports/pending/dossiers.xlsx",
+                None,
+                TEST_TENANT_SLUG,
+                None,
             )
 
         assert result["status"] == "completed"
@@ -336,7 +348,11 @@ class TestTaskImportDossier:
         tenant = _make_tenant_with_session(session)
 
         validation = MagicMock(
-            is_valid=True, is_duplicate=False, file_hash="xyz", file_size=512, error=None,
+            is_valid=True,
+            is_duplicate=False,
+            file_hash="xyz",
+            file_size=512,
+            error=None,
         )
 
         mock_import_service = MagicMock()
@@ -361,7 +377,11 @@ class TestTaskImportDossier:
             )
 
             await task_import_dossier(
-                {}, "imports/pending/data.csv", None, TEST_TENANT_SLUG, None,
+                {},
+                "imports/pending/data.csv",
+                None,
+                TEST_TENANT_SLUG,
+                None,
             )
 
         mock_import_service.parse_csv.assert_called_once()
@@ -375,7 +395,11 @@ class TestTaskImportDossier:
         tenant = _make_tenant_with_session(session)
 
         validation = MagicMock(
-            is_valid=True, is_duplicate=False, file_hash="abc", file_size=1024, error=None,
+            is_valid=True,
+            is_duplicate=False,
+            file_hash="abc",
+            file_size=1024,
+            error=None,
         )
 
         mock_import_service = MagicMock()
@@ -402,7 +426,11 @@ class TestTaskImportDossier:
 
             with pytest.raises(ValueError, match="Corrupted file"):
                 await task_import_dossier(
-                    {}, "imports/pending/broken.xlsx", None, TEST_TENANT_SLUG, None,
+                    {},
+                    "imports/pending/broken.xlsx",
+                    None,
+                    TEST_TENANT_SLUG,
+                    None,
                 )
 
         # SyncLog should be marked failed
@@ -415,7 +443,11 @@ class TestTaskImportDossier:
         tenant = _make_tenant_with_session(session)
 
         validation = MagicMock(
-            is_valid=True, is_duplicate=False, file_hash="abc", file_size=1024, error=None,
+            is_valid=True,
+            is_duplicate=False,
+            file_hash="abc",
+            file_size=1024,
+            error=None,
         )
 
         mock_import_service = MagicMock()
@@ -443,7 +475,11 @@ class TestTaskImportDossier:
 
             with pytest.raises(RuntimeError, match="boom"):
                 await task_import_dossier(
-                    {}, "imports/pending/test.xlsx", None, TEST_TENANT_SLUG, None,
+                    {},
+                    "imports/pending/test.xlsx",
+                    None,
+                    TEST_TENANT_SLUG,
+                    None,
                 )
 
         mock_unlink.assert_called_once()
@@ -545,7 +581,9 @@ class TestTaskWatchImportFolder:
         """Enqueued files are moved to imports/processed/{date}/."""
         config_result = MagicMock()
         config_result.scalar_one_or_none.return_value = MagicMock(
-            id=TEST_CONFIG_ID, watched_folder=None, is_active=True,
+            id=TEST_CONFIG_ID,
+            watched_folder=None,
+            is_active=True,
         )
 
         hash_result = MagicMock()
@@ -667,7 +705,8 @@ class TestTaskScheduledImportAll:
         assert result["tenants_checked"] == 2
         assert result["tenants_enqueued"] == 1
         mock_arq_redis.enqueue_job.assert_called_once_with(
-            "task_watch_import_folder", "rabat",
+            "task_watch_import_folder",
+            "rabat",
         )
 
     @pytest.mark.asyncio
@@ -713,5 +752,6 @@ class TestTaskScheduledImportAll:
         assert result["tenants_checked"] == 2
         assert result["tenants_enqueued"] == 1
         mock_arq_redis.enqueue_job.assert_called_once_with(
-            "task_watch_import_folder", "good",
+            "task_watch_import_folder",
+            "good",
         )

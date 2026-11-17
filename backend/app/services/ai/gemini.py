@@ -178,8 +178,12 @@ class GeminiService:
 
         # Prometheus metrics
         GEMINI_REQUESTS.labels(tenant=tenant.slug, model=self._model, status="success").inc()
-        GEMINI_TOKENS.labels(tenant=tenant.slug, model=self._model, direction="input").inc(input_tokens)
-        GEMINI_TOKENS.labels(tenant=tenant.slug, model=self._model, direction="output").inc(output_tokens)
+        GEMINI_TOKENS.labels(tenant=tenant.slug, model=self._model, direction="input").inc(
+            input_tokens
+        )
+        GEMINI_TOKENS.labels(tenant=tenant.slug, model=self._model, direction="output").inc(
+            output_tokens
+        )
         GEMINI_LATENCY.labels(tenant=tenant.slug, model=self._model).observe(latency_ms / 1000)
 
         # Cost tracking per tenant in Redis

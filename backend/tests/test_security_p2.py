@@ -53,8 +53,8 @@ class TestAuditTrail:
     @pytest.mark.asyncio
     async def test_audit_service_fire_and_forget(self):
         """log_action ne bloque pas meme si la DB echoue."""
-        from app.services.audit.service import AuditService
         from app.schemas.audit import AuditLogCreate
+        from app.services.audit.service import AuditService
 
         svc = AuditService()
         data = AuditLogCreate(
@@ -355,8 +355,6 @@ class TestArchivage:
 
     def test_gzip_reduces_size(self):
         """La compression gzip reduit la taille."""
-        data = json.dumps(
-            [{"id": str(i), "action": "create"} for i in range(1000)]
-        ).encode()
+        data = json.dumps([{"id": str(i), "action": "create"} for i in range(1000)]).encode()
         compressed = gzip.compress(data)
         assert len(compressed) < len(data)

@@ -64,16 +64,14 @@ function parseCsvText(
 async function parseXlsxFile(
   file: File,
 ): Promise<{ headers: string[]; rows: string[][] }> {
-  const XLSX = await import("xlsx");
-  const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: "array" });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const data = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
-  if (data.length === 0) return { headers: [], rows: [] };
-  const headers = (data[0] || []).map((h) => String(h ?? "").trim());
-  const rows = data.slice(1, 6).map((row) =>
+  const { default: readXlsxFile } = await import("read-excel-file/browser");
+  const sheets = await readXlsxFile(file);
+  const data = (sheets[0]?.data ?? []).map((row) =>
     row.map((cell) => String(cell ?? "").trim()),
   );
+  if (data.length === 0) return { headers: [], rows: [] };
+  const headers = data[0];
+  const rows = data.slice(1, 6);
   return { headers, rows };
 }
 

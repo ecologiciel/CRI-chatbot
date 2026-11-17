@@ -14,6 +14,7 @@ Security invariants:
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import hashlib
 import io
@@ -78,31 +79,61 @@ STATUT_MAPPING: dict[str, DossierStatut] = {
 
 # Column alias sets for auto-detection from French Excel headers
 NUMERO_ALIASES: set[str] = {
-    "numero", "numéro", "n°_dossier", "n°dossier", "num_dossier",
-    "numero_dossier", "ref", "reference", "référence",
+    "numero",
+    "numéro",
+    "n°_dossier",
+    "n°dossier",
+    "num_dossier",
+    "numero_dossier",
+    "ref",
+    "reference",
+    "référence",
 }
 STATUT_ALIASES: set[str] = {"statut", "status", "état", "etat"}
 TYPE_PROJET_ALIASES: set[str] = {
-    "type_projet", "type_de_projet", "type", "projet",
+    "type_projet",
+    "type_de_projet",
+    "type",
+    "projet",
 }
 RAISON_SOCIALE_ALIASES: set[str] = {
-    "raison_sociale", "raison_social", "entreprise", "société", "societe",
+    "raison_sociale",
+    "raison_social",
+    "entreprise",
+    "société",
+    "societe",
     "nom_entreprise",
 }
 MONTANT_ALIASES: set[str] = {
-    "montant_investissement", "montant", "investissement", "montant_mad",
+    "montant_investissement",
+    "montant",
+    "investissement",
+    "montant_mad",
 }
 REGION_ALIASES: set[str] = {"region", "région"}
 SECTEUR_ALIASES: set[str] = {"secteur", "secteur_activité", "secteur_activite"}
 DATE_DEPOT_ALIASES: set[str] = {
-    "date_depot", "date_dépôt", "date_de_depot", "date_de_dépôt",
-    "date_creation", "date_création",
+    "date_depot",
+    "date_dépôt",
+    "date_de_depot",
+    "date_de_dépôt",
+    "date_creation",
+    "date_création",
 }
 OBSERVATIONS_ALIASES: set[str] = {
-    "observations", "observation", "commentaire", "commentaires", "notes",
+    "observations",
+    "observation",
+    "commentaire",
+    "commentaires",
+    "notes",
 }
 PHONE_ALIASES: set[str] = {
-    "phone", "telephone", "téléphone", "tel", "mobile", "numéro_tel",
+    "phone",
+    "telephone",
+    "téléphone",
+    "tel",
+    "mobile",
+    "numéro_tel",
 }
 
 # Ordered list mapping alias sets to DossierImportRow field names
@@ -121,8 +152,14 @@ _FIELD_ALIAS_MAP: list[tuple[str, set[str]]] = [
 
 # Fields tracked for change detection (DossierHistory)
 TRACKED_FIELDS: list[str] = [
-    "statut", "type_projet", "raison_sociale", "montant_investissement",
-    "region", "secteur", "date_depot", "observations",
+    "statut",
+    "type_projet",
+    "raison_sociale",
+    "montant_investissement",
+    "region",
+    "secteur",
+    "date_depot",
+    "observations",
 ]
 
 PHONE_PATTERN = re.compile(r"^\+[1-9]\d{6,14}$")
@@ -285,7 +322,7 @@ class DossierImportService:
             return ImportValidationResult(
                 is_valid=False,
                 error=f"Extension non autorisée : {ext}. "
-                       f"Formats acceptés : {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+                f"Formats acceptés : {', '.join(sorted(ALLOWED_EXTENSIONS))}",
             )
 
         # Size check
@@ -303,18 +340,11 @@ class DossierImportService:
                 is_valid=False,
                 file_size=file_size,
                 error=f"Fichier trop volumineux : {file_size / 1024 / 1024:.1f} Mo "
-                       f"(max {MAX_FILE_SIZE_MB} Mo)",
+                f"(max {MAX_FILE_SIZE_MB} Mo)",
             )
 
         # SHA-256 hash (read in 8 KB chunks to limit memory)
-        sha = hashlib.sha256()
-        with open(file_path, "rb") as fh:
-            while True:
-                chunk = fh.read(8192)
-                if not chunk:
-                    break
-                sha.update(chunk)
-        file_hash = sha.hexdigest()
+        file_hash = await asyncio.to_thread(_calculate_file_hash, file_path)
 
         # Duplicate check against completed sync_logs
         async with tenant.db_session() as session:
@@ -378,7 +408,9 @@ class DossierImportService:
         for row_idx, row in enumerate(rows_iter, start=2):
             if len(results) >= MAX_ROWS:
                 self._logger.warning(
-                    "max_rows_reached", max_rows=MAX_ROWS, file=file_path,
+                    "max_rows_reached",
+                    max_rows=MAX_ROWS,
+                    file=file_path,
                 )
                 break
 
@@ -422,7 +454,8 @@ class DossierImportService:
         Returns:
             List of parsed DossierImportRow.
         """
-        raw_bytes = open(file_path, "rb").read()
+        with open(file_path, "rb") as file_handle:
+            raw_bytes = file_handle.read()
         text = self._decode_csv(raw_bytes)
         delimiter = self._detect_delimiter(text)
 
@@ -440,7 +473,9 @@ class DossierImportService:
         for row_idx, raw_row in enumerate(rows_iter, start=2):
             if len(results) >= MAX_ROWS:
                 self._logger.warning(
-                    "max_rows_reached", max_rows=MAX_ROWS, file=file_path,
+                    "max_rows_reached",
+                    max_rows=MAX_ROWS,
+                    file=file_path,
                 )
                 break
 
@@ -585,7 +620,8 @@ class DossierImportService:
             # Convert both sides to comparable strings
             if field_name == "statut":
                 new_mapped = STATUT_MAPPING.get(
-                    new_raw.strip().lower(), DossierStatut.en_attente,
+                    new_raw.strip().lower(),
+                    DossierStatut.en_attente,
                 )
                 new_str = new_mapped.value
                 old_str = existing_val.value if existing_val else None
@@ -606,11 +642,13 @@ class DossierImportService:
             if old_str == new_str:
                 continue
 
-            changes.append(FieldChange(
-                field_name=field_name,
-                old_value=old_str,
-                new_value=new_str,
-            ))
+            changes.append(
+                FieldChange(
+                    field_name=field_name,
+                    old_value=old_str,
+                    new_value=new_str,
+                )
+            )
 
         return changes
 
@@ -759,22 +797,32 @@ class DossierImportService:
             try:
                 if not row.numero:
                     report.rows_errored += 1
-                    report.errors.append({
-                        "row": row.row_number,
-                        "field": "numero",
-                        "error": "Numéro de dossier manquant",
-                    })
+                    report.errors.append(
+                        {
+                            "row": row.row_number,
+                            "field": "numero",
+                            "error": "Numéro de dossier manquant",
+                        }
+                    )
                     continue
 
                 existing = existing_map.get(row.numero)
                 if existing:
                     self._update_dossier(
-                        existing, row, sync_log_id, phone_to_contact, session,
+                        existing,
+                        row,
+                        sync_log_id,
+                        phone_to_contact,
+                        session,
                         report,
                     )
                 else:
                     self._create_dossier(
-                        row, sync_log_id, phone_to_contact, session, report,
+                        row,
+                        sync_log_id,
+                        phone_to_contact,
+                        session,
+                        report,
                     )
             except Exception as exc:
                 self._logger.error(
@@ -785,11 +833,13 @@ class DossierImportService:
                     exc_info=True,
                 )
                 report.rows_errored += 1
-                report.errors.append({
-                    "row": row.row_number,
-                    "field": "general",
-                    "error": str(exc),
-                })
+                report.errors.append(
+                    {
+                        "row": row.row_number,
+                        "field": "general",
+                        "error": str(exc),
+                    }
+                )
 
         await session.flush()
 
@@ -805,7 +855,8 @@ class DossierImportService:
         statut = DossierStatut.en_attente
         if row.statut:
             statut = STATUT_MAPPING.get(
-                row.statut.strip().lower(), DossierStatut.en_attente,
+                row.statut.strip().lower(),
+                DossierStatut.en_attente,
             )
 
         dossier = Dossier(
@@ -862,15 +913,17 @@ class DossierImportService:
                     existing.statut,
                 )
                 # Collect status change for notification worker
-                self._pending_notifications.append({
-                    "dossier_id": str(existing.id),
-                    "numero": existing.numero,
-                    "contact_id": str(existing.contact_id) if existing.contact_id else None,
-                    "old_statut": change.old_value,
-                    "new_statut": change.new_value,
-                    "sync_log_id": str(sync_log_id),
-                    "timestamp": datetime.now().isoformat(),
-                })
+                self._pending_notifications.append(
+                    {
+                        "dossier_id": str(existing.id),
+                        "numero": existing.numero,
+                        "contact_id": str(existing.contact_id) if existing.contact_id else None,
+                        "old_statut": change.old_value,
+                        "new_statut": change.new_value,
+                        "sync_log_id": str(sync_log_id),
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
             elif change.field_name == "montant_investissement":
                 existing.montant_investissement = _parse_montant(
                     row.montant_investissement,
@@ -956,3 +1009,12 @@ def get_dossier_import_service() -> DossierImportService:
     if _dossier_import_service is None:
         _dossier_import_service = DossierImportService()
     return _dossier_import_service
+
+
+def _calculate_file_hash(file_path: str) -> str:
+    """Calculate a file digest without blocking the event loop caller."""
+    sha = hashlib.sha256()
+    with open(file_path, "rb") as file_handle:
+        for chunk in iter(lambda: file_handle.read(8192), b""):
+            sha.update(chunk)
+    return sha.hexdigest()

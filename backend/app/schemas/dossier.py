@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import DossierStatut
 
-
 # ── Dossier schemas ──────────────────────────────────────────────
 
 

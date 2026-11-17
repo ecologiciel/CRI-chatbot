@@ -14,13 +14,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.models.enums import DossierStatut, Language, OptInStatus
 from app.services.notification.service import (
     NotificationEventType,
     NotificationPriority,
     NotificationService,
 )
-
 
 # -- Helpers ----------------------------------------------------------------
 
@@ -96,7 +94,9 @@ class TestDedupComplete:
 
         with patch("app.services.notification.service.get_redis", return_value=mock_redis):
             dup1 = await service.is_duplicate("contact-1", "decision_finale", "dossier-1", tenant)
-            dup2 = await service.is_duplicate("contact-1", "complement_request", "dossier-1", tenant)
+            dup2 = await service.is_duplicate(
+                "contact-1", "complement_request", "dossier-1", tenant
+            )
 
         assert dup1 is False
         assert dup2 is False

@@ -30,8 +30,6 @@ from locust import HttpUser, constant, events, task
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from helpers import (
-    ADMIN_EMAIL,
-    ADMIN_PASSWORD,
     TENANTS,
     login_admin,
 )
@@ -196,6 +194,7 @@ class ImportLoadUser(HttpUser):
 # ---------------------------------------------------------------------------
 # Post-test Prometheus verification
 # ---------------------------------------------------------------------------
+
 
 @events.test_stop.add_listener
 def on_test_stop(environment, **kwargs) -> None:

@@ -18,14 +18,11 @@ import pytest
 from openpyxl import Workbook
 
 from app.services.dossier.import_service import (
-    ALLOWED_EXTENSIONS,
     MAX_FILE_SIZE_MB,
     DossierImportRow,
     DossierImportService,
 )
-
 from tests.unit.conftest import make_tenant
-
 
 # -- Helpers ----------------------------------------------------------------
 
@@ -158,4 +155,6 @@ class TestSanitizationComplete:
         # "UNION" alone (without SELECT) should survive
         assert "UNION" in (sanitized.raison_sociale or "")
         # "SELECT" alone (without UNION before it) should survive
-        assert "SELECT" in (sanitized.observations or "") or "investment" in (sanitized.observations or "")
+        assert "SELECT" in (sanitized.observations or "") or "investment" in (
+            sanitized.observations or ""
+        )

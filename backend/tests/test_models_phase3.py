@@ -37,7 +37,6 @@ from app.schemas.sync import (
     SyncLogRead,
 )
 
-
 # ── Model import tests ───────────────────────────────────────────
 
 

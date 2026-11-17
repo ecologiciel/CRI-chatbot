@@ -90,9 +90,7 @@ def _parse_results(raw: dict) -> dict:
         if outcome == "skipped":
             setup = test.get("setup", {})
             call = test.get("call", {})
-            longrepr = (
-                setup.get("longrepr", "") or call.get("longrepr", "")
-            )
+            longrepr = setup.get("longrepr", "") or call.get("longrepr", "")
             entry["skip_reason"] = str(longrepr)[:200]
 
         by_category.get(cat, by_category["unknown"]).append(entry)
@@ -275,9 +273,7 @@ _HTML_TEMPLATE = """\
 
 def _badge(outcome: str) -> str:
     cls = {"passed": "badge-pass", "failed": "badge-fail"}.get(outcome, "badge-skip")
-    label = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIP"}.get(
-        outcome, outcome.upper()
-    )
+    label = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIP"}.get(outcome, outcome.upper())
     return f'<span class="badge {cls}">{label}</span>'
 
 
@@ -307,16 +303,13 @@ def write_html_report(report: dict, output_path: Path) -> None:
 
     # Detail sections
     detail_parts = []
-    for cat_key, cat in report["categories"].items():
+    for _cat_key, cat in report["categories"].items():
         rows = []
         for t in cat["tests"]:
             extra = ""
             if t["outcome"] == "failed" and t.get("message"):
                 msg = html.escape(t["message"])
-                extra = (
-                    f"<details><summary>Détails erreur</summary>"
-                    f"<pre>{msg}</pre></details>"
-                )
+                extra = f"<details><summary>Détails erreur</summary>" f"<pre>{msg}</pre></details>"
             elif t["outcome"] == "skipped" and t.get("skip_reason"):
                 reason = html.escape(t["skip_reason"])
                 extra = f'<span style="font-size:0.8rem;color:var(--muted)">— {reason}</span>'
@@ -333,9 +326,7 @@ def write_html_report(report: dict, output_path: Path) -> None:
             f"{html.escape(cat['name'])}</h3>\n"
             f"<table><thead><tr>"
             f"<th>Test</th><th>Résultat</th><th>Durée</th><th>Détails</th>"
-            f"</tr></thead><tbody>\n"
-            + "\n".join(rows)
-            + "\n  </tbody></table>"
+            f"</tr></thead><tbody>\n" + "\n".join(rows) + "\n  </tbody></table>"
         )
         detail_parts.append(section)
 
@@ -390,7 +381,7 @@ def main() -> None:
     raw = json.loads(input_path.read_text(encoding="utf-8"))
     report = _parse_results(raw)
 
-    print(f"\nOWASP Penetration Test Report")
+    print("\nOWASP Penetration Test Report")
     print(f"  Total: {report['summary']['total_tests']}")
     print(f"  Passed: {report['summary']['passed']}")
     print(f"  Failed: {report['summary']['failed']}")

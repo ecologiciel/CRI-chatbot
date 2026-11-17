@@ -9,7 +9,6 @@ This is the MAJOR GAP in the existing test suite — no prior coverage exists.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -179,7 +178,7 @@ class TestImportTenantIsolation:
     @pytest.mark.asyncio
     async def test_import_uses_tenant_db_session(self) -> None:
         """import_dossiers must call tenant.db_session(), not a global session."""
-        from app.services.dossier.import_service import DossierImportService, DossierImportRow
+        from app.services.dossier.import_service import DossierImportRow, DossierImportService
 
         svc = DossierImportService()
         tenant = MagicMock(spec=TenantContext)
@@ -228,6 +227,7 @@ class TestImportTenantIsolation:
             yield session
 
         import tempfile
+
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
             f.write(b"PK\x03\x04")  # Minimal zip header
             temp_path = f.name
@@ -240,6 +240,7 @@ class TestImportTenantIsolation:
             assert db_session_called["called"] is True
         finally:
             import os
+
             os.unlink(temp_path)
 
 
@@ -302,7 +303,9 @@ class TestDossierTenantIsolation:
         with patch.object(TenantContext, "db_session", _fake_db_session):
             with pytest.raises(ResourceNotFoundError):
                 await service.get_dossier_with_bola_check(
-                    TENANT_ALPHA, uuid.uuid4(), TEST_PHONE,
+                    TENANT_ALPHA,
+                    uuid.uuid4(),
+                    TEST_PHONE,
                 )
 
         assert db_called["count"] == 1
@@ -382,7 +385,9 @@ class TestNotificationTenantIsolation:
         redis, store = _make_key_aware_redis()
 
         # Simulate the rpush pattern from the worker
-        event_data = json.dumps({"dossier_id": "d1", "old_statut": "en_attente", "new_statut": "valide"})
+        event_data = json.dumps(
+            {"dossier_id": "d1", "old_statut": "en_attente", "new_statut": "valide"}
+        )
 
         await redis.rpush(f"{TENANT_ALPHA.slug}:notification:dossier_changes", event_data)
 

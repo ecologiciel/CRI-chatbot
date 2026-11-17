@@ -13,7 +13,6 @@ import uuid
 import pytest
 
 from .conftest import (
-    TENANT_A_ID,
     auth_headers,
     is_asgi_mode,
     requires_staging,
@@ -52,9 +51,7 @@ class TestAuthenticationFailures:
                 locked = True
                 break
 
-        assert locked, (
-            f"Account not locked after 7 attempts (last status: {last_status})"
-        )
+        assert locked, f"Account not locked after 7 attempts (last status: {last_status})"
 
     # ------------------------------------------------------------------ #
     # A07-02  Token replay after logout
@@ -86,9 +83,7 @@ class TestAuthenticationFailures:
             headers={"Authorization": f"Bearer {access_token}"},
             json={"refresh_token": refresh_token},
         )
-        assert logout_resp.status_code in (200, 204), (
-            f"Logout failed: {logout_resp.status_code}"
-        )
+        assert logout_resp.status_code in (200, 204), f"Logout failed: {logout_resp.status_code}"
 
         # Replay the access token
         replay_resp = await api_client.get(
@@ -122,11 +117,7 @@ class TestAuthenticationFailures:
         jwt_secret = os.environ.get("JWT_SECRET_KEY", "test-jwt-secret-key-owasp")
 
         def _b64url(data: dict) -> str:
-            return (
-                base64.urlsafe_b64encode(json.dumps(data).encode())
-                .rstrip(b"=")
-                .decode()
-            )
+            return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
 
         # We need to produce a valid HS256 signature
         import hashlib
@@ -162,22 +153,18 @@ class TestAuthenticationFailures:
             "/api/v1/auth/me",
             headers={"Authorization": f"Bearer {expired_token}"},
         )
-        assert resp.status_code == 401, (
-            f"Expired token accepted! Status {resp.status_code}"
-        )
+        assert resp.status_code == 401, f"Expired token accepted! Status {resp.status_code}"
 
     # ------------------------------------------------------------------ #
     # A07-04  Password policy enforced on admin creation
     # ------------------------------------------------------------------ #
 
-    async def test_password_policy_enforced(
-        self, api_client, super_admin_token
-    ):
+    async def test_password_policy_enforced(self, api_client, super_admin_token):
         """Weak passwords must be rejected when creating an admin."""
         headers = auth_headers(super_admin_token)
 
         weak_passwords = [
-            "short",           # < 12 chars
+            "short",  # < 12 chars
             "alllowercase1!",  # no uppercase
             "ALLUPPERCASE1!",  # no lowercase
             "NoDigitsHere!!",  # no digit
@@ -195,6 +182,7 @@ class TestAuthenticationFailures:
                     "tenant_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
                 },
             )
-            assert resp.status_code in (400, 422), (
-                f"Weak password '{weak_pw}' accepted: {resp.status_code}"
-            )
+            assert resp.status_code in (
+                400,
+                422,
+            ), f"Weak password '{weak_pw}' accepted: {resp.status_code}"

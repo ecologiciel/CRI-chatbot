@@ -14,11 +14,8 @@ from __future__ import annotations
 
 import os
 import uuid
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 # Env vars must be set BEFORE importing app (triggers Settings())
 os.environ.setdefault("POSTGRES_PASSWORD", "test-password")

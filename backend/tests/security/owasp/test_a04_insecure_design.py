@@ -37,9 +37,7 @@ class TestInsecureDesign:
             )
             if resp.status_code == 429:
                 # Rate limit kicked in within expected range
-                assert i >= 45, (
-                    f"Rate limit triggered too early at request #{i + 1}"
-                )
+                assert i >= 45, f"Rate limit triggered too early at request #{i + 1}"
                 got_429 = True
                 break
 
@@ -47,8 +45,7 @@ class TestInsecureDesign:
             # The webhook may rate-limit after HMAC check (returning 403 first).
             # If all 55 returned 403, rate limiting is post-HMAC — still valid.
             pytest.skip(
-                "Webhook rate limiting may be post-HMAC validation; "
-                "55 requests all returned 403"
+                "Webhook rate limiting may be post-HMAC validation; " "55 requests all returned 403"
             )
 
     # ------------------------------------------------------------------ #
@@ -98,9 +95,7 @@ class TestInsecureDesign:
         token1 = resp1.json().get("access_token")
         token2 = resp2.json().get("access_token")
 
-        assert token1 != token2, (
-            "Same token returned for two logins — session fixation risk"
-        )
+        assert token1 != token2, "Same token returned for two logins — session fixation risk"
 
     # ------------------------------------------------------------------ #
     # A04-04  File upload size limit (10 MB max)
@@ -124,6 +119,4 @@ class TestInsecureDesign:
                 )
             },
         )
-        assert resp.status_code in (400, 413, 422), (
-            f"Oversized file accepted: {resp.status_code}"
-        )
+        assert resp.status_code in (400, 413, 422), f"Oversized file accepted: {resp.status_code}"

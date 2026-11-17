@@ -27,13 +27,23 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 _TRACKING_KEYWORDS_FR: set[str] = {
-    "suivi", "suivre", "dossier", "avancement", "état dossier",
+    "suivi",
+    "suivre",
+    "dossier",
+    "avancement",
+    "état dossier",
 }
 _TRACKING_KEYWORDS_AR: set[str] = {
-    "متابعة", "ملف", "تتبع", "حالة",
+    "متابعة",
+    "ملف",
+    "تتبع",
+    "حالة",
 }
 _TRACKING_KEYWORDS_EN: set[str] = {
-    "track", "tracking", "file status", "my dossier",
+    "track",
+    "tracking",
+    "file status",
+    "my dossier",
 }
 _ALL_TRACKING_KEYWORDS: set[str] = (
     _TRACKING_KEYWORDS_FR | _TRACKING_KEYWORDS_AR | _TRACKING_KEYWORDS_EN

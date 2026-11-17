@@ -6,21 +6,17 @@ All external I/O (DB, Redis, WhatsApp) is mocked.
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.models.enums import DossierStatut, Language, OptInStatus
+from app.models.enums import Language, OptInStatus
 from app.services.notification.service import (
     DossierChangeEvent,
-    NotificationDecision,
     NotificationEventType,
     NotificationPriority,
     NotificationService,
-    get_notification_service,
 )
-
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -466,10 +462,12 @@ class TestImports:
 
     def test_service_import(self) -> None:
         from app.services.notification.service import NotificationService
+
         assert NotificationService is not None
 
     def test_package_import(self) -> None:
         from app.services.notification import NotificationService, get_notification_service
+
         assert NotificationService is not None
         assert get_notification_service is not None
 
@@ -479,6 +477,7 @@ class TestImports:
             process_all_notifications,
             task_send_notifications,
         )
+
         assert task_send_notifications is not None
         assert process_all_notifications is not None
         assert WorkerSettings is not None

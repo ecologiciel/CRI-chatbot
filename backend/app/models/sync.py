@@ -163,9 +163,7 @@ class SyncConfig(UUIDMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "sync_configs"
-    __table_args__ = (
-        Index("ix_sync_configs_is_active", "is_active"),
-    )
+    __table_args__ = (Index("ix_sync_configs_is_active", "is_active"),)
 
     # ── Provider config ───────────────────────────────────────────
     provider_type: Mapped[SyncProviderType] = mapped_column(

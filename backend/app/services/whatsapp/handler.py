@@ -134,7 +134,9 @@ class MessageHandler:
             # 4.5 CNDP privacy notice — first contact (loi 09-08, Art. 9)
             with contextlib.suppress(Exception):
                 await self._privacy_service.send_privacy_notice(
-                    tenant, phone, language=contact.language.value,
+                    tenant,
+                    phone,
+                    language=contact.language.value,
                 )
 
             # 5. Get or create conversation (30min inactivity timeout)
@@ -178,7 +180,9 @@ class MessageHandler:
 
             # 9. Persist inbound message
             WHATSAPP_MESSAGES.labels(
-                tenant=tenant.slug, direction="inbound", type=msg_type.value,
+                tenant=tenant.slug,
+                direction="inbound",
+                type=msg_type.value,
             ).inc()
             await self._conversation_service.add_message(
                 tenant,
@@ -219,9 +223,7 @@ class MessageHandler:
                 if ts.step.value != "idle":
                     tracking_state_str = ts.step.value
             except Exception:
-                self._logger.warning(
-                    "tracking_state_prefetch_failed", tenant=tenant.slug
-                )
+                self._logger.warning("tracking_state_prefetch_failed", tenant=tenant.slug)
 
             from app.services.orchestrator.graph import run_conversation
 
@@ -241,7 +243,9 @@ class MessageHandler:
 
             # 13. Send response via WhatsApp
             WHATSAPP_MESSAGES.labels(
-                tenant=tenant.slug, direction="outbound", type="text",
+                tenant=tenant.slug,
+                direction="outbound",
+                type="text",
             ).inc()
             out_wamid = None
             try:

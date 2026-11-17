@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from app.core.exceptions import AuthenticationError, RateLimitExceededError
+from app.core.exceptions import RateLimitExceededError
 from app.core.metrics import OTP_ATTEMPTS, OTP_FAILURES, OTP_SUCCESS, RATE_LIMIT_TRIGGERED
 from app.core.redis import get_redis
 from app.schemas.audit import AuditLogCreate
@@ -161,7 +161,10 @@ class DossierOTPService:
         return otp
 
     async def verify_otp(
-        self, phone: str, otp_code: str, tenant: TenantContext,
+        self,
+        phone: str,
+        otp_code: str,
+        tenant: TenantContext,
     ) -> bool:
         """Verify an OTP code against the stored hash.
 
@@ -189,7 +192,9 @@ class DossierOTPService:
                 reason="expired_or_missing",
             )
             await self._audit(
-                tenant, "otp_verify_fail", phone,
+                tenant,
+                "otp_verify_fail",
+                phone,
                 details={"reason": "expired_or_missing"},
             )
             return False
@@ -210,7 +215,9 @@ class DossierOTPService:
                 reason="invalid_code",
             )
             await self._audit(
-                tenant, "otp_verify_fail", phone,
+                tenant,
+                "otp_verify_fail",
+                phone,
                 details={"reason": "invalid_code"},
             )
             return False
@@ -230,7 +237,9 @@ class DossierOTPService:
         return True
 
     async def create_dossier_session(
-        self, phone: str, tenant: TenantContext,
+        self,
+        phone: str,
+        tenant: TenantContext,
     ) -> str:
         """Create an authenticated dossier consultation session.
 
@@ -245,11 +254,13 @@ class DossierOTPService:
         token = secrets.token_hex(SESSION_TOKEN_BYTES)
 
         session_key = self._redis_key(tenant, "dossier_session", phone)
-        session_data = json.dumps({
-            "token": token,
-            "phone": phone,
-            "created_at": datetime.now(UTC).isoformat(),
-        })
+        session_data = json.dumps(
+            {
+                "token": token,
+                "phone": phone,
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        )
         await redis.set(session_key, session_data, ex=SESSION_TTL)
 
         self._logger.info(
@@ -298,7 +309,9 @@ class DossierOTPService:
         return True
 
     async def invalidate_session(
-        self, phone: str, tenant: TenantContext,
+        self,
+        phone: str,
+        tenant: TenantContext,
     ) -> None:
         """Invalidate (delete) a dossier consultation session.
 

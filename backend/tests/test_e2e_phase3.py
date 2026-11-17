@@ -41,19 +41,14 @@ from .conftest_phase3 import (
     DOSSIER_A2_ID,
     DOSSIER_B1_ID,
     PHONE_A,
-    PHONE_B,
     PHONE_C,
-    TEST_TENANT_SLUG_A,
-    TEST_TENANT_SLUG_B,
     InMemoryOTPStore,
     InMemoryTrackingStateManager,
     make_contact_mock,
     make_dossier_detail,
     make_dossier_read,
-    make_tenant,
     make_tracking_state,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════
 # Scenario 1 — Full OTP Flow (happy path)
@@ -69,20 +64,28 @@ async def test_e2e_otp_full_flow(tracking_agent_env, tenant_a):
 
     # Configure dossier service
     detail_001 = make_dossier_detail(
-        "2024-10001", DossierStatut.en_cours,
-        dossier_id=DOSSIER_A1_ID, contact_id=CONTACT_A_ID,
+        "2024-10001",
+        DossierStatut.en_cours,
+        dossier_id=DOSSIER_A1_ID,
+        contact_id=CONTACT_A_ID,
     )
     detail_002 = make_dossier_detail(
-        "2024-10002", DossierStatut.valide,
-        dossier_id=DOSSIER_A2_ID, contact_id=CONTACT_A_ID,
+        "2024-10002",
+        DossierStatut.valide,
+        dossier_id=DOSSIER_A2_ID,
+        contact_id=CONTACT_A_ID,
     )
     read_001 = make_dossier_read(
-        "2024-10001", DossierStatut.en_cours,
-        dossier_id=DOSSIER_A1_ID, contact_id=CONTACT_A_ID,
+        "2024-10001",
+        DossierStatut.en_cours,
+        dossier_id=DOSSIER_A1_ID,
+        contact_id=CONTACT_A_ID,
     )
     read_002 = make_dossier_read(
-        "2024-10002", DossierStatut.valide,
-        dossier_id=DOSSIER_A2_ID, contact_id=CONTACT_A_ID,
+        "2024-10002",
+        DossierStatut.valide,
+        dossier_id=DOSSIER_A2_ID,
+        contact_id=CONTACT_A_ID,
     )
 
     dossier_svc.get_dossier_by_numero = AsyncMock(return_value=detail_001)
@@ -138,8 +141,10 @@ async def test_e2e_otp_antibruteforce(tracking_agent_env, tenant_a):
     agent, otp_svc, dossier_svc, state_mgr = tracking_agent_env
 
     detail = make_dossier_detail(
-        "2024-10001", DossierStatut.en_cours,
-        dossier_id=DOSSIER_A1_ID, contact_id=CONTACT_A_ID,
+        "2024-10001",
+        DossierStatut.en_cours,
+        dossier_id=DOSSIER_A1_ID,
+        contact_id=CONTACT_A_ID,
     )
     dossier_svc.get_dossier_by_numero = AsyncMock(return_value=detail)
     dossier_svc.get_dossiers_by_phone = AsyncMock(return_value=[])
@@ -189,16 +194,22 @@ async def test_e2e_anti_bola(tracking_agent_env, tenant_a):
 
     # Dossier A belongs to PHONE_A, dossier B belongs to PHONE_B
     detail_a = make_dossier_detail(
-        "2024-10001", DossierStatut.en_cours,
-        dossier_id=DOSSIER_A1_ID, contact_id=CONTACT_A_ID,
+        "2024-10001",
+        DossierStatut.en_cours,
+        dossier_id=DOSSIER_A1_ID,
+        contact_id=CONTACT_A_ID,
     )
     detail_b = make_dossier_detail(
-        "2024-99099", DossierStatut.valide,
-        dossier_id=DOSSIER_B1_ID, contact_id=CONTACT_B_ID,
+        "2024-99099",
+        DossierStatut.valide,
+        dossier_id=DOSSIER_B1_ID,
+        contact_id=CONTACT_B_ID,
     )
     read_a = make_dossier_read(
-        "2024-10001", DossierStatut.en_cours,
-        dossier_id=DOSSIER_A1_ID, contact_id=CONTACT_A_ID,
+        "2024-10001",
+        DossierStatut.en_cours,
+        dossier_id=DOSSIER_A1_ID,
+        contact_id=CONTACT_A_ID,
     )
 
     # get_dossier_by_numero returns dossier regardless (lookup by numero)
@@ -241,7 +252,9 @@ async def test_e2e_anti_bola(tracking_agent_env, tenant_a):
 
     # The agent catches UnauthorizedDossierAccess and returns "no dossier found"
     resp_lower = result["response"].lower()
-    assert "aucun dossier" in resp_lower or "no file" in resp_lower or "لم يتم" in result["response"]
+    assert (
+        "aucun dossier" in resp_lower or "no file" in resp_lower or "لم يتم" in result["response"]
+    )
 
     # Verify no dossier B data leaked
     assert "2024-99099" not in result["response"]
@@ -269,10 +282,18 @@ async def test_e2e_import_triggers_notifications(tenant_a):
 
     # Contact A: opted_in, Contact C: opted_out
     contact_a = make_contact_mock(
-        PHONE_A, "User A", Language.fr, OptInStatus.opted_in, CONTACT_A_ID,
+        PHONE_A,
+        "User A",
+        Language.fr,
+        OptInStatus.opted_in,
+        CONTACT_A_ID,
     )
     contact_c = make_contact_mock(
-        PHONE_C, "User C", Language.fr, OptInStatus.opted_out, CONTACT_C_ID,
+        PHONE_C,
+        "User C",
+        Language.fr,
+        OptInStatus.opted_out,
+        CONTACT_C_ID,
     )
 
     # Mock _load_contact to return appropriate contacts
@@ -424,8 +445,10 @@ async def test_e2e_import_with_errors(sample_import_errors_xlsx):
 async def test_e2e_tracking_multilang(tenant_a):
     """TrackingAgent messages adapt to FR, AR, and EN."""
     detail = make_dossier_detail(
-        "2024-10001", DossierStatut.en_cours,
-        dossier_id=DOSSIER_A1_ID, contact_id=CONTACT_A_ID,
+        "2024-10001",
+        DossierStatut.en_cours,
+        dossier_id=DOSSIER_A1_ID,
+        contact_id=CONTACT_A_ID,
     )
 
     # ── French ──
@@ -488,8 +511,10 @@ async def test_e2e_tracking_multilang(tenant_a):
 async def test_e2e_multitenant_isolation(tenant_a, tenant_b):
     """Dossiers in tenant A are invisible from tenant B."""
     detail_a = make_dossier_detail(
-        "2024-001", DossierStatut.en_cours,
-        dossier_id=DOSSIER_A1_ID, contact_id=CONTACT_A_ID,
+        "2024-001",
+        DossierStatut.en_cours,
+        dossier_id=DOSSIER_A1_ID,
+        contact_id=CONTACT_A_ID,
     )
 
     # ── Tenant A: dossier exists ──

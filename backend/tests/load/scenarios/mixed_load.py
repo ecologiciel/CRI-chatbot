@@ -115,6 +115,7 @@ class MixedWorkloadUser(HttpUser):
 # Post-test multi-tenant isolation verification via Prometheus
 # ---------------------------------------------------------------------------
 
+
 @events.test_stop.add_listener
 def on_test_stop(environment, **kwargs) -> None:
     """Scrape Prometheus metrics and verify multi-tenant isolation.
@@ -166,8 +167,10 @@ def on_test_stop(environment, **kwargs) -> None:
             for slug, count in tenant_counts.items():
                 pct = count / grand_total * 100
                 if pct < 10 or pct > 60:
-                    print(f"\n  WARNING: Tenant {slug} received {pct:.1f}% "
-                          f"of traffic (expected ~33%)")
+                    print(
+                        f"\n  WARNING: Tenant {slug} received {pct:.1f}% "
+                        f"of traffic (expected ~33%)"
+                    )
 
         # Rate limiting summary
         print("\n  Rate Limit Triggers:")

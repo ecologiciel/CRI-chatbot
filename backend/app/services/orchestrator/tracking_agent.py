@@ -17,7 +17,6 @@ returning a partial ``ConversationState`` dict.
 from __future__ import annotations
 
 import re
-import uuid
 from typing import TYPE_CHECKING
 
 import structlog
@@ -57,21 +56,28 @@ _OTP_RE = re.compile(r"(\d{6})")
 
 _CANCEL_KEYWORDS: set[str] = {
     # French
-    "annuler", "retour", "quitter",
+    "annuler",
+    "retour",
+    "quitter",
     # Arabic
     "\u0627\u0644\u063a\u0627\u0621",  # الغاء
-    "\u0631\u062c\u0648\u0639",         # رجوع
+    "\u0631\u062c\u0648\u0639",  # رجوع
     # English
-    "cancel", "back", "quit",
+    "cancel",
+    "back",
+    "quit",
 }
 
 _LOGOUT_KEYWORDS: set[str] = {
     # French
-    "deconnecter", "terminer", "fin",
+    "deconnecter",
+    "terminer",
+    "fin",
     # Arabic
     "\u062e\u0631\u0648\u062c",  # خروج
     # English
-    "logout", "done",
+    "logout",
+    "done",
 }
 
 
@@ -111,10 +117,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "\u0623\u0631\u0642\u0627\u0645. \u064a\u0631\u062c\u0649 "
             "\u0625\u062f\u062e\u0627\u0644\u0647."
         ),
-        "en": (
-            "\U0001f510 A 6-digit verification code has been sent. "
-            "Please enter it."
-        ),
+        "en": ("\U0001f510 A 6-digit verification code has been sent. " "Please enter it."),
     },
     "otp_invalid": {
         "fr": (
@@ -129,26 +132,17 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "({remaining} \u0645\u062d\u0627\u0648\u0644\u0629/\u0645\u062d\u0627\u0648\u0644\u0627\u062a "
             "\u0645\u062a\u0628\u0642\u064a\u0629)."
         ),
-        "en": (
-            "\u274c Invalid code. Please try again "
-            "({remaining} attempt(s) remaining)."
-        ),
+        "en": ("\u274c Invalid code. Please try again " "({remaining} attempt(s) remaining)."),
     },
     "otp_rate_limited": {
-        "fr": (
-            "\u23f3 Trop de tentatives. Veuillez r\u00e9essayer "
-            "dans 15 minutes."
-        ),
+        "fr": ("\u23f3 Trop de tentatives. Veuillez r\u00e9essayer " "dans 15 minutes."),
         "ar": (
             "\u23f3 \u0645\u062d\u0627\u0648\u0644\u0627\u062a "
             "\u0643\u062b\u064a\u0631\u0629 \u062c\u062f\u064b\u0627. "
             "\u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 "
             "\u0628\u0639\u062f 15 \u062f\u0642\u064a\u0642\u0629."
         ),
-        "en": (
-            "\u23f3 Too many attempts. Please try again "
-            "in 15 minutes."
-        ),
+        "en": ("\u23f3 Too many attempts. Please try again " "in 15 minutes."),
     },
     "no_dossier_found": {
         "fr": (
@@ -164,15 +158,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "\u0648\u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 "
             "\u0645\u0631\u0629 \u0623\u062e\u0631\u0649."
         ),
-        "en": (
-            "\U0001f50d No file found with this identifier. "
-            "Please check and try again."
-        ),
+        "en": ("\U0001f50d No file found with this identifier. " "Please check and try again."),
     },
     "session_expired": {
         "fr": (
-            "\u23f0 Votre session a expir\u00e9. "
-            "Envoyez \u00absuivi\u00bb pour recommencer."
+            "\u23f0 Votre session a expir\u00e9. " "Envoyez \u00absuivi\u00bb pour recommencer."
         ),
         "ar": (
             "\u23f0 \u0627\u0646\u062a\u0647\u062a "
@@ -180,10 +170,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "\u0623\u0631\u0633\u0644 \u00ab\u0645\u062a\u0627\u0628\u0639\u0629\u00bb "
             "\u0644\u0644\u0628\u062f\u0621 \u0645\u0646 \u062c\u062f\u064a\u062f."
         ),
-        "en": (
-            "\u23f0 Your session has expired. "
-            "Send \u00abtrack\u00bb to start again."
-        ),
+        "en": ("\u23f0 Your session has expired. " "Send \u00abtrack\u00bb to start again."),
     },
     "dossier_header": {
         "fr": "\u2705 Voici vos dossier(s) :\n\n",
@@ -200,9 +187,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "\u0645\u0644\u0641\u0627\u062a \u0645\u0631\u062a\u0628\u0637\u0629 "
             "\u0628\u0631\u0642\u0645 \u0647\u0627\u062a\u0641\u0643."
         ),
-        "en": (
-            "\U0001f4cb No files are associated with your phone number."
-        ),
+        "en": ("\U0001f4cb No files are associated with your phone number."),
     },
     "cancel_confirmed": {
         "fr": "\u2705 Op\u00e9ration annul\u00e9e. Comment puis-je vous aider ?",
@@ -231,10 +216,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "\u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 "
             "\u0644\u0627\u062d\u0642\u064b\u0627."
         ),
-        "en": (
-            "\u26a0\ufe0f Maximum attempts reached. "
-            "Please try again later."
-        ),
+        "en": ("\u26a0\ufe0f Maximum attempts reached. " "Please try again later."),
     },
     "error_fallback": {
         "fr": "Une erreur est survenue. Veuillez r\u00e9essayer.",
@@ -361,19 +343,35 @@ class TrackingAgent:
             # Dispatch by current step
             if tracking.step == TrackingStep.idle:
                 return await self._handle_idle(
-                    tenant, tracking, phone, query, language,
+                    tenant,
+                    tracking,
+                    phone,
+                    query,
+                    language,
                 )
             if tracking.step == TrackingStep.awaiting_identifier:
                 return await self._handle_awaiting_identifier(
-                    tenant, tracking, phone, query, language,
+                    tenant,
+                    tracking,
+                    phone,
+                    query,
+                    language,
                 )
             if tracking.step == TrackingStep.otp_sent:
                 return await self._handle_otp_sent(
-                    tenant, tracking, phone, query, language,
+                    tenant,
+                    tracking,
+                    phone,
+                    query,
+                    language,
                 )
             if tracking.step == TrackingStep.authenticated:
                 return await self._handle_authenticated(
-                    tenant, tracking, phone, query, language,
+                    tenant,
+                    tracking,
+                    phone,
+                    query,
+                    language,
                 )
 
             # Defensive fallback: unknown step → reset
@@ -406,7 +404,11 @@ class TrackingAgent:
         if identifier:
             tracking.step = TrackingStep.awaiting_identifier
             return await self._handle_awaiting_identifier(
-                tenant, tracking, phone, query, language,
+                tenant,
+                tracking,
+                phone,
+                query,
+                language,
             )
 
         # Ask the user to enter their identifier
@@ -479,7 +481,7 @@ class TrackingAgent:
 
         # Generate and send OTP
         try:
-            otp_code = await self._otp.generate_otp(phone, tenant)
+            await self._otp.generate_otp(phone, tenant)
         except RateLimitExceededError:
             return {"response": _msg("otp_rate_limited", language)}  # type: ignore[return-value]
 
@@ -544,10 +546,13 @@ class TrackingAgent:
             for d_read in dossiers:
                 # get_dossier_with_bola_check returns DossierDetail
                 detail = await self._dossier.get_dossier_with_bola_check(
-                    tenant, d_read.id, phone,
+                    tenant,
+                    d_read.id,
+                    phone,
                 )
                 response += self._dossier.format_dossier_for_whatsapp(
-                    detail, lang_enum,
+                    detail,
+                    lang_enum,
                 )
                 response += "\n\n---\n\n"
 
@@ -579,7 +584,8 @@ class TrackingAgent:
 
         return {  # type: ignore[return-value]
             "response": _msg(
-                "otp_invalid", language,
+                "otp_invalid",
+                language,
                 remaining=str(remaining),
             ),
         }
@@ -595,7 +601,9 @@ class TrackingAgent:
         """Authenticated session: validate session and serve dossier queries."""
         # Validate session (sliding window TTL renewed on success)
         if not tracking.session_token or not await self._otp.validate_dossier_session(
-            phone, tracking.session_token, tenant,
+            phone,
+            tracking.session_token,
+            tenant,
         ):
             # Session expired or invalid
             await self._state_mgr.clear_state(phone, tenant)
@@ -630,7 +638,9 @@ class TrackingAgent:
             # Anti-BOLA check
             try:
                 detail = await self._dossier.get_dossier_with_bola_check(
-                    tenant, dossier.id, phone,
+                    tenant,
+                    dossier.id,
+                    phone,
                 )
             except Exception:
                 self._logger.warning(
@@ -642,7 +652,8 @@ class TrackingAgent:
 
             return {  # type: ignore[return-value]
                 "response": self._dossier.format_dossier_for_whatsapp(
-                    detail, lang_enum,
+                    detail,
+                    lang_enum,
                 ),
             }
 
@@ -656,10 +667,13 @@ class TrackingAgent:
         for d_read in dossiers:
             try:
                 detail = await self._dossier.get_dossier_with_bola_check(
-                    tenant, d_read.id, phone,
+                    tenant,
+                    d_read.id,
+                    phone,
                 )
                 response += self._dossier.format_dossier_for_whatsapp(
-                    detail, lang_enum,
+                    detail,
+                    lang_enum,
                 )
                 response += "\n\n---\n\n"
             except Exception:

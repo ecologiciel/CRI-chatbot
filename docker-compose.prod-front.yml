@@ -60,7 +60,7 @@ services:
   # Budget memoire : 1 Go — Pas de port public (acces via Traefik file route)
   # ---------------------------------------------------------------------------
   frontend:
-    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/frontend:${IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/frontend:${IMAGE_TAG:?IMAGE_TAG is required}
     container_name: cri-frontend
     environment:
       - NODE_ENV=production
@@ -87,7 +87,7 @@ services:
   # Config template : envsubst remplace ${VPS1_PRIVATE_IP} au demarrage
   # ---------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.2.1
     container_name: cri-prometheus
     entrypoint:
       - /bin/sh
@@ -129,7 +129,7 @@ services:
   # Budget memoire : 1 Go
   # ---------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.5.2
     container_name: cri-grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}

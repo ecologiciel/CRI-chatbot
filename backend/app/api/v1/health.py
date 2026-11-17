@@ -28,7 +28,7 @@ class ServiceHealth(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str  # "healthy" | "degraded" | "unhealthy"
-    version: str = "0.1.0"
+    version: str = "0.3.0-rc.1"
     services: dict[str, ServiceHealth]
 
 

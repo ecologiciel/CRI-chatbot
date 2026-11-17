@@ -92,18 +92,10 @@ def upgrade() -> None:
         sa.Column("file_name", sa.String(500), nullable=True),
         sa.Column("file_hash", sa.String(64), nullable=True),
         # Row counters
-        sa.Column(
-            "rows_total", sa.Integer(), nullable=False, server_default="0"
-        ),
-        sa.Column(
-            "rows_imported", sa.Integer(), nullable=False, server_default="0"
-        ),
-        sa.Column(
-            "rows_updated", sa.Integer(), nullable=False, server_default="0"
-        ),
-        sa.Column(
-            "rows_errored", sa.Integer(), nullable=False, server_default="0"
-        ),
+        sa.Column("rows_total", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("rows_imported", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("rows_updated", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("rows_errored", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("error_details", postgresql.JSONB(), nullable=True),
         # Status
         sa.Column(

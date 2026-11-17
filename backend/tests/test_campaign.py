@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -111,7 +110,7 @@ class TestResolveVariables:
 
     def test_resolve_null_name_fallback(self):
         """Contact sans nom -> fallback 'Investisseur'."""
-        from app.services.campaign.service import CampaignService, DEFAULT_NAME_FALLBACK
+        from app.services.campaign.service import DEFAULT_NAME_FALLBACK, CampaignService
 
         contact = _make_contact_mock(name=None)
         result = CampaignService.resolve_variables({"1": "contact.name"}, contact)
@@ -306,7 +305,7 @@ class TestCampaignWorker:
 
     def test_batch_constants_positive(self):
         """BATCH_SIZE et BATCH_DELAY_SECONDS sont positifs."""
-        from app.workers.campaign import BATCH_SIZE, BATCH_DELAY_SECONDS
+        from app.workers.campaign import BATCH_DELAY_SECONDS, BATCH_SIZE
 
         assert BATCH_SIZE > 0
         assert BATCH_DELAY_SECONDS > 0

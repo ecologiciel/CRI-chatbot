@@ -119,7 +119,8 @@ class PrivacyNoticeService:
                 # Fallback to plain text
                 method = "text"
                 fallback = PRIVACY_FALLBACK_TEXT.get(
-                    language, PRIVACY_FALLBACK_TEXT["fr"],
+                    language,
+                    PRIVACY_FALLBACK_TEXT["fr"],
                 )
                 await self._sender.send_text(tenant, phone, fallback)
 

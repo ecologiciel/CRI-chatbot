@@ -32,14 +32,12 @@ class TestSecurityMisconfiguration:
         for header, expected_value in expected_headers.items():
             actual = resp.headers.get(header)
             if actual is not None:
-                assert actual.lower() == expected_value.lower(), (
-                    f"Header {header}: expected '{expected_value}', got '{actual}'"
-                )
+                assert (
+                    actual.lower() == expected_value.lower()
+                ), f"Header {header}: expected '{expected_value}', got '{actual}'"
             else:
                 # Warn — headers may only be present behind Traefik
-                pytest.skip(
-                    f"Header '{header}' absent (expected in production behind Traefik)"
-                )
+                pytest.skip(f"Header '{header}' absent (expected in production behind Traefik)")
 
     # ------------------------------------------------------------------ #
     # A05-02  No debug / admin endpoints exposed
@@ -80,9 +78,7 @@ class TestSecurityMisconfiguration:
         body = resp.text
         leak_patterns = ["Traceback", 'File "/', "line ", "sqlalchemy", "asyncpg"]
         for pattern in leak_patterns:
-            assert pattern not in body, (
-                f"Error response leaks internal info: found '{pattern}'"
-            )
+            assert pattern not in body, f"Error response leaks internal info: found '{pattern}'"
 
     # ------------------------------------------------------------------ #
     # A05-04  CORS rejects arbitrary origins
@@ -99,6 +95,4 @@ class TestSecurityMisconfiguration:
         )
         acao = resp.headers.get("access-control-allow-origin", "")
         assert acao != "*", "CORS allows wildcard origin (*)"
-        assert "evil-attacker" not in acao, (
-            f"CORS allows arbitrary origin: {acao}"
-        )
+        assert "evil-attacker" not in acao, f"CORS allows arbitrary origin: {acao}"

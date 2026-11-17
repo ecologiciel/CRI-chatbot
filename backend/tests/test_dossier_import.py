@@ -6,8 +6,6 @@ Excel/CSV parsing, file validation, and statut mapping.
 
 from __future__ import annotations
 
-import os
-import tempfile
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -41,7 +39,8 @@ class TestSanitizeRow:
         assert "SARL Test" in (sanitized.raison_sociale or "")
 
     def test_strips_html_from_observations(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(
             row_number=1,
@@ -51,7 +50,8 @@ class TestSanitizeRow:
         assert sanitized.observations == "Note importante"
 
     def test_detects_sql_injection(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(
             row_number=1,
@@ -61,7 +61,8 @@ class TestSanitizeRow:
         assert "DROP TABLE" not in (sanitized.observations or "")
 
     def test_detects_union_select(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(
             row_number=1,
@@ -71,7 +72,8 @@ class TestSanitizeRow:
         assert "UNION SELECT" not in (sanitized.type_projet or "")
 
     def test_strips_whitespace(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(
             row_number=1,
@@ -83,7 +85,8 @@ class TestSanitizeRow:
         assert sanitized.region == "RSK"
 
     def test_none_fields_stay_none(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, numero="2024-001")
         sanitized = import_service.sanitize_row(row)
@@ -91,7 +94,8 @@ class TestSanitizeRow:
         assert sanitized.region is None
 
     def test_empty_string_becomes_none(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, numero="X", region="   ")
         sanitized = import_service.sanitize_row(row)
@@ -103,70 +107,80 @@ class TestSanitizeRow:
 
 class TestPhoneNormalisation:
     def test_local_06_format(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="0612345678")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone == "+212612345678"
 
     def test_local_07_format(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="0712345678")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone == "+212712345678"
 
     def test_00212_format(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="00212612345678")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone == "+212612345678"
 
     def test_keeps_valid_e164(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="+212612345678")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone == "+212612345678"
 
     def test_strips_spaces_and_dashes(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="06 12 34 56 78")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone == "+212612345678"
 
     def test_strips_dots(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="06.12.34.56.78")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone == "+212612345678"
 
     def test_invalid_returns_none(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="123")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone is None
 
     def test_empty_returns_none(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone is None
 
     def test_212_without_plus(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="212612345678")
         sanitized = import_service.sanitize_row(row)
         assert sanitized.phone == "+212612345678"
 
     def test_non_moroccan_kept(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         row = DossierImportRow(row_number=1, phone="+33612345678")
         sanitized = import_service.sanitize_row(row)
@@ -178,7 +192,8 @@ class TestPhoneNormalisation:
 
 class TestDetectChanges:
     def test_finds_changed_fields(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         existing = MagicMock()
         existing.statut = DossierStatut.en_attente
@@ -204,7 +219,8 @@ class TestDetectChanges:
         assert "type_projet" not in field_names  # unchanged
 
     def test_ignores_none_in_new_data(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         existing = MagicMock()
         existing.statut = DossierStatut.en_cours
@@ -221,7 +237,8 @@ class TestDetectChanges:
         assert len(changes) == 0
 
     def test_montant_change_detected(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         existing = MagicMock()
         existing.statut = DossierStatut.en_attente
@@ -243,7 +260,8 @@ class TestDetectChanges:
         assert "montant_investissement" in field_names
 
     def test_no_change_returns_empty(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         existing = MagicMock()
         existing.statut = DossierStatut.en_cours
@@ -271,32 +289,38 @@ class TestDetectChanges:
 
 class TestFileValidation:
     def test_rejects_wrong_extension(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         assert import_service._check_extension("report.exe") is False
 
     def test_rejects_pdf(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         assert import_service._check_extension("data.pdf") is False
 
     def test_accepts_xlsx(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         assert import_service._check_extension("dossiers.xlsx") is True
 
     def test_accepts_csv(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         assert import_service._check_extension("dossiers.csv") is True
 
     def test_accepts_xls(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         assert import_service._check_extension("data.xls") is True
 
     def test_case_insensitive(
-        self, import_service: DossierImportService,
+        self,
+        import_service: DossierImportService,
     ) -> None:
         assert import_service._check_extension("DATA.XLSX") is True
 
@@ -337,7 +361,9 @@ class TestParseExcel:
         return path
 
     def test_basic_parse(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
         path = self._make_xlsx(
             tmp_path,
@@ -356,7 +382,9 @@ class TestParseExcel:
         assert rows[1].numero == "2024-002"
 
     def test_column_mapping(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
         path = self._make_xlsx(
             tmp_path,
@@ -375,7 +403,9 @@ class TestParseExcel:
         assert rows[0].raison_sociale == "SARL Test"
 
     def test_skips_empty_rows(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
         path = self._make_xlsx(
             tmp_path,
@@ -390,7 +420,9 @@ class TestParseExcel:
         assert len(rows) == 2
 
     def test_preserves_raw_data(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
         path = self._make_xlsx(
             tmp_path,
@@ -414,7 +446,9 @@ class TestParseCsv:
         return path
 
     def test_basic_parse(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
         csv_content = (
             "Numéro,Statut,Raison Sociale,Téléphone\n"
@@ -429,12 +463,11 @@ class TestParseCsv:
         assert rows[0].phone == "0612345678"
 
     def test_semicolon_separator(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
-        csv_content = (
-            "Numéro;Statut;Raison Sociale\n"
-            "2024-001;en cours;SARL Alpha\n"
-        )
+        csv_content = "Numéro;Statut;Raison Sociale\n" "2024-001;en cours;SARL Alpha\n"
         path = self._make_csv(tmp_path, csv_content)
         rows = import_service.parse_csv(path)
         assert len(rows) == 1
@@ -442,7 +475,9 @@ class TestParseCsv:
         assert rows[0].raison_sociale == "SARL Alpha"
 
     def test_latin1_encoding(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
         csv_content = "Numéro;Statut\n2024-001;validé\n"
         path = self._make_csv(tmp_path, csv_content, encoding="latin-1")
@@ -451,21 +486,20 @@ class TestParseCsv:
         assert rows[0].statut == "validé"
 
     def test_empty_file_returns_empty(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
         path = self._make_csv(tmp_path, "")
         rows = import_service.parse_csv(path)
         assert rows == []
 
     def test_skips_empty_rows(
-        self, import_service: DossierImportService, tmp_path,
+        self,
+        import_service: DossierImportService,
+        tmp_path,
     ) -> None:
-        csv_content = (
-            "Numéro,Statut\n"
-            "2024-001,en cours\n"
-            ",\n"
-            "2024-002,validé\n"
-        )
+        csv_content = "Numéro,Statut\n" "2024-001,en cours\n" ",\n" "2024-002,validé\n"
         path = self._make_csv(tmp_path, csv_content)
         rows = import_service.parse_csv(path)
         assert len(rows) == 2

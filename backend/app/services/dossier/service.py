@@ -92,9 +92,7 @@ class DossierService:
         phone: str,
     ) -> Contact | None:
         """Look up a contact by phone number within an existing session."""
-        result = await session.execute(
-            select(Contact).where(Contact.phone == phone)
-        )
+        result = await session.execute(select(Contact).where(Contact.phone == phone))
         return result.scalar_one_or_none()
 
     # ── Public methods ───────────────────────────────────────────
@@ -266,15 +264,9 @@ class DossierService:
             result = await session.execute(
                 select(
                     func.count().label("total"),
-                    func.count()
-                    .filter(Dossier.statut == DossierStatut.en_cours)
-                    .label("en_cours"),
-                    func.count()
-                    .filter(Dossier.statut == DossierStatut.valide)
-                    .label("valide"),
-                    func.count()
-                    .filter(Dossier.statut == DossierStatut.rejete)
-                    .label("rejete"),
+                    func.count().filter(Dossier.statut == DossierStatut.en_cours).label("en_cours"),
+                    func.count().filter(Dossier.statut == DossierStatut.valide).label("valide"),
+                    func.count().filter(Dossier.statut == DossierStatut.rejete).label("rejete"),
                     func.count()
                     .filter(Dossier.statut == DossierStatut.en_attente)
                     .label("en_attente"),
@@ -314,9 +306,7 @@ class DossierService:
                 if filters.statut is not None:
                     base = base.where(Dossier.statut == filters.statut)
                 if filters.type_projet is not None:
-                    base = base.where(
-                        Dossier.type_projet.ilike(f"%{filters.type_projet}%")
-                    )
+                    base = base.where(Dossier.type_projet.ilike(f"%{filters.type_projet}%"))
                 if filters.date_depot_from is not None:
                     base = base.where(Dossier.date_depot >= filters.date_depot_from)
                 if filters.date_depot_to is not None:
@@ -331,17 +321,13 @@ class DossierService:
                     )
 
             # Total count
-            count_result = await session.execute(
-                select(func.count()).select_from(base.subquery())
-            )
+            count_result = await session.execute(select(func.count()).select_from(base.subquery()))
             total = count_result.scalar_one()
 
             # Paginated data
             offset = (page - 1) * page_size
             data_result = await session.execute(
-                base.order_by(Dossier.created_at.desc())
-                .offset(offset)
-                .limit(page_size)
+                base.order_by(Dossier.created_at.desc()).offset(offset).limit(page_size)
             )
             items = list(data_result.scalars().all())
 

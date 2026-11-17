@@ -9,11 +9,9 @@ Couvre :
 
 from __future__ import annotations
 
-import json
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -103,9 +101,7 @@ class TestEscalationDetection:
     async def test_detect_sensitive_topic(self):
         """Guard message contenant 'sensitive' -> sensitive_topic."""
         svc = _make_escalation_service()
-        result = await svc.detect_escalation(
-            {"guard_message": "Detected sensitive topic"}
-        )
+        result = await svc.detect_escalation({"guard_message": "Detected sensitive topic"})
         assert result == EscalationTrigger.sensitive_topic
 
     @pytest.mark.asyncio
@@ -145,9 +141,9 @@ class TestTriggerPriorityMapping:
         from app.services.escalation.service import EscalationService
 
         for trigger in EscalationTrigger:
-            assert trigger in EscalationService.TRIGGER_PRIORITY_MAP, (
-                f"Missing priority for {trigger}"
-            )
+            assert (
+                trigger in EscalationService.TRIGGER_PRIORITY_MAP
+            ), f"Missing priority for {trigger}"
 
     def test_explicit_request_is_high(self):
         """explicit_request -> high priority."""
@@ -366,9 +362,7 @@ class TestEscalationLifecycle:
 
         tenant = _make_tenant_mock(session)
 
-        await svc.respond_via_whatsapp(
-            TEST_ESCALATION_ID, "Info", TEST_ADMIN_ID, tenant
-        )
+        await svc.respond_via_whatsapp(TEST_ESCALATION_ID, "Info", TEST_ADMIN_ID, tenant)
         assert escalation_mock.status == EscalationStatus.in_progress
 
     @pytest.mark.asyncio

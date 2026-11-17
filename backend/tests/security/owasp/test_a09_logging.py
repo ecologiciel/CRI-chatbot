@@ -87,16 +87,12 @@ class TestLoggingFailures:
         for path in dangerous_paths:
             resp_del = await api_client.delete(path, headers=headers)
             assert resp_del.status_code in (404, 405, 403), (
-                f"DELETE {path} returned {resp_del.status_code} — "
-                "audit logs may be deletable!"
+                f"DELETE {path} returned {resp_del.status_code} — " "audit logs may be deletable!"
             )
 
-            resp_put = await api_client.put(
-                path, headers=headers, json={"action": "tampered"}
-            )
+            resp_put = await api_client.put(path, headers=headers, json={"action": "tampered"})
             assert resp_put.status_code in (404, 405, 403, 422), (
-                f"PUT {path} returned {resp_put.status_code} — "
-                "audit logs may be modifiable!"
+                f"PUT {path} returned {resp_put.status_code} — " "audit logs may be modifiable!"
             )
 
     # ------------------------------------------------------------------ #

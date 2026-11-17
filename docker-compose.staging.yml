@@ -121,7 +121,7 @@ services:
   # Budget memoire : 1 Go
   # ---------------------------------------------------------------------------
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
     container_name: cri-stg-minio
     command: server /data --console-address ":9001"
     environment:
@@ -151,7 +151,7 @@ services:
   # Budget memoire : 2 Go
   # ---------------------------------------------------------------------------
   backend:
-    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/backend:${IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
     container_name: cri-stg-backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     env_file: .env
@@ -203,7 +203,7 @@ services:
   # Budget memoire : 2 Go
   # ---------------------------------------------------------------------------
   arq-worker:
-    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/backend:${IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
     container_name: cri-stg-arq-worker
     command: >
       bash -c "
@@ -251,7 +251,7 @@ services:
   # Budget memoire : 512 Mo
   # ---------------------------------------------------------------------------
   frontend:
-    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/frontend:${IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY:-ghcr.io/ecologiciel/cri-chatbot}/frontend:${IMAGE_TAG:?IMAGE_TAG is required}
     container_name: cri-stg-frontend
     environment:
       - NODE_ENV=production
@@ -334,7 +334,7 @@ services:
   # Budget memoire : 512 Mo
   # ---------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.2.1
     container_name: cri-stg-prometheus
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -368,7 +368,7 @@ services:
   # Budget memoire : 512 Mo
   # ---------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.5.2
     container_name: cri-stg-grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}

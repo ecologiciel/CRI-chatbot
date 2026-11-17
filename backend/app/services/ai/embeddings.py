@@ -173,7 +173,9 @@ class EmbeddingService:
             # Prometheus metrics
             EMBEDDING_REQUESTS.labels(tenant=tenant.slug, model=self._model, status="success").inc()
             EMBEDDING_TOKENS.labels(tenant=tenant.slug, model=self._model).inc(total_tokens)
-            EMBEDDING_LATENCY.labels(tenant=tenant.slug, model=self._model).observe(latency_ms / 1000)
+            EMBEDDING_LATENCY.labels(tenant=tenant.slug, model=self._model).observe(
+                latency_ms / 1000
+            )
 
             # Cost tracking per tenant in Redis
             await self._track_cost(tenant, total_tokens)

@@ -41,7 +41,7 @@ services:
   # Qdrant — Base vectorielle (collection par tenant)
   # ---------------------------------------------------------------------------
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.12.1
     container_name: cri-qdrant
     environment:
       QDRANT__SERVICE__HTTP_PORT: 6333
@@ -102,7 +102,7 @@ services:
   # MinIO — Stockage objet S3-compatible (bucket par tenant)
   # ---------------------------------------------------------------------------
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
     container_name: cri-minio
     command: server /data --console-address ":9001"
     environment:
@@ -196,7 +196,7 @@ services:
   # Prometheus — Metriques (infra + IA + RAG + alertes securite)
   # ---------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.2.1
     container_name: cri-prometheus
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -227,7 +227,7 @@ services:
   # Grafana — Dashboards monitoring (provisionne automatiquement)
   # ---------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.5.2
     container_name: cri-grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
@@ -257,7 +257,7 @@ services:
   # Backend FastAPI — API + Orchestrateur LangGraph
   # ---------------------------------------------------------------------------
   backend:
-    image: ghcr.io/ecologiciel/cri-chatbot/backend:${IMAGE_TAG:-latest}
+    image: ghcr.io/ecologiciel/cri-chatbot/backend:${IMAGE_TAG:?IMAGE_TAG is required}
     container_name: cri-backend
     env_file: .env
     environment:
@@ -313,7 +313,7 @@ services:
   # Frontend Next.js — Back-Office
   # ---------------------------------------------------------------------------
   frontend:
-    image: ghcr.io/ecologiciel/cri-chatbot/frontend:${IMAGE_TAG:-latest}
+    image: ghcr.io/ecologiciel/cri-chatbot/frontend:${IMAGE_TAG:?IMAGE_TAG is required}
     container_name: cri-frontend
     environment:
       - NODE_ENV=production

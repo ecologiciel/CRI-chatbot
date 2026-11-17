@@ -14,9 +14,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.core.exceptions import RateLimitExceededError
 from app.services.dossier.otp import DossierOTPService
-
 from tests.unit.conftest import TEST_PHONE, make_tenant
 
 _REDIS = "app.services.dossier.otp.get_redis"
@@ -149,7 +147,7 @@ class TestOTPVerificationComplete:
     async def test_verify_non_6_digit_input_returns_false(self) -> None:
         """Non-6-digit input (too short, letters) should return False."""
         tenant = make_tenant(slug="rabat")
-        correct_hash = hashlib.sha256("123456".encode()).hexdigest()
+        correct_hash = hashlib.sha256(b"123456").hexdigest()
         redis = _make_redis(otp_hash=correct_hash)
         svc = DossierOTPService()
 

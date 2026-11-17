@@ -146,12 +146,10 @@ async def task_import_dossier(
     response.close()
     await response.release()
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-    tmp_path = tmp.name
-    try:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        tmp_path = tmp.name
         tmp.write(file_bytes)
-        tmp.close()
-
+    try:
         import_service = get_dossier_import_service()
 
         # 4. Validate file (extension, size, hash, duplicate check)
@@ -166,7 +164,11 @@ async def task_import_dossier(
                     sl.completed_at = datetime.now(UTC)
                     sl.error_details = {"skipped": "duplicate hash"}
             log.info("import_skipped_duplicate", file_hash=validation.file_hash)
-            return {"status": "skipped", "reason": "duplicate_hash", "sync_log_id": str(sync_log_id)}
+            return {
+                "status": "skipped",
+                "reason": "duplicate_hash",
+                "sync_log_id": str(sync_log_id),
+            }
 
         if not validation.is_valid:
             async with tenant.db_session() as session:
@@ -226,13 +228,15 @@ async def task_import_dossier(
             redis = get_redis()
             notification_key = f"{tenant.slug}:notification:dossier_changes"
             for change in status_changes:
-                notification = json.dumps({
-                    "dossier_id": str(change.dossier_id),
-                    "old_statut": change.old_value,
-                    "new_statut": change.new_value,
-                    "sync_log_id": str(sync_log_id),
-                    "changed_at": change.changed_at.isoformat() if change.changed_at else None,
-                })
+                notification = json.dumps(
+                    {
+                        "dossier_id": str(change.dossier_id),
+                        "old_statut": change.old_value,
+                        "new_statut": change.new_value,
+                        "sync_log_id": str(sync_log_id),
+                        "changed_at": change.changed_at.isoformat() if change.changed_at else None,
+                    }
+                )
                 await redis.rpush(notification_key, notification)
                 notifications_published += 1
 
@@ -452,10 +456,12 @@ async def task_scheduled_import_all(ctx: dict) -> dict:
             tenant = await TenantResolver.from_slug(t.slug)
             async with tenant.db_session() as session:
                 result = await session.execute(
-                    select(SyncConfig).where(
+                    select(SyncConfig)
+                    .where(
                         SyncConfig.is_active.is_(True),
                         SyncConfig.schedule_cron.isnot(None),
-                    ).limit(1),
+                    )
+                    .limit(1),
                 )
                 config = result.scalar_one_or_none()
 
@@ -512,6 +518,6 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _get_redis_settings()
-    max_jobs = 3       # Conservative: imports are I/O heavy
+    max_jobs = 3  # Conservative: imports are I/O heavy
     job_timeout = 600  # 10 minutes
     max_tries = 3

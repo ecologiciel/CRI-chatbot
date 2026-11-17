@@ -6,7 +6,6 @@ returned by the API, and JWT algorithm confusion attacks are rejected.
 
 import base64
 import json
-import re
 import subprocess
 import time
 
@@ -89,9 +88,8 @@ class TestCryptographicFailures:
                     continue
                 violations.append(line.strip())
 
-        assert not violations, (
-            f"Potential hardcoded secrets found:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Potential hardcoded secrets found:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
     # ------------------------------------------------------------------ #
@@ -108,9 +106,7 @@ class TestCryptographicFailures:
         if login_resp.status_code == 200:
             login_data = login_resp.json()
             assert "password" not in login_data, "Login response contains 'password'"
-            assert "password_hash" not in login_data, (
-                "Login response contains 'password_hash'"
-            )
+            assert "password_hash" not in login_data, "Login response contains 'password_hash'"
 
             # /auth/me response
             token = login_data.get("access_token")
@@ -138,11 +134,7 @@ class TestCryptographicFailures:
         """
 
         def _b64url(data: dict) -> str:
-            return (
-                base64.urlsafe_b64encode(json.dumps(data).encode())
-                .rstrip(b"=")
-                .decode()
-            )
+            return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
 
         header = _b64url({"alg": "none", "typ": "JWT"})
         payload = _b64url(
@@ -162,6 +154,4 @@ class TestCryptographicFailures:
             "/api/v1/auth/me",
             headers={"Authorization": f"Bearer {forged_token}"},
         )
-        assert resp.status_code == 401, (
-            f"JWT alg=none accepted! Status {resp.status_code}"
-        )
+        assert resp.status_code == 401, f"JWT alg=none accepted! Status {resp.status_code}"

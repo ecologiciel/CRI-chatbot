@@ -44,8 +44,8 @@ from app.services.orchestrator.simple_nodes import (
     GreetingNode,
     OutOfScopeNode,
 )
-from app.services.orchestrator.tracking_agent import get_tracking_agent
 from app.services.orchestrator.state import ConversationState
+from app.services.orchestrator.tracking_agent import get_tracking_agent
 from app.services.rag.prompts import PromptTemplates
 
 logger = structlog.get_logger()

@@ -9,7 +9,6 @@ Adds edge cases NOT in test_tracking_agent.py (Wave 24B):
 
 from __future__ import annotations
 
-import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -60,13 +59,17 @@ def _make_state(**overrides: object) -> dict:
 
 
 def _make_tracking_agent(
-    otp_mock=None, dossier_mock=None, state_mgr_mock=None,
+    otp_mock=None,
+    dossier_mock=None,
+    state_mgr_mock=None,
 ):
     otp = otp_mock or AsyncMock()
     dossier = dossier_mock or MagicMock()
     mgr = state_mgr_mock or AsyncMock()
     agent = TrackingAgent(
-        otp_service=otp, dossier_service=dossier, state_manager=mgr,
+        otp_service=otp,
+        dossier_service=dossier,
+        state_manager=mgr,
     )
     return agent, otp, dossier, mgr
 
@@ -147,12 +150,18 @@ class TestStateManagerComplete:
     async def test_concurrent_tenants_different_keys(self) -> None:
         """Two tenants accessing same phone produce different Redis keys."""
         tenant_a = TenantContext(
-            id=uuid.uuid4(), slug="alpha", name="CRI Alpha",
-            status="active", whatsapp_config=None,
+            id=uuid.uuid4(),
+            slug="alpha",
+            name="CRI Alpha",
+            status="active",
+            whatsapp_config=None,
         )
         tenant_b = TenantContext(
-            id=uuid.uuid4(), slug="beta", name="CRI Beta",
-            status="active", whatsapp_config=None,
+            id=uuid.uuid4(),
+            slug="beta",
+            name="CRI Beta",
+            status="active",
+            whatsapp_config=None,
         )
 
         stored: dict[str, str] = {}

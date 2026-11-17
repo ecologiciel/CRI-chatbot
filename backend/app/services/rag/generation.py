@@ -153,7 +153,9 @@ class GenerationService:
             # 3. No chunks → early return with "no_answer"
             if not chunks:
                 latency_ms = (time.monotonic() - start_time) * 1000
-                GENERATION_REQUESTS.labels(tenant=tenant.slug, status="no_chunks", language=language).inc()
+                GENERATION_REQUESTS.labels(
+                    tenant=tenant.slug, status="no_chunks", language=language
+                ).inc()
                 log.info("generation_no_chunks", latency_ms=round(latency_ms, 1))
                 return GenerationResponse(
                     answer=PromptTemplates.get_message("no_answer", language),
@@ -208,7 +210,9 @@ class GenerationService:
             if disclaimer:
                 answer = f"{disclaimer}\n\n{answer}"
 
-            GENERATION_REQUESTS.labels(tenant=tenant.slug, status="success", language=language).inc()
+            GENERATION_REQUESTS.labels(
+                tenant=tenant.slug, status="success", language=language
+            ).inc()
             GENERATION_LATENCY.labels(tenant=tenant.slug).observe(latency_ms / 1000)
 
             log.info(

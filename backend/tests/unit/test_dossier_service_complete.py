@@ -20,9 +20,7 @@ import pytest
 from app.core.tenant import TenantContext
 from app.models.enums import DossierStatut, Language
 from app.schemas.dossier import DossierDetail, DossierHistoryRead
-
 from tests.unit.conftest import make_tenant
-
 
 # -- Helpers ----------------------------------------------------------------
 
@@ -169,9 +167,7 @@ class TestBOLAComplete:
         tenant = make_tenant(slug="rabat")
         with _patch_db_session(mock_session):
             with pytest.raises(UnauthorizedDossierAccess):
-                await service.get_dossier_with_bola_check(
-                    tenant, dossier_id, "+212611111111"
-                )
+                await service.get_dossier_with_bola_check(tenant, dossier_id, "+212611111111")
 
 
 @pytest.mark.unit

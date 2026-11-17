@@ -10,6 +10,7 @@ import structlog
 
 from app.core.tenant import TenantContext
 from app.schemas.rag import GenerationRequest
+from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.orchestrator.state import ConversationState
 from app.services.rag.generation import GenerationService, get_generation_service
 from app.services.rag.prompts import PromptTemplates
@@ -62,9 +63,10 @@ class FAQAgent:
 
         try:
             # Step 1: Retrieve chunks from Qdrant
+            safe_query = get_pii_masker().mask(query).masked_text
             retrieval_result = await self._retrieval.retrieve(
                 tenant,
-                query,
+                safe_query,
                 language=language,
             )
 
@@ -109,6 +111,7 @@ class FAQAgent:
             # Step 5: Update state with results
             updates["response"] = gen_response.answer
             updates["chunk_ids"] = gen_response.chunk_ids
+            updates["sources"] = gen_response.sources
             updates["confidence"] = gen_response.confidence
             if gen_response.confidence < _LOW_CONFIDENCE_THRESHOLD:
                 updates["consecutive_low_confidence"] = (

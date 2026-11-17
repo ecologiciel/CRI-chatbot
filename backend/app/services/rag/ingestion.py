@@ -27,6 +27,7 @@ from app.models.kb import KBChunk, KBDocument
 from app.schemas.rag import ChunkResult, MetadataEnrichment
 from app.services.ai.embeddings import get_embedding_service
 from app.services.ai.gemini import get_gemini_service
+from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.rag.chunker import get_chunking_service
 
 logger = structlog.get_logger()
@@ -135,18 +136,22 @@ class IngestionService:
             log.info("chunks_created", count=len(chunk_results))
 
             # 5. Enrich metadata via Gemini (best-effort)
+            safe_chunk_contents = [
+                get_pii_masker().mask(chunk.content).masked_text for chunk in chunk_results
+            ]
             metadata_list = await self._enrich_metadata(
-                [c.content for c in chunk_results],
+                safe_chunk_contents,
                 tenant,
             )
 
             # 6. Generate embeddings for all chunks
             vectors = await self._embedder.embed_batch(
-                [c.content for c in chunk_results],
+                safe_chunk_contents,
                 tenant,
             )
 
             # 7. Upsert into Qdrant
+            provenance = await self._get_document_provenance(tenant, document_id)
             point_ids = await self._index_qdrant(
                 tenant,
                 chunk_results,
@@ -154,6 +159,7 @@ class IngestionService:
                 metadata_list,
                 document_id,
                 title,
+                provenance,
             )
 
             # 8. Save KBChunk records in tenant DB
@@ -420,6 +426,7 @@ class IngestionService:
         metadata_list: list[dict],
         document_id: uuid.UUID,
         title: str,
+        provenance: dict,
     ) -> list[str]:
         """Upsert vectors into Qdrant collection.
 
@@ -445,6 +452,11 @@ class IngestionService:
                 "chunk_index": chunk.chunk_index,
                 "content": chunk.content[:2000],  # Limit payload size
                 "title": title,
+                "source_authority": provenance.get("source_authority"),
+                "source_reference": provenance.get("source_reference"),
+                "source_version": provenance.get("source_version"),
+                "published_at": provenance.get("published_at"),
+                "source_url": provenance.get("source_url"),
                 "language": metadata.get("language", "fr"),
                 "related_laws": metadata.get("related_laws", []),
                 "applicable_sectors": metadata.get("applicable_sectors", []),
@@ -478,6 +490,26 @@ class IngestionService:
         )
 
         return point_ids
+
+    @staticmethod
+    async def _get_document_provenance(
+        tenant: TenantContext,
+        document_id: uuid.UUID,
+    ) -> dict:
+        """Load citation metadata once and persist it with every vector payload."""
+        async with tenant.db_session() as session:
+            document = await session.get(KBDocument, document_id)
+            if document is None:
+                return {}
+            return {
+                "source_authority": document.source_authority,
+                "source_reference": document.source_reference,
+                "source_version": document.source_version,
+                "published_at": document.published_at.isoformat()
+                if document.published_at
+                else None,
+                "source_url": document.source_url,
+            }
 
     async def _save_chunks_db(
         self,

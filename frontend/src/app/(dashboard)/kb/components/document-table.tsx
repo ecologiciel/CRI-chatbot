@@ -40,6 +40,7 @@ import {
   useDocuments,
   useDeleteDocument,
   useReindexDocument,
+  useValidateDocument,
 } from "@/hooks/use-documents";
 import type { KBDocumentStatus } from "@/types/kb";
 
@@ -51,6 +52,10 @@ const statusConfig: Record<
     label: "En attente",
     className: "bg-[hsl(var(--info))]/10 text-[hsl(var(--info))] border-0",
   },
+  pending_validation: {
+    label: "À valider",
+    className: "bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))] border-0",
+  },
   indexing: {
     label: "En cours",
     className:
@@ -60,6 +65,14 @@ const statusConfig: Record<
     label: "Indexé",
     className:
       "bg-[hsl(var(--success))]/10 text-[hsl(var(--success))] border-0",
+  },
+  rejected: {
+    label: "Refusé",
+    className: "bg-destructive/10 text-destructive border-0",
+  },
+  expired: {
+    label: "Expiré",
+    className: "bg-destructive/10 text-destructive border-0",
   },
   error: {
     label: "Erreur",
@@ -115,6 +128,7 @@ export function DocumentTable() {
 
   const deleteDoc = useDeleteDocument();
   const reindexDoc = useReindexDocument();
+  const validateDoc = useValidateDocument();
 
   const documents = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -137,6 +151,13 @@ export function DocumentTable() {
     reindexDoc.mutate(id, {
       onSuccess: () => toast.success(`Réindexation de "${title}" lancée`),
       onError: () => toast.error("Erreur lors de la réindexation"),
+    });
+  }
+
+  function handleValidate(doc: (typeof documents)[number]) {
+    validateDoc.mutate(doc, {
+      onSuccess: () => toast.success(`Document "${doc.title}" validé et envoyé à l'indexation`),
+      onError: () => toast.error("Les métadonnées de preuve sont incomplètes"),
     });
   }
 
@@ -309,6 +330,12 @@ export function DocumentTable() {
                           <DropdownMenuItem>
                             <Eye className="h-4 w-4 me-2" />
                             Voir
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleValidate(doc)}
+                            disabled={doc.status !== "pending_validation" || validateDoc.isPending}
+                          >
+                            Valider et indexer
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleReindex(doc.id, doc.title)}

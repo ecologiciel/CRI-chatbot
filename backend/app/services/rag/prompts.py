@@ -253,3 +253,29 @@ class PromptTemplates:
             history_text=history_text,
             query=query,
         )
+
+    @classmethod
+    def format_sources_message(cls, sources: list[dict], language: str = "fr") -> str:
+        """Render citations without calling an LLM; WhatsApp receives max three entries."""
+        if not sources:
+            return {
+                "fr": "Je ne dispose pas de source vérifiable pour la dernière réponse. Veuillez contacter le CRI.",
+                "ar": "لا تتوفر لدي مراجع قابلة للتحقق للإجابة الأخيرة. يرجى الاتصال بالمركز.",
+                "en": "No verifiable source is available for the last answer. Please contact the CRI.",
+            }.get(language, "Je ne dispose pas de source vérifiable pour la dernière réponse.")
+
+        lines = {"fr": ["Sources de la dernière réponse :"], "ar": ["مصادر الإجابة الأخيرة:"], "en": ["Sources for the last answer:"]}.get(language, ["Sources :"])
+        for index, source in enumerate(sources[:3], start=1):
+            details = [source.get("title") or "Document"]
+            if source.get("version"):
+                details.append(f"v{source['version']}")
+            if source.get("published_at"):
+                details.append(str(source["published_at"]))
+            if source.get("authority"):
+                details.append(str(source["authority"]))
+            reference = source.get("url") or source.get("reference")
+            line = f"{index}. " + " — ".join(details)
+            if reference:
+                line += f"\n{reference}"
+            lines.append(line)
+        return "\n\n".join(lines)

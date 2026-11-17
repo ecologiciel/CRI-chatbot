@@ -214,6 +214,28 @@ class ConversationService:
             history.append({"role": role, "content": msg.content})
         return history
 
+    async def get_latest_sources(
+        self,
+        tenant: TenantContext,
+        conversation_id: uuid.UUID,
+    ) -> list[dict]:
+        """Return the citation snapshot of the latest RAG answer in this conversation."""
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(Message)
+                .where(
+                    Message.conversation_id == conversation_id,
+                    Message.direction == MessageDirection.outbound,
+                )
+                .order_by(Message.timestamp.desc())
+                .limit(25),
+            )
+            for message in result.scalars():
+                sources = (message.metadata_ or {}).get("sources")
+                if isinstance(sources, list):
+                    return sources[:3]
+        return []
+
     # ── Metadata update ──
 
     async def update_metadata(

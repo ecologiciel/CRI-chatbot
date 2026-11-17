@@ -9,7 +9,6 @@ Usage:
 
 from __future__ import annotations
 
-import re
 import time
 import uuid
 
@@ -28,6 +27,7 @@ from app.schemas.rag import (
 )
 from app.services.ai.gemini import get_gemini_service
 from app.services.ai.language import get_language_service
+from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.rag.prompts import PromptTemplates
 from app.services.rag.retrieval import get_retrieval_service
 
@@ -53,18 +53,6 @@ GENERATION_CONFIDENCE = Histogram(
     ["tenant"],
     buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
 )
-
-# ---------------------------------------------------------------------------
-# Compiled PII patterns (Moroccan-specific per CLAUDE.md §5.2)
-# ---------------------------------------------------------------------------
-_PII_CIN = re.compile(r"\b[A-Z]{1,2}\d{5,6}\b")
-_PII_PHONE = re.compile(r"(?:\+212|0)[567][\s.\-]?\d{2}[\s.\-]?\d{2}[\s.\-]?\d{2}[\s.\-]?\d{2}")
-_PII_EMAIL = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
-_PII_AMOUNT = re.compile(
-    r"\b\d{1,3}(?:[\s.,]\d{3})*(?:[.,]\d{1,2})?\s*(?:MAD|DH|dirhams?)\b",
-    re.IGNORECASE,
-)
-
 
 class GenerationService:
     """Full RAG generation: retrieve → anonymize → prompt → Gemini → response.
@@ -116,6 +104,7 @@ class GenerationService:
         trace_id = request.trace_id or str(uuid.uuid4())
         start_time = time.monotonic()
         language = request.language or "fr"
+        safe_query = self._anonymize_text(request.query)
 
         log = self._logger.bind(
             tenant=tenant.slug,
@@ -126,7 +115,7 @@ class GenerationService:
         try:
             # 1. Detect language
             if request.language is None:
-                lang_result = await self._language.detect(request.query, tenant)
+                lang_result = await self._language.detect(safe_query, tenant)
                 language = lang_result.language.value
                 log = log.bind(language=language, lang_method=lang_result.method)
 
@@ -138,7 +127,7 @@ class GenerationService:
             else:
                 retrieval_result: RetrievalResult = await self._retrieval.retrieve(
                     tenant=tenant,
-                    query=request.query,
+                    query=safe_query,
                     top_k=request.retrieval_top_k,
                     filters=request.retrieval_filters,
                     language=language,
@@ -181,13 +170,13 @@ class GenerationService:
             anonymized_chunks = self._anonymize_chunks(chunks)
 
             # 6. Build prompt
-            history_turns = self._truncate_history(
+            history_turns = self._anonymize_history(self._truncate_history(
                 request.conversation_history, request.max_history_turns
-            )
+            ))
             context_prompt = PromptTemplates.build_context(
                 chunks=anonymized_chunks,
                 history=history_turns,
-                query=request.query,
+                query=safe_query,
                 language=language,
             )
             system_prompt = PromptTemplates.get_system_prompt(language)
@@ -204,6 +193,7 @@ class GenerationService:
             # 8. Build response
             latency_ms = (time.monotonic() - start_time) * 1000
             chunk_ids = self._extract_chunk_ids(chunks)
+            sources = self._build_sources(chunks)
 
             # Prepend disclaimer to answer if confidence is low
             answer = gemini_response.text
@@ -230,6 +220,7 @@ class GenerationService:
                 answer=answer,
                 language=language,
                 chunk_ids=chunk_ids,
+                sources=sources,
                 confidence=confidence,
                 is_confident=is_confident,
                 disclaimer=disclaimer,
@@ -261,19 +252,8 @@ class GenerationService:
     # ------------------------------------------------------------------
 
     def _anonymize_text(self, text: str) -> str:
-        """Remove PII from text before sending to Gemini.
-
-        Patterns are Moroccan-specific per CLAUDE.md §5.2:
-        - CIN (national ID): [A-Z]{1,2}\\d{5,6}
-        - Phone: +212/06/07 formats
-        - Email addresses
-        - Amounts in MAD/DH/dirhams
-        """
-        text = _PII_CIN.sub("[CIN]", text)
-        text = _PII_PHONE.sub("[TELEPHONE]", text)
-        text = _PII_EMAIL.sub("[EMAIL]", text)
-        text = _PII_AMOUNT.sub("[MONTANT]", text)
-        return text
+        """Pseudonymize text before it is sent to any external AI service."""
+        return get_pii_masker().mask(text).masked_text
 
     def _anonymize_chunks(self, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
         """Create new RetrievedChunk instances with anonymized content.
@@ -290,6 +270,38 @@ class GenerationService:
             )
             for c in chunks
         ]
+
+    def _anonymize_history(self, history: list[ConversationTurn]) -> list[ConversationTurn]:
+        """Return a PII-safe copy of locally retained conversation history."""
+        return [
+            ConversationTurn(role=turn.role, content=self._anonymize_text(turn.content))
+            for turn in history
+        ]
+
+    @staticmethod
+    def _build_sources(chunks: list[RetrievedChunk]) -> list[dict]:
+        """Create up to three stable, document-level citations for the user."""
+        sources: list[dict] = []
+        seen_documents: set[str] = set()
+        for chunk in chunks:
+            if chunk.document_id in seen_documents:
+                continue
+            seen_documents.add(chunk.document_id)
+            metadata = chunk.metadata
+            sources.append(
+                {
+                    "document_id": chunk.document_id,
+                    "title": metadata.get("title", "Document"),
+                    "authority": metadata.get("source_authority"),
+                    "reference": metadata.get("source_reference"),
+                    "version": metadata.get("source_version"),
+                    "published_at": metadata.get("published_at"),
+                    "url": metadata.get("source_url"),
+                }
+            )
+            if len(sources) == 3:
+                break
+        return sources
 
     @staticmethod
     def _truncate_history(

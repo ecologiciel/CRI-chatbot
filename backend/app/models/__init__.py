@@ -39,6 +39,7 @@ from app.models.escalation import Escalation
 from app.models.feedback import Feedback, UnansweredQuestion
 from app.models.incitation import IncentiveCategory, IncentiveItem
 from app.models.kb import KBChunk, KBDocument
+from app.models.rag_evaluation import RAGEvaluationCase, RAGEvaluationRun
 from app.models.sync import SyncConfig, SyncLog
 from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
@@ -65,6 +66,8 @@ __all__ = [
     "InternalWhitelist",
     "KBChunk",
     "KBDocument",
+    "RAGEvaluationCase",
+    "RAGEvaluationRun",
     "Message",
     "SyncConfig",
     "SyncLog",

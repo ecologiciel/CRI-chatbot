@@ -35,6 +35,11 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [language, setLanguage] = useState("");
+  const [sourceAuthority, setSourceAuthority] = useState("");
+  const [sourceReference, setSourceReference] = useState("");
+  const [sourceVersion, setSourceVersion] = useState("");
+  const [publishedAt, setPublishedAt] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
 
   const uploadMutation = useUploadDocument();
 
@@ -78,6 +83,11 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
     setTitle("");
     setCategory("");
     setLanguage("");
+    setSourceAuthority("");
+    setSourceReference("");
+    setSourceVersion("");
+    setPublishedAt("");
+    setSourceUrl("");
   };
 
   const handleSubmit = () => {
@@ -89,11 +99,16 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
         title,
         category: category || undefined,
         language: language || undefined,
+        source_authority: sourceAuthority || undefined,
+        source_reference: sourceReference || undefined,
+        source_version: sourceVersion || undefined,
+        published_at: publishedAt || undefined,
+        source_url: sourceUrl || undefined,
       },
       {
         onSuccess: () => {
           toast.success("Document importé", {
-            description: `"${title}" est en cours d'indexation.`,
+            description: `"${title}" attend une validation avant indexation.`,
           });
           resetForm();
           onOpenChange(false);
@@ -180,6 +195,17 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
             )}
           </div>
 
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">Preuve et validité de la source <span className="text-destructive">*</span></p>
+            <div className="grid grid-cols-2 gap-3">
+              <Input required placeholder="Organisme émetteur" value={sourceAuthority} onChange={(e) => setSourceAuthority(e.target.value)} />
+              <Input required placeholder="Référence officielle" value={sourceReference} onChange={(e) => setSourceReference(e.target.value)} />
+              <Input required placeholder="Version" value={sourceVersion} onChange={(e) => setSourceVersion(e.target.value)} />
+              <Input required type="date" value={publishedAt} onChange={(e) => setPublishedAt(e.target.value)} aria-label="Date de publication" />
+            </div>
+            <Input type="url" placeholder="Lien officiel (optionnel)" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} />
+          </div>
+
           {/* Title */}
           <div className="space-y-2">
             <Label htmlFor="doc-title">Titre</Label>
@@ -229,7 +255,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!file || !title || uploadMutation.isPending}
+            disabled={!file || !title || !sourceAuthority || !sourceReference || !sourceVersion || !publishedAt || uploadMutation.isPending}
           >
             {uploadMutation.isPending ? (
               <>

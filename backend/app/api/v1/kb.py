@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import uuid
+from datetime import UTC, date, datetime
 from pathlib import PurePosixPath
 
 import structlog
@@ -29,6 +30,7 @@ from app.schemas.kb import (
     KBDocumentDetailResponse,
     KBDocumentList,
     KBDocumentResponse,
+    KBDocumentValidationRequest,
 )
 
 logger = structlog.get_logger()
@@ -46,6 +48,36 @@ CONTENT_TYPE_MAP: dict[str, str] = {
 }
 
 
+def _validate_file_signature(extension: str, file_bytes: bytes) -> None:
+    """Reject mismatched or binary textual uploads before object storage."""
+    if extension == ".pdf" and not file_bytes.startswith(b"%PDF-"):
+        raise ValidationError("Le contenu ne correspond pas à un PDF valide.")
+    if extension == ".docx" and not file_bytes.startswith(b"PK\x03\x04"):
+        raise ValidationError("Le contenu ne correspond pas à un DOCX valide.")
+    if extension in {".txt", ".md", ".csv"} and b"\x00" in file_bytes:
+        raise ValidationError("Un document texte ne peut pas contenir de données binaires.")
+
+
+def _ensure_publishable(document: KBDocument) -> None:
+    missing = [
+        name
+        for name, value in {
+            "source_authority": document.source_authority,
+            "source_reference": document.source_reference,
+            "source_version": document.source_version,
+            "published_at": document.published_at,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise ValidationError(
+            "Les métadonnées de preuve sont incomplètes.",
+            details={"missing": missing},
+        )
+    if document.expires_at and document.expires_at < date.today():
+        raise ValidationError("Ce document est expiré et ne peut pas être publié.")
+
+
 # ---------------------------------------------------------------------------
 # Upload document
 # ---------------------------------------------------------------------------
@@ -57,19 +89,23 @@ async def upload_document(
     title: str = Form(..., min_length=1, max_length=500),
     category: str | None = Form(default=None, max_length=100),
     language: str = Form(default="fr", pattern=r"^(fr|ar|en)$"),
+    source_url: str | None = Form(default=None, max_length=1000),
+    source_authority: str | None = Form(default=None, max_length=300),
+    source_reference: str | None = Form(default=None, max_length=500),
+    source_version: str | None = Form(default=None, max_length=100),
+    published_at: date | None = Form(default=None),
+    expires_at: date | None = Form(default=None),
     tenant: TenantContext = Depends(get_current_tenant),
     admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> KBDocumentResponse:
     """Upload a file to the knowledge base.
 
-    Stores the file in MinIO, creates a KBDocument record (status=pending),
-    and enqueues an ARQ task for background ingestion.
+    Stores the file in MinIO and creates a quarantined document. A human
+    validator must approve provenance metadata before ingestion is enqueued.
 
     Returns 202 Accepted — the document will be processed asynchronously.
     """
     settings = get_settings()
-    log = logger.bind(tenant=tenant.slug, admin_id=admin.sub, filename=file.filename)
-
     # 1. Validate extension
     ext = PurePosixPath(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -88,6 +124,7 @@ async def upload_document(
                 "max_size": settings.kb_max_file_size_bytes,
             },
         )
+    _validate_file_signature(ext, file_bytes)
 
     # 3. Create KBDocument record in tenant DB
     doc_id = uuid.uuid4()
@@ -99,9 +136,15 @@ async def upload_document(
             title=title,
             category=category,
             language=language,
+            source_url=source_url,
+            source_authority=source_authority,
+            source_reference=source_reference,
+            source_version=source_version,
+            published_at=published_at,
+            expires_at=expires_at,
             file_path=file_path,
             file_size=len(file_bytes),
-            status=KBDocumentStatus.pending,
+            status=KBDocumentStatus.pending_validation,
         )
         session.add(doc)
         await session.flush()
@@ -121,19 +164,48 @@ async def upload_document(
         await session.refresh(doc)
         response = KBDocumentResponse.model_validate(doc)
 
-    # 5. Enqueue ingestion task
-    try:
-        pool = get_arq_pool()
-        await pool.enqueue_job(
-            "ingest_document_task",
-            tenant.slug,
-            str(doc_id),
-        )
-        log.info("document_upload_enqueued", document_id=str(doc_id))
-    except Exception as exc:
-        log.warning("enqueue_failed", document_id=str(doc_id), error=str(exc))
-        # Document is in DB + MinIO — admin can retry via /reindex
+    return response
 
+
+@router.post(
+    "/documents/{document_id}/validate",
+    status_code=202,
+    response_model=KBDocumentResponse,
+)
+async def validate_document(
+    document_id: uuid.UUID,
+    data: KBDocumentValidationRequest,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+) -> KBDocumentResponse:
+    """Approve source evidence and enqueue an otherwise quarantined document."""
+    async with tenant.db_session() as session:
+        result = await session.execute(select(KBDocument).where(KBDocument.id == document_id))
+        document = result.scalar_one_or_none()
+        if document is None:
+            raise ResourceNotFoundError("Document introuvable.")
+        if document.status not in {KBDocumentStatus.pending_validation, KBDocumentStatus.rejected}:
+            raise ValidationError("Seul un document en attente de validation peut être publié.")
+
+        document.source_authority = data.source_authority
+        document.source_reference = data.source_reference
+        document.source_version = data.source_version
+        document.source_url = data.source_url
+        document.published_at = data.published_at
+        document.expires_at = data.expires_at
+        document.verified_at = datetime.now(UTC)
+        document.validated_at = datetime.now(UTC)
+        document.validated_by = uuid.UUID(str(admin.sub))
+        _ensure_publishable(document)
+        document.status = KBDocumentStatus.pending
+        document.error_message = None
+        await session.flush()
+        await session.refresh(document)
+        response = KBDocumentResponse.model_validate(document)
+
+    pool = get_arq_pool()
+    await pool.enqueue_job("ingest_document_task", tenant.slug, str(document_id))
+    logger.info("document_validated_and_enqueued", tenant=tenant.slug, document_id=str(document_id))
     return response
 
 

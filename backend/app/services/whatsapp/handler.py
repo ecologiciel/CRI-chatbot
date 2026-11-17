@@ -10,6 +10,7 @@ This is the central integration point connecting all Wave 1-8 services.
 from __future__ import annotations
 
 import contextlib
+import unicodedata
 import uuid
 
 import structlog
@@ -172,6 +173,10 @@ class MessageHandler:
                 await self._handle_feedback(tenant, msg, conversation.id, phone)
                 return
 
+            if self._is_source_command(content):
+                await self._handle_source_command(tenant, conversation.id, phone, content, wamid)
+                return
+
             # 8. Mark as read (blue ticks) — non-critical
             try:
                 await self._sender.mark_as_read(tenant, wamid)
@@ -271,6 +276,7 @@ class MessageHandler:
                         "intent": result.get("intent"),
                         "language": result.get("language"),
                         "confidence": result.get("confidence"),
+                        "sources": result.get("sources", []),
                     },
                 )
             except Exception as persist_err:
@@ -339,6 +345,39 @@ class MessageHandler:
                 )
 
     # ── Content extraction ──
+
+    @staticmethod
+    def _is_source_command(content: str | None) -> bool:
+        if not content:
+            return False
+        normalized = unicodedata.normalize("NFKD", content).encode("ascii", "ignore").decode().strip().lower()
+        return normalized == "source"
+
+    async def _handle_source_command(
+        self,
+        tenant: TenantContext,
+        conversation_id: uuid.UUID,
+        phone: str,
+        content: str | None,
+        wamid: str,
+    ) -> None:
+        """Persist a `Source` request and answer from local message metadata only."""
+        await self._conversation_service.add_message(
+            tenant, conversation_id, MessageDirection.inbound, MessageType.text, content,
+            whatsapp_message_id=wamid,
+        )
+        sources = await self._conversation_service.get_latest_sources(tenant, conversation_id)
+        response = PromptTemplates.format_sources_message(sources)
+        out_wamid = await self._sender.send_text(tenant, phone, response)
+        await self._conversation_service.add_message(
+            tenant,
+            conversation_id,
+            MessageDirection.outbound,
+            MessageType.text,
+            response,
+            whatsapp_message_id=out_wamid,
+            metadata={"sources_response": True, "sources": sources},
+        )
 
     async def _extract_content(
         self,

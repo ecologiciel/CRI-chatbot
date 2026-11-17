@@ -111,6 +111,7 @@ class GenerationResponse(BaseModel):
     answer: str
     language: str
     chunk_ids: list[str] = Field(default_factory=list)
+    sources: list[dict] = Field(default_factory=list)
     confidence: float
     is_confident: bool
     disclaimer: str | None = None

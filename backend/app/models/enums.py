@@ -66,8 +66,11 @@ class AdminRole(str, Enum):
 
 class KBDocumentStatus(str, Enum):
     pending = "pending"
+    pending_validation = "pending_validation"
     indexing = "indexing"
     indexed = "indexed"
+    rejected = "rejected"
+    expired = "expired"
     error = "error"
 
 

@@ -7,8 +7,19 @@ KBChunk = a chunk of a document, embedded and stored in Qdrant.
 from __future__ import annotations
 
 import uuid
+from datetime import date, datetime
 
-from sqlalchemy import Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +39,14 @@ class KBDocument(UUIDMixin, TimestampMixin, Base):
 
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    source_authority: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    source_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    published_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    validated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     language: Mapped[str] = mapped_column(
         String(5),

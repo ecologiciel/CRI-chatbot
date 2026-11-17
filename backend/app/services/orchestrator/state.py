@@ -38,6 +38,7 @@ class ConversationState(TypedDict, total=False):
     retrieved_chunks: list[dict]  # chunks from Qdrant retrieval
     response: str  # generated response text
     chunk_ids: list[str]  # chunk IDs for feedback correlation
+    sources: list[dict]  # document-level citations for the last RAG answer
     confidence: float  # retrieval confidence score
 
     # ── Guardrails ──

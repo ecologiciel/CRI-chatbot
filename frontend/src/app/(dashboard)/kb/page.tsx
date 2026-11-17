@@ -9,6 +9,7 @@ import { useLearningStats } from "@/hooks/use-learning";
 import { DocumentTable } from "./components/document-table";
 import { UploadModal } from "./components/upload-modal";
 import { UnansweredTab } from "./components/unanswered-tab";
+import { RAGEvaluationTab } from "./components/rag-evaluation-tab";
 
 export default function KBPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -45,6 +46,7 @@ export default function KBPage() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="evaluation">Évaluation RAG</TabsTrigger>
         </TabsList>
 
         <TabsContent value="documents">
@@ -53,6 +55,9 @@ export default function KBPage() {
 
         <TabsContent value="unanswered">
           <UnansweredTab />
+        </TabsContent>
+        <TabsContent value="evaluation">
+          <RAGEvaluationTab />
         </TabsContent>
       </Tabs>
 

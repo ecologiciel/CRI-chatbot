@@ -26,6 +26,7 @@ from app.api.v1.health import router as health_router
 from app.api.v1.kb import router as kb_router
 from app.api.v1.learning import router as learning_router
 from app.api.v1.notifications import router as notifications_router
+from app.api.v1.rag_evaluations import router as rag_evaluations_router
 from app.api.v1.tenant import router as tenant_router
 from app.api.v1.webhook import router as webhook_router
 from app.api.v1.whitelist import router as whitelist_router
@@ -169,6 +170,7 @@ def create_app() -> FastAPI:
     app.include_router(kb_router, prefix="/api/v1")
     app.include_router(learning_router, prefix="/api/v1")
     app.include_router(notifications_router, prefix="/api/v1")
+    app.include_router(rag_evaluations_router, prefix="/api/v1")
     app.include_router(tenant_router, prefix="/api/v1")
     app.include_router(webhook_router, prefix="/api/v1")
     app.include_router(whitelist_router, prefix="/api/v1")

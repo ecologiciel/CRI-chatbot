@@ -1,7 +1,7 @@
 """Pydantic v2 schemas for Knowledge Base (KBDocument + KBChunk)."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +15,11 @@ class KBDocumentCreate(BaseModel):
     source_url: str | None = Field(default=None, max_length=1000)
     category: str | None = Field(default=None, max_length=100)
     language: str = Field(default="fr", pattern=r"^(fr|ar|en)$")
+    source_authority: str | None = Field(default=None, max_length=300)
+    source_reference: str | None = Field(default=None, max_length=500)
+    source_version: str | None = Field(default=None, max_length=100)
+    published_at: date | None = None
+    expires_at: date | None = None
 
 
 class KBDocumentUpdate(BaseModel):
@@ -24,6 +29,23 @@ class KBDocumentUpdate(BaseModel):
     category: str | None = Field(default=None, max_length=100)
     language: str | None = Field(default=None, pattern=r"^(fr|ar|en)$")
     status: KBDocumentStatus | None = None
+    source_url: str | None = Field(default=None, max_length=1000)
+    source_authority: str | None = Field(default=None, max_length=300)
+    source_reference: str | None = Field(default=None, max_length=500)
+    source_version: str | None = Field(default=None, max_length=100)
+    published_at: date | None = None
+    expires_at: date | None = None
+
+
+class KBDocumentValidationRequest(BaseModel):
+    """Explicit human approval required before a document is indexed."""
+
+    source_authority: str = Field(..., min_length=1, max_length=300)
+    source_reference: str = Field(..., min_length=1, max_length=500)
+    source_version: str = Field(..., min_length=1, max_length=100)
+    published_at: date
+    source_url: str | None = Field(default=None, max_length=1000)
+    expires_at: date | None = None
 
 
 class KBDocumentResponse(BaseModel):
@@ -34,6 +56,14 @@ class KBDocumentResponse(BaseModel):
     id: uuid.UUID
     title: str
     source_url: str | None
+    source_authority: str | None
+    source_reference: str | None
+    source_version: str | None
+    published_at: date | None
+    verified_at: datetime | None
+    expires_at: date | None
+    validated_by: uuid.UUID | None
+    validated_at: datetime | None
     category: str | None
     language: str
     content_hash: str | None

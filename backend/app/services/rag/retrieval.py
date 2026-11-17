@@ -135,6 +135,11 @@ class RetrievalService:
                         score=point.score,
                         metadata={
                             "title": payload.get("title", ""),
+                            "source_authority": payload.get("source_authority"),
+                            "source_reference": payload.get("source_reference"),
+                            "source_version": payload.get("source_version"),
+                            "published_at": payload.get("published_at"),
+                            "source_url": payload.get("source_url"),
                             "language": payload.get("language", ""),
                             "related_laws": payload.get("related_laws", []),
                             "applicable_sectors": payload.get("applicable_sectors", []),

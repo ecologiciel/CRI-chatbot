@@ -9,10 +9,13 @@ Tenant resolution happens inside the webhook service via phone_number_id.
 
 from __future__ import annotations
 
+import hmac
+
 import structlog
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from app.core.config import get_settings
 from app.core.exceptions import WhatsAppSignatureError
 from app.services.whatsapp.webhook import WhatsAppWebhookService
 
@@ -28,12 +31,14 @@ async def verify_whatsapp_webhook(
     hub_mode: str = Query(..., alias="hub.mode"),
     hub_verify_token: str = Query(..., alias="hub.verify_token"),
     hub_challenge: str = Query(..., alias="hub.challenge"),
+    x_demo_webhook_proxy: str | None = Header(default=None),
 ) -> PlainTextResponse:
     """Meta webhook verification (subscription setup).
 
     Meta sends a GET request with hub.mode, hub.verify_token, and hub.challenge.
     We verify the token and echo back the challenge string.
     """
+    _require_proxy_secret(x_demo_webhook_proxy)
     try:
         challenge = webhook_service.verify_webhook(
             mode=hub_mode,
@@ -50,7 +55,10 @@ async def verify_whatsapp_webhook(
 
 
 @router.post("/whatsapp")
-async def receive_whatsapp_webhook(request: Request) -> JSONResponse:
+async def receive_whatsapp_webhook(
+    request: Request,
+    x_demo_webhook_proxy: str | None = Header(default=None),
+) -> JSONResponse:
     """Receive webhook events from Meta.
 
     IMPORTANT: Always returns 200 to prevent Meta from retrying.
@@ -59,6 +67,7 @@ async def receive_whatsapp_webhook(request: Request) -> JSONResponse:
     Raw body is read directly for HMAC verification — we do NOT use
     a Pydantic body parameter because that would re-serialize the JSON.
     """
+    _require_proxy_secret(x_demo_webhook_proxy)
     raw_body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
 
@@ -79,3 +88,10 @@ async def receive_whatsapp_webhook(request: Request) -> JSONResponse:
         status_code=200,
         content={"status": "ok"},
     )
+
+
+def _require_proxy_secret(provided: str | None) -> None:
+    """Restrict webhook traffic to the configured relay when one is enabled."""
+    configured = get_settings().webhook_proxy_shared_secret
+    if configured and not hmac.compare_digest(configured, provided or ""):
+        raise HTTPException(status_code=403, detail="Webhook relay authentication failed")

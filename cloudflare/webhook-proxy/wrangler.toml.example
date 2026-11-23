@@ -1,0 +1,8 @@
+name = "chatbot-demo-webhook"
+main = "src/index.ts"
+compatibility_date = "2026-11-23"
+
+[vars]
+ORIGIN = "https://REPLACE_WITH_HOSTINGER_TEMPORARY_HOST"
+
+# Create with: wrangler secret put PROXY_SHARED_SECRET

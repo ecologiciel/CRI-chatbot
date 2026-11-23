@@ -267,6 +267,9 @@ class TenantProvisioningService:
                 region=data.region,
                 logo_url=data.logo_url,
                 whatsapp_config=data.whatsapp_config,
+                public_config=data.public_config,
+                is_demo=data.is_demo,
+                conversation_retention_days=data.conversation_retention_days,
                 status=TenantStatus.provisioning,
             )
             # Copy optional limit fields if provided

@@ -57,6 +57,7 @@ logs/
 # Temporary files
 tmp/
 temp/
+var/onssa-corpus/
 
 # Load test generated data
 backend/tests/load/data/*.xlsx

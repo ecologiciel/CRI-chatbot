@@ -29,6 +29,9 @@ tenantstatus = postgresql.ENUM(
 
 
 def upgrade() -> None:
+    # Required by the UUID defaults used by this and subsequent migrations.
+    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+
     # Create the ENUM type first
     tenantstatus.create(op.get_bind(), checkfirst=True)
 

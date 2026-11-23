@@ -8,7 +8,7 @@ The slug is the routing key used everywhere:
   - MinIO bucket: cri-{slug}
 """
 
-from sqlalchemy import Enum, Index, Integer, String, Text
+from sqlalchemy import Boolean, Enum, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,6 +41,27 @@ class Tenant(UUIDMixin, TimestampMixin, Base):
     )
     accent_color: Mapped[str | None] = mapped_column(
         String(20), nullable=True, comment="CSS HSL color pour tenant accent"
+    )
+    public_config: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="'{}'::jsonb",
+        comment="Configuration publique du chatbot web, sans secrets",
+    )
+    is_demo: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="Tenant de démonstration soumis à une rétention réduite",
+    )
+    conversation_retention_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=90,
+        server_default="90",
+        comment="Durée de conservation des conversations du tenant",
     )
 
     # WhatsApp configuration (SENSITIVE — never expose in public APIs)

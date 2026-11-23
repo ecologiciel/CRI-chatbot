@@ -1,0 +1,18 @@
+api:
+  dashboard: false
+
+ping: {}
+
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: demo-edge
+
+log:
+  level: INFO
+
+accessLog: {}

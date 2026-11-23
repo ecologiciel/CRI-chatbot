@@ -47,6 +47,7 @@ class OptInStatus(str, Enum):
 
 class ContactSource(str, Enum):
     whatsapp = "whatsapp"
+    web = "web"
     import_csv = "import_csv"
     manual = "manual"
 

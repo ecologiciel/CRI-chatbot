@@ -101,13 +101,11 @@ jobs:
         run: npm audit --omit=dev
         working-directory: frontend
 
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+
       - name: Scan filesystem and IaC
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # v0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          severity: CRITICAL,HIGH
-          exit-code: "1"
+        run: trivy fs --severity CRITICAL,HIGH --exit-code 1 .
 
   # ---------------------------------------------------------------------------
   # Test Backend — Phase 1 (socle, RAG, WhatsApp, guardrails, security, isolation)
@@ -485,7 +483,7 @@ jobs:
       - name: Build and push backend image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
-          context: ./backend
+          context: .
           file: ./backend/Dockerfile
           push: true
           tags: |
@@ -506,23 +504,48 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trivy scan backend
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # v0.28.0
+      - name: Build and push Hostinger demo frontend
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
-          image-ref: ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
-          format: sarif
-          output: trivy-backend.sarif
-          severity: CRITICAL,HIGH
-          exit-code: "1"
+          context: ./frontend
+          file: ./frontend/docker/frontend.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LC }}/frontend-demo:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=
+            NEXT_PUBLIC_BASE_PATH=
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Hostinger admin frontend
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./frontend
+          file: ./frontend/docker/frontend.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LC }}/frontend-admin:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=
+            NEXT_PUBLIC_BASE_PATH=/admin
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+
+      - name: Trivy scan backend
+        run: >-
+          trivy image --format sarif --output trivy-backend.sarif
+          --severity CRITICAL,HIGH --exit-code 1
+          ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
 
       - name: Trivy scan frontend
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # v0.28.0
-        with:
-          image-ref: ghcr.io/${{ env.REPO_LC }}/frontend:${{ github.sha }}
-          format: sarif
-          output: trivy-frontend.sarif
-          severity: CRITICAL,HIGH
-          exit-code: "1"
+        run: >-
+          trivy image --format sarif --output trivy-frontend.sarif
+          --severity CRITICAL,HIGH --exit-code 1
+          ghcr.io/${{ env.REPO_LC }}/frontend:${{ github.sha }}
 
       - name: Upload Trivy SARIF (backend)
         uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3

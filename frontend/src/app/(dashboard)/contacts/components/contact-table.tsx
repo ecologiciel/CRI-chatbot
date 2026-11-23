@@ -130,7 +130,7 @@ export function ContactTable() {
   async function handleExport() {
     try {
       // Direct download via window
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
       const response = await fetch(`${baseUrl}/api/v1/contacts/export?format=csv`, {
         headers: {
           Authorization: `Bearer ${(api as any)._accessTokenRef?.current || ""}`,

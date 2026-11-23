@@ -75,13 +75,18 @@ def _make_tenant_with_session(session: AsyncMock) -> MagicMock:
     return tenant
 
 
-def _make_public_session(slugs: list[str]) -> AsyncMock:
+def _make_public_session(
+    tenants: list[tuple[str, bool, int]] | list[str],
+) -> AsyncMock:
     """Create a mock session for querying active tenants from public schema."""
     session = AsyncMock()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=False)
-    # session.execute calls: 1) SET search_path, 2) SELECT slugs
-    rows = [(s,) for s in slugs]
+    # session.execute calls: 1) SET search_path, 2) SELECT tenant settings
+    rows = [
+        item if isinstance(item, tuple) else (item, False, RETENTION_DAYS_CONVERSATIONS)
+        for item in tenants
+    ]
     search_path_result = MagicMock()
     slug_result = MagicMock()
     slug_result.all.return_value = rows
@@ -182,6 +187,39 @@ class TestPurgeTenantConversations:
 
         # Zero deleted confirms the WHERE clause protects active conversations
         assert stats["conversations_deleted"] == 0
+
+    @pytest.mark.asyncio
+    async def test_demo_purge_includes_unclosed_browser_conversations(self):
+        """Demo tenants are allowed to expire an abandoned browser session."""
+        session = AsyncMock()
+        session.commit = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _make_execute_result(1),
+                _make_execute_result(0),
+                _make_execute_result(0),
+            ],
+        )
+        tenant = _make_tenant_with_session(session)
+
+        with (
+            patch("app.core.tenant.TenantResolver") as MockResolver,
+            patch(
+                "app.services.audit.service.get_audit_service",
+                return_value=AsyncMock(),
+            ),
+        ):
+            MockResolver.from_slug = AsyncMock(return_value=tenant)
+            stats = await _purge_tenant_conversations(
+                TEST_TENANT_SLUG,
+                CUTOFF,
+                purge_active=True,
+                retention_days=7,
+            )
+
+        assert stats["conversations_deleted"] == 1
+        # Two conversation batches plus orphaned web-contact cleanup.
+        assert session.execute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_purge_cascade_deletes_messages(self):
@@ -316,6 +354,31 @@ class TestTaskPurgeExpiredData:
         assert result["tenants_with_purges"] == 2
         assert result["tenants_errored"] == 0
         assert mock_purge.call_count == 2
+        assert mock_purge.call_args_list[0].kwargs == {
+            "purge_active": False,
+            "retention_days": RETENTION_DAYS_CONVERSATIONS,
+        }
+
+    @pytest.mark.asyncio
+    async def test_demo_tenant_uses_its_short_retention(self):
+        """A demo's configured retention applies to active web conversations."""
+        mock_session = _make_public_session([("onssa", True, 7)])
+        mock_factory = MagicMock(return_value=mock_session)
+
+        with (
+            patch("app.core.database.get_session_factory", return_value=mock_factory),
+            patch(
+                "app.workers.purge._purge_tenant_conversations",
+                new_callable=AsyncMock,
+                return_value={"conversations_deleted": 0},
+            ) as mock_purge,
+        ):
+            await task_purge_expired_data({})
+
+        assert mock_purge.call_args.kwargs == {
+            "purge_active": True,
+            "retention_days": 7,
+        }
 
     @pytest.mark.asyncio
     async def test_purge_continues_on_tenant_error(self):

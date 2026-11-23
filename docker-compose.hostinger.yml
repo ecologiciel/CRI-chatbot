@@ -1,0 +1,230 @@
+# Single-VPS Hostinger deployment for the multi-tenant demonstration platform.
+# Hostinger terminates TLS for its temporary project hostname; Traefik only
+# performs path routing on port 80 inside the VPS.
+
+x-backend-environment: &backend-environment
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  DEBUG: ${DEBUG:-false}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  POSTGRES_DB: ${POSTGRES_DB:-cri_platform}
+  POSTGRES_USER: ${POSTGRES_USER:-cri_admin}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cri_minio}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+  WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
+  WEBHOOK_PROXY_SHARED_SECRET: ${WEBHOOK_PROXY_SHARED_SECRET:-}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+  KMS_MASTER_KEY: ${KMS_MASTER_KEY:?KMS_MASTER_KEY is required}
+  BACKOFFICE_URL: ${BACKOFFICE_URL:?BACKOFFICE_URL is required}
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cri_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-cri_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [demo-data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cri_admin} -d ${POSTGRES_DB:-cri_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    mem_limit: 2g
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required} --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes: [redis_data:/data]
+    networks: [demo-data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    mem_limit: 768m
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    volumes: [qdrant_data:/qdrant/storage]
+    networks: [demo-data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:6333/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    mem_limit: 3g
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cri_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes: [minio_data:/data]
+    networks: [demo-data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    mem_limit: 1g
+
+  backend:
+    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    environment:
+      <<: *backend-environment
+      ENVIRONMENT: production
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      QDRANT_HOST: qdrant
+      MINIO_ENDPOINT: minio:9000
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    networks: [demo-edge, demo-data]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.demo-api.rule=Host(`${DEMO_HOSTNAME:?DEMO_HOSTNAME is required}`) && PathPrefix(`/api`)
+      - traefik.http.routers.demo-api.priority=30
+      - traefik.http.routers.demo-api.entrypoints=websecure
+      - traefik.http.routers.demo-api.tls.certresolver=le
+      - traefik.http.services.demo-api.loadbalancer.server.port=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; raise SystemExit(0 if httpx.get('http://localhost:8000/api/v1/health').status_code == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 2g
+
+  ingestion-worker:
+    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    environment:
+      <<: *backend-environment
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      QDRANT_HOST: qdrant
+      MINIO_ENDPOINT: minio:9000
+    command: arq app.workers.ingestion.WorkerSettings
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [demo-data]
+    restart: unless-stopped
+    mem_limit: 1g
+
+  purge-worker:
+    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    environment:
+      <<: *backend-environment
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    command: arq app.workers.purge.WorkerSettings
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [demo-data]
+    restart: unless-stopped
+    mem_limit: 512m
+
+  demo-bootstrap:
+    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    environment:
+      <<: *backend-environment
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      QDRANT_HOST: qdrant
+      MINIO_ENDPOINT: minio:9000
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:?SEED_ADMIN_EMAIL is required}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?SEED_ADMIN_PASSWORD is required}
+      DEMO_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:?SEED_ADMIN_EMAIL is required}
+      DEMO_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?SEED_ADMIN_PASSWORD is required}
+    command: >-
+      sh -ec 'alembic upgrade head && python -m app.scripts.bootstrap_demo &&
+      python -m app.scripts.import_onssa_demo'
+    depends_on:
+      backend: { condition: service_healthy }
+      ingestion-worker: { condition: service_started }
+    networks: [demo-data]
+    restart: "no"
+    mem_limit: 1g
+
+  frontend-demo:
+    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/frontend-demo:${IMAGE_TAG:?IMAGE_TAG is required}
+    networks: [demo-edge]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.demo-web.rule=Host(`${DEMO_HOSTNAME:?DEMO_HOSTNAME is required}`) && PathPrefix(`/`)
+      - traefik.http.routers.demo-web.priority=1
+      - traefik.http.routers.demo-web.entrypoints=websecure
+      - traefik.http.routers.demo-web.tls.certresolver=le
+      - traefik.http.services.demo-web.loadbalancer.server.port=3000
+    restart: unless-stopped
+    mem_limit: 512m
+
+  frontend-admin:
+    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/frontend-admin:${IMAGE_TAG:?IMAGE_TAG is required}
+    networks: [demo-edge]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.demo-admin.rule=Host(`${DEMO_HOSTNAME:?DEMO_HOSTNAME is required}`) && PathPrefix(`/admin`)
+      - traefik.http.routers.demo-admin.priority=20
+      - traefik.http.routers.demo-admin.entrypoints=websecure
+      - traefik.http.routers.demo-admin.tls.certresolver=le
+      - traefik.http.services.demo-admin.loadbalancer.server.port=3000
+    restart: unless-stopped
+    mem_limit: 512m
+
+  traefik:
+    image: traefik:v3.2
+    command:
+      - --api.dashboard=false
+      - --ping=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=demo-edge
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+    ports: ["80:80", "443:443"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks: [demo-edge]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 256m
+
+networks:
+  demo-edge:
+    name: demo-edge
+  demo-data:
+    name: demo-data
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+  traefik_letsencrypt:

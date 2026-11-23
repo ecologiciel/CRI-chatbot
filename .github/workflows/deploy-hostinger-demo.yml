@@ -1,0 +1,31 @@
+name: Deploy Hostinger Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Immutable GHCR tag produced by CI
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-hostinger-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: hostinger-demo
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HOSTINGER_DEMO_SSH_KEY }}
+      - name: Add Hostinger host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.HOSTINGER_DEMO_HOST }}" >> ~/.ssh/known_hosts
+      - name: Deploy immutable image tag
+        run: |
+          ssh "${{ secrets.HOSTINGER_DEMO_USER }}@${{ secrets.HOSTINGER_DEMO_HOST }}" \
+            "cd /opt/chatbot-demo && git fetch origin main && git checkout --detach origin/main && bash ./scripts/deploy-hostinger-demo.sh '${{ inputs.image_tag }}'"

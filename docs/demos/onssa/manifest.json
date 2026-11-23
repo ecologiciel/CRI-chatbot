@@ -1,0 +1,41 @@
+{
+  "tenant_slug": "onssa",
+  "source_authority": "Office National de Sécurité Sanitaire des Produits Alimentaires (ONSSA)",
+  "sources": [
+    {
+      "slug": "accueil",
+      "title": "ONSSA — Accueil et missions",
+      "category": "missions-et-services",
+      "language": "fr",
+      "url": "https://www.onssa.gov.ma/"
+    },
+    {
+      "slug": "reglementation",
+      "title": "ONSSA — Réglementation",
+      "category": "reglementation",
+      "language": "fr",
+      "url": "https://www.onssa.gov.ma/reglementation/"
+    },
+    {
+      "slug": "risques-phytosanitaires",
+      "title": "ONSSA — Surveillance des risques phytosanitaires",
+      "category": "sante-vegetale",
+      "language": "fr",
+      "url": "https://www.onssa.gov.ma/evaluation-des-risques/surveillance-des-risques-phytosanitaires/"
+    },
+    {
+      "slug": "controle-phytosanitaire",
+      "title": "ONSSA — Contrôle phytosanitaire",
+      "category": "sante-vegetale",
+      "language": "fr",
+      "url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/"
+    },
+    {
+      "slug": "eservices",
+      "title": "ONSSA — Portail e-services",
+      "category": "e-services",
+      "language": "fr",
+      "url": "https://eservice.onssa.gov.ma/Default.aspx"
+    }
+  ]
+}

@@ -70,6 +70,9 @@ class Settings(BaseSettings):
         default="", description="Meta App Secret for HMAC webhook validation"
     )
     whatsapp_verify_token: str = Field(default="", description="Webhook verification token")
+    webhook_proxy_shared_secret: str = Field(
+        default="", description="Optional shared secret required from the Cloudflare webhook relay"
+    )
 
     # --- JWT Auth ---
     jwt_secret_key: str = Field(

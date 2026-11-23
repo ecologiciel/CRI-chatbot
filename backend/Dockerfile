@@ -6,7 +6,7 @@
 FROM python:3.12-slim AS builder
 
 WORKDIR /build
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.txt
 
 # Stage 2: Runner — minimal runtime image
@@ -20,10 +20,13 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-# Copy application code
-COPY app/ app/
-COPY alembic.ini .
-COPY alembic/ alembic/
+# Copy application code and the reviewed ONSSA demonstration corpus.  The
+# corpus is intentionally embedded so Hostinger Docker Manager can initialize
+# a new project without SSH, bind mounts, or a second artifact store.
+COPY backend/app/ app/
+COPY backend/alembic.ini .
+COPY backend/alembic/ alembic/
+COPY docs/demos/onssa/ /app/onssa-corpus/
 
 # Set ownership
 RUN chown -R cri:cri /app

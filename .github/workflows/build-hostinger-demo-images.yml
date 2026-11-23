@@ -1,0 +1,71 @@
+name: Build Hostinger Demo Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Immutable image tag (defaults to the triggering commit SHA)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build ONSSA demo images
+    runs-on: ubuntu-latest
+    env:
+      REPO_LC: ${{ github.repository }}
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Lowercase repository name
+        run: echo "REPO_LC=${REPO_LC,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: ghcr.io/${{ env.REPO_LC }}/backend:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push public demo frontend
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./frontend
+          file: ./frontend/docker/frontend.Dockerfile
+          push: true
+          tags: ghcr.io/${{ env.REPO_LC }}/frontend-demo:${{ env.IMAGE_TAG }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=
+            NEXT_PUBLIC_BASE_PATH=
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push administration frontend
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./frontend
+          file: ./frontend/docker/frontend.Dockerfile
+          push: true
+          tags: ghcr.io/${{ env.REPO_LC }}/frontend-admin:${{ env.IMAGE_TAG }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=
+            NEXT_PUBLIC_BASE_PATH=/admin
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -50,6 +50,9 @@ class TenantCreate(BaseModel):
     logo_url: str | None = Field(default=None, description="URL logo")
     accent_color: str | None = Field(default=None, description="CSS HSL color")
     whatsapp_config: WhatsAppConfig | None = Field(default=None, description="Config WhatsApp")
+    public_config: dict = Field(default_factory=dict, description="Configuration publique sans secrets")
+    is_demo: bool = Field(default=False, description="Active la rétention courte de démonstration")
+    conversation_retention_days: int = Field(default=90, ge=1, le=3650)
     max_contacts: int = Field(default=20_000, ge=100, le=1_000_000)
     max_messages_per_year: int = Field(default=100_000, ge=1000, le=10_000_000)
     max_admins: int = Field(default=10, ge=1, le=100)
@@ -71,6 +74,9 @@ class TenantUpdate(BaseModel):
     logo_url: str | None = None
     accent_color: str | None = None
     whatsapp_config: WhatsAppConfig | None = None
+    public_config: dict | None = None
+    is_demo: bool | None = None
+    conversation_retention_days: int | None = Field(default=None, ge=1, le=3650)
     status: TenantStatus | None = None
     max_contacts: int | None = Field(default=None, ge=100, le=1_000_000)
     max_messages_per_year: int | None = Field(default=None, ge=1000, le=10_000_000)
@@ -86,6 +92,9 @@ class TenantResponse(BaseModel):
     region: str
     logo_url: str | None
     accent_color: str | None
+    public_config: dict
+    is_demo: bool
+    conversation_retention_days: int
     status: TenantStatus
     max_contacts: int
     max_messages_per_year: int

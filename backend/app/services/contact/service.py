@@ -94,6 +94,38 @@ class ContactService:
             )
             return contact
 
+    async def get_or_create_web_session(
+        self,
+        tenant: TenantContext,
+        session_identifier: str,
+        language: Language = Language.fr,
+    ) -> Contact:
+        """Create or recover a pseudonymous web-chat contact.
+
+        ``phone`` remains the historical unique contact key.  Web sessions
+        therefore use a random, non-phone identifier that is never shown in
+        the back-office and expires with the demonstration retention policy.
+        """
+        pseudo_phone = f"web_{session_identifier[:16]}"
+        async with tenant.db_session() as session:
+            result = await session.execute(select(Contact).where(Contact.phone == pseudo_phone))
+            contact = result.scalar_one_or_none()
+            if contact is not None:
+                return contact
+
+            contact = Contact(
+                phone=pseudo_phone,
+                language=language,
+                source=ContactSource.web,
+                opt_in_status=OptInStatus.pending,
+                tags=["demo-web"],
+                metadata_={"pseudonymous": True},
+            )
+            session.add(contact)
+            await session.flush()
+            self._logger.info("web_contact_created", tenant=tenant.slug, contact_id=str(contact.id))
+            return contact
+
     # ── Back-office CRUD ──
 
     async def list_contacts(

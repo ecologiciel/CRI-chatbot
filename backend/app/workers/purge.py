@@ -11,8 +11,9 @@ Retention policy:
     messages/feedback: cascade-deleted with conversations (FK CASCADE)
     escalations: cascade-deleted with conversations (FK CASCADE)
 
-Only conversations with ended_at IS NOT NULL AND ended_at < cutoff are purged.
-Active, escalated, or human_handled conversations are NEVER deleted.
+Production tenants purge only conversations with ended_at IS NOT NULL.  Explicitly
+configured demo tenants also purge inactive browser sessions after their shorter
+retention period, including conversations that were never formally closed.
 """
 
 from __future__ import annotations
@@ -85,6 +86,9 @@ def _get_redis_settings() -> RedisSettings:
 async def _purge_tenant_conversations(
     slug: str,
     cutoff: datetime,
+    *,
+    purge_active: bool = False,
+    retention_days: int = RETENTION_DAYS_CONVERSATIONS,
 ) -> dict[str, int]:
     """Delete expired conversations for a single tenant.
 
@@ -93,13 +97,15 @@ async def _purge_tenant_conversations(
 
     Args:
         slug: Tenant slug identifier.
-        cutoff: Delete conversations with ``ended_at < cutoff``.
+        cutoff: Delete expired conversations before this timestamp.
 
     Returns:
         Dict with ``conversations_deleted`` count.
     """
     from app.core.tenant import TenantResolver
+    from app.models.contact import Contact
     from app.models.conversation import Conversation
+    from app.models.enums import ContactSource
 
     log = logger.bind(task="purge_conversations", tenant=slug)
 
@@ -109,12 +115,15 @@ async def _purge_tenant_conversations(
     async with tenant.db_session() as session:
         while True:
             # PostgreSQL doesn't support DELETE ... LIMIT, so use subquery.
-            subq = (
-                select(Conversation.id)
-                .where(Conversation.ended_at.is_not(None))
-                .where(Conversation.ended_at < cutoff)
-                .limit(BATCH_SIZE)
-            )
+            subq = select(Conversation.id).limit(BATCH_SIZE)
+            if purge_active:
+                # Demonstration tenants may keep an abandoned chat active
+                # indefinitely.  Their configured retention still wins.
+                subq = subq.where(Conversation.started_at < cutoff)
+            else:
+                subq = subq.where(Conversation.ended_at.is_not(None)).where(
+                    Conversation.ended_at < cutoff
+                )
             stmt = delete(Conversation).where(Conversation.id.in_(subq))
             result = await session.execute(stmt)
             batch_deleted = result.rowcount
@@ -129,6 +138,24 @@ async def _purge_tenant_conversations(
                 batch_deleted=batch_deleted,
                 total_deleted=total_deleted,
             )
+
+        # A web demo contact is pseudonymous and exists solely to group a
+        # browser session.  Once its last conversation has been purged, erase
+        # the contact as well.  This path is deliberately restricted to demo
+        # tenants so ordinary CRM contacts remain governed by their normal
+        # retention policy.
+        if purge_active:
+            orphaned_web_contacts = (
+                delete(Contact)
+                .where(Contact.source == ContactSource.web)
+                .where(
+                    ~select(Conversation.id)
+                    .where(Conversation.contact_id == Contact.id)
+                    .exists()
+                )
+            )
+            await session.execute(orphaned_web_contacts)
+            await session.commit()
 
     # Audit trail (only if something was actually deleted)
     if total_deleted > 0:
@@ -146,7 +173,7 @@ async def _purge_tenant_conversations(
                 resource_id=None,
                 details={
                     "reason": "cndp_retention_policy",
-                    "retention_days": RETENTION_DAYS_CONVERSATIONS,
+                    "retention_days": retention_days,
                     "cutoff_date": cutoff.isoformat(),
                     "conversations_deleted": total_deleted,
                 },
@@ -180,27 +207,35 @@ async def task_purge_expired_data(ctx: dict) -> dict[str, Any]:
     log = logger.bind(task="purge_expired_data")
     log.info("task_start")
 
-    cutoff = datetime.now(UTC) - timedelta(days=RETENTION_DAYS_CONVERSATIONS)
-
     # 1. Query active tenant slugs from public schema
     factory = get_session_factory()
     async with factory() as session:
         await session.execute(text("SET search_path TO public"))
         result = await session.execute(
-            select(Tenant.slug).where(Tenant.status == TenantStatus.active.value),
+            select(
+                Tenant.slug,
+                Tenant.is_demo,
+                Tenant.conversation_retention_days,
+            ).where(Tenant.status == TenantStatus.active.value),
         )
-        slugs: list[str] = [row[0] for row in result.all()]
+        tenants = list(result.all())
 
-    log.info("tenants_found", count=len(slugs))
+    log.info("tenants_found", count=len(tenants))
 
     # 2. Purge each tenant
     total_deleted = 0
     tenants_with_purges = 0
     tenants_errored = 0
 
-    for slug in slugs:
+    for slug, is_demo, retention_days in tenants:
         try:
-            stats = await _purge_tenant_conversations(slug, cutoff)
+            cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+            stats = await _purge_tenant_conversations(
+                slug,
+                cutoff,
+                purge_active=is_demo,
+                retention_days=retention_days,
+            )
             deleted = stats["conversations_deleted"]
             total_deleted += deleted
             if deleted > 0:
@@ -211,12 +246,11 @@ async def task_purge_expired_data(ctx: dict) -> dict[str, Any]:
 
     # 3. Summary
     summary = {
-        "tenants_processed": len(slugs),
+        "tenants_processed": len(tenants),
         "tenants_with_purges": tenants_with_purges,
         "tenants_errored": tenants_errored,
         "total_conversations_deleted": total_deleted,
-        "cutoff_date": cutoff.isoformat(),
-        "retention_days": RETENTION_DAYS_CONVERSATIONS,
+        "default_retention_days": RETENTION_DAYS_CONVERSATIONS,
     }
     log.info("task_complete", **summary)
     return summary

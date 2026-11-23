@@ -2,11 +2,13 @@
 # It deliberately replaces remote build contexts used by Docker Manager.
 services:
   backend:
+    pull_policy: build
     build:
       context: .
       dockerfile: backend/Dockerfile
 
   frontend-demo:
+    pull_policy: build
     build:
       context: ./frontend
       dockerfile: docker/frontend.Dockerfile
@@ -15,6 +17,7 @@ services:
         NEXT_PUBLIC_BASE_PATH: ""
 
   frontend-admin:
+    pull_policy: build
     build:
       context: ./frontend
       dockerfile: docker/frontend.Dockerfile

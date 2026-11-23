@@ -1,0 +1,23 @@
+# Local-build override for the Hostinger Web Console.
+# It deliberately replaces remote build contexts used by Docker Manager.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+
+  frontend-demo:
+    build:
+      context: ./frontend
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_BASE_PATH: ""
+
+  frontend-admin:
+    build:
+      context: ./frontend
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_BASE_PATH: /admin

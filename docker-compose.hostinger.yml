@@ -20,6 +20,8 @@ x-backend-environment: &backend-environment
   KMS_MASTER_KEY: ${KMS_MASTER_KEY:?KMS_MASTER_KEY is required}
   BACKOFFICE_URL: ${BACKOFFICE_URL:?BACKOFFICE_URL is required}
 
+x-source-repository: &source-repository https://github.com/ecologiciel/CRI-chatbot.git#ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+
 services:
 
   postgres:
@@ -82,7 +84,10 @@ services:
     mem_limit: 1g
 
   backend:
-    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    build:
+      context: *source-repository
+      dockerfile: backend/Dockerfile
     environment:
       <<: *backend-environment
       ENVIRONMENT: production
@@ -114,7 +119,7 @@ services:
     mem_limit: 2g
 
   ingestion-worker:
-    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
       POSTGRES_HOST: postgres
@@ -129,7 +134,7 @@ services:
     mem_limit: 1g
 
   purge-worker:
-    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
       POSTGRES_HOST: postgres
@@ -142,7 +147,7 @@ services:
     mem_limit: 512m
 
   demo-bootstrap:
-    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/backend:${IMAGE_TAG:?IMAGE_TAG is required}
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
       POSTGRES_HOST: postgres
@@ -164,7 +169,13 @@ services:
     mem_limit: 1g
 
   frontend-demo:
-    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/frontend-demo:${IMAGE_TAG:?IMAGE_TAG is required}
+    image: chatbot-demo-frontend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    build:
+      context: https://github.com/ecologiciel/CRI-chatbot.git#ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af:frontend
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_BASE_PATH: ""
     networks: [demo-edge]
     labels:
       - traefik.enable=true
@@ -177,7 +188,13 @@ services:
     mem_limit: 512m
 
   frontend-admin:
-    image: ${DOCKER_REGISTRY:?DOCKER_REGISTRY is required}/frontend-admin:${IMAGE_TAG:?IMAGE_TAG is required}
+    image: chatbot-demo-admin:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    build:
+      context: https://github.com/ecologiciel/CRI-chatbot.git#ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af:frontend
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_BASE_PATH: /admin
     networks: [demo-edge]
     labels:
       - traefik.enable=true

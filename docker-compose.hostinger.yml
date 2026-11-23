@@ -64,7 +64,9 @@ services:
     mem_limit: 3g
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # The official community image was withdrawn from public registries;
+    # this pinned, byte-identical upstream mirror keeps the demo reproducible.
+    image: dappros/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cri_minio}

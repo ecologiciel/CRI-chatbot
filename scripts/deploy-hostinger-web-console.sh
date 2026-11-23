@@ -8,7 +8,8 @@ COMPOSE=(docker compose --env-file .env.demo -f docker-compose.hostinger.yml -f 
 cd "$DEPLOY_DIR"
 test -f .env.demo
 
-"${COMPOSE[@]}" up -d --build --remove-orphans
+"${COMPOSE[@]}" build backend frontend-demo frontend-admin
+"${COMPOSE[@]}" up -d --remove-orphans
 
 echo "Waiting for the API to become healthy..."
 for attempt in $(seq 1 36); do

@@ -123,7 +123,12 @@ class Settings(BaseSettings):
     @property
     def redis_url(self) -> str:
         """Redis connection string."""
-        return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
+        from urllib.parse import quote_plus
+
+        return (
+            f"redis://:{quote_plus(self.redis_password)}@"
+            f"{self.redis_host}:{self.redis_port}/0"
+        )
 
     @property
     def kb_max_file_size_bytes(self) -> int:

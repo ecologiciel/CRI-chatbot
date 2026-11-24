@@ -7,7 +7,7 @@ type ChatMessage = { role: "user" | "assistant"; content: string; sources?: Sour
 
 const INTRO: ChatMessage = {
   role: "assistant",
-  content: "Bonjour. Je suis un prototype d’assistant documentaire. Posez-moi une question sur les informations ONSSA disponibles dans cette démonstration.",
+  content: "Bonjour. Je suis l’assistant documentaire ONSSA. Posez-moi une question sur les informations disponibles dans la base de connaissances.",
 };
 
 export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
@@ -62,9 +62,9 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
     <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6">
       <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50">
         <header className="border-b border-slate-200 bg-emerald-800 px-6 py-5 text-white">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">Démonstration</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">ONSSA</p>
           <h1 className="mt-1 text-2xl font-semibold">Assistant documentaire ONSSA</h1>
-          <p className="mt-2 text-sm text-emerald-100">Prototype non officiel fondé sur une sélection de sources publiques.</p>
+          <p className="mt-2 text-sm text-emerald-100">Réponses fondées sur les sources validées de la base de connaissances.</p>
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto bg-slate-50 p-5" aria-live="polite">
@@ -98,7 +98,7 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
             <input id="question" value={input} onChange={(event) => setInput(event.target.value)} disabled={!ready || sending} maxLength={2000} placeholder={ready ? "Posez votre question…" : "Initialisation…"} className="min-w-0 flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none ring-emerald-600 focus:ring-2 disabled:bg-slate-100" />
             <button type="submit" disabled={!ready || sending || !input.trim()} className="rounded-xl bg-emerald-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400">Envoyer</button>
           </form>
-          <p className="mt-3 text-xs leading-5 text-slate-500">N’envoyez aucune donnée personnelle ou confidentielle. Les conversations de cette démonstration sont supprimées sous 7 jours.</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">N’envoyez aucune donnée personnelle ou confidentielle. Vérifiez les informations importantes auprès des canaux officiels.</p>
         </footer>
       </section>
     </main>

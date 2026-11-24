@@ -1,8 +1,9 @@
-"""Provision the ONSSA web demo and submit its reviewed corpus for ingestion.
+"""Provision the ONSSA tenant and optionally submit its reviewed corpus.
 
-Run inside the backend container with the collected Markdown mounted at
-``/corpus``. Credentials are read only from environment variables and are never
-written to disk or printed.
+Bulk import is opt-in through ``DEMO_IMPORT_ONSSA_CORPUS=true``. By default the
+tenant is provisioned without documents so an operator can use the back-office
+upload and validation workflow. Credentials are read only from environment
+variables and are never written to disk or printed.
 """
 
 from __future__ import annotations
@@ -44,6 +45,15 @@ def _collection_date(document_path: Path) -> str:
             date.fromisoformat(collected_at)
             return collected_at
     raise ValueError(f"Collection date missing from {document_path}")
+
+
+def _import_corpus_enabled() -> bool:
+    """Return whether a deployment explicitly opted into bulk corpus seeding."""
+    return os.environ.get("DEMO_IMPORT_ONSSA_CORPUS", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 
 async def main() -> int:
@@ -142,6 +152,10 @@ async def main() -> int:
             print(f"Provisioned ONSSA tenant admin: {tenant_admin_email}")
         else:
             print("ONSSA tenant admin already exists")
+
+        if not _import_corpus_enabled():
+            print("ONSSA corpus import disabled; use the back-office to upload reviewed documents")
+            return 0
 
         tenant_headers = {**headers, "X-Tenant-ID": onssa["id"]}
         existing_docs = await _request(

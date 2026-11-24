@@ -96,6 +96,9 @@ services:
       QDRANT_HOST: qdrant
       MINIO_ENDPOINT: minio:9000
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    # Explicit resolvers keep Gemini reachable even when the VPS resolver is
+    # transiently unavailable. Docker still resolves service names internally.
+    dns: ["1.1.1.1", "8.8.8.8"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -127,6 +130,7 @@ services:
       QDRANT_HOST: qdrant
       MINIO_ENDPOINT: minio:9000
     command: arq app.workers.ingestion.WorkerSettings
+    dns: ["1.1.1.1", "8.8.8.8"]
     depends_on:
       backend: { condition: service_healthy }
     # It remains private for data access while gaining outbound HTTPS through
@@ -164,6 +168,9 @@ services:
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       DEMO_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
       DEMO_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+      # The operational ONSSA tenant is provisioned automatically, but its
+      # knowledge base is intentionally populated through the back-office.
+      DEMO_IMPORT_ONSSA_CORPUS: ${DEMO_IMPORT_ONSSA_CORPUS:-false}
     command: >-
       sh -ec 'alembic upgrade head && python -m app.scripts.bootstrap_demo &&
       python -m app.scripts.import_onssa_demo'

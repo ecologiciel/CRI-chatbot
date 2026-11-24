@@ -77,7 +77,7 @@ async def ingest_document_task(
     Returns:
         dict with status, chunk_count, duration_s.
     """
-    from app.core.minio import get_minio
+    from app.core.minio import get_object_bytes
     from app.core.tenant import TenantResolver
     from app.services.rag.ingestion import get_ingestion_service
 
@@ -103,11 +103,7 @@ async def ingest_document_task(
             return {"status": "no_file"}
 
         # 3. Download from MinIO
-        minio = get_minio()
-        response = await minio.get_object(tenant.minio_bucket, doc.file_path)
-        file_bytes = await response.read()
-        response.close()
-        await response.release()
+        file_bytes = await get_object_bytes(tenant.minio_bucket, doc.file_path)
 
         # 4. Extract text
         filename = doc.file_path.rsplit("/", 1)[-1] if "/" in doc.file_path else doc.file_path
@@ -157,7 +153,7 @@ async def reindex_document_task(
     Returns:
         dict with status, chunk_count, duration_s.
     """
-    from app.core.minio import get_minio
+    from app.core.minio import get_object_bytes
     from app.core.tenant import TenantResolver
     from app.services.rag.ingestion import get_ingestion_service
 
@@ -182,11 +178,7 @@ async def reindex_document_task(
             return {"status": "no_file"}
 
         # Download from MinIO
-        minio = get_minio()
-        response = await minio.get_object(tenant.minio_bucket, doc.file_path)
-        file_bytes = await response.read()
-        response.close()
-        await response.release()
+        file_bytes = await get_object_bytes(tenant.minio_bucket, doc.file_path)
 
         # Extract text
         filename = doc.file_path.rsplit("/", 1)[-1] if "/" in doc.file_path else doc.file_path

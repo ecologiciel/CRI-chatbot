@@ -103,7 +103,7 @@ async def task_import_dossier(
     Returns:
         Dict with status, sync_log_id, row counts, and notifications_published.
     """
-    from app.core.minio import get_minio
+    from app.core.minio import get_object_bytes
     from app.core.redis import get_redis
     from app.core.tenant import TenantResolver
     from app.models.dossier import DossierHistory
@@ -140,11 +140,7 @@ async def task_import_dossier(
     log = log.bind(sync_log_id=str(sync_log_id))
 
     # 3. Download file from MinIO to a temp file
-    minio = get_minio()
-    response = await minio.get_object(tenant.minio_bucket, file_path)
-    file_bytes = await response.read()
-    response.close()
-    await response.release()
+    file_bytes = await get_object_bytes(tenant.minio_bucket, file_path)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         tmp_path = tmp.name
@@ -305,7 +301,7 @@ async def task_watch_import_folder(
     Returns:
         Dict with files_found, files_enqueued, files_skipped counts.
     """
-    from app.core.minio import get_minio
+    from app.core.minio import get_minio, get_object_bytes
     from app.core.tenant import TenantResolver
     from app.models.sync import SyncConfig, SyncLog
 
@@ -349,10 +345,7 @@ async def task_watch_import_folder(
     for obj in files_to_process:
         try:
             # Download and compute SHA-256
-            response = await minio.get_object(bucket, obj.object_name)
-            file_bytes = await response.read()
-            response.close()
-            await response.release()
+            file_bytes = await get_object_bytes(bucket, obj.object_name)
             file_hash = hashlib.sha256(file_bytes).hexdigest()
 
             # Check if hash already imported

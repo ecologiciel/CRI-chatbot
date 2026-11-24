@@ -3,6 +3,7 @@
 All operations MUST target tenant's bucket: cri-{tenant.slug}
 """
 
+import aiohttp
 from miniopy_async import Minio
 
 from app.core.config import get_settings
@@ -28,3 +29,13 @@ def get_minio() -> Minio:
     if _minio is None:
         raise RuntimeError("MinIO not initialized. Call init_minio() in app lifespan.")
     return _minio
+
+
+async def get_object_bytes(bucket_name: str, object_name: str) -> bytes:
+    """Read an object while owning the aiohttp session required by miniopy_async."""
+    async with aiohttp.ClientSession() as session:
+        response = await get_minio().get_object(bucket_name, object_name, session)
+        try:
+            return await response.read()
+        finally:
+            response.release()

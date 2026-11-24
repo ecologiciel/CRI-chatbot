@@ -182,6 +182,8 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ""
         NEXT_PUBLIC_BASE_PATH: ""
+    environment:
+      HOSTNAME: 0.0.0.0
     networks: [demo-edge]
     labels:
       - traefik.enable=true
@@ -201,6 +203,8 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ""
         NEXT_PUBLIC_BASE_PATH: /admin
+    environment:
+      HOSTNAME: 0.0.0.0
     networks: [demo-edge]
     labels:
       - traefik.enable=true
@@ -232,7 +236,7 @@ services:
       - traefik_letsencrypt:/letsencrypt
     networks: [demo-edge]
     healthcheck:
-      test: ["CMD", "traefik", "healthcheck"]
+      test: ["CMD", "traefik", "healthcheck", "--ping=true", "--entrypoints.traefik.address=:8080"]
       interval: 15s
       timeout: 5s
       retries: 5

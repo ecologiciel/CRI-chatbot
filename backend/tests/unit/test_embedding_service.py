@@ -16,7 +16,7 @@ DIMENSION = 768
 def _make_settings(batch_size=100):
     s = MagicMock()
     s.gemini_api_key = "test-key"
-    s.embedding_model = "text-embedding-004"
+    s.embedding_model = "gemini-embedding-001"
     s.embedding_dimension = DIMENSION
     s.embedding_batch_size = batch_size
     return s

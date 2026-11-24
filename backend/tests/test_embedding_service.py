@@ -27,7 +27,7 @@ def _make_settings(**overrides):
     """Create a mock Settings object with embedding defaults."""
     settings = MagicMock()
     settings.gemini_api_key = "test-api-key"
-    settings.embedding_model = "text-embedding-004"
+    settings.embedding_model = "gemini-embedding-001"
     settings.embedding_dimension = DIMENSION
     settings.embedding_batch_size = overrides.get("embedding_batch_size", 100)
     for k, v in overrides.items():
@@ -116,7 +116,7 @@ async def test_embed_texts_success(embedding_service, mock_redis):
     assert isinstance(response, EmbeddingResponse)
     assert len(response.embeddings) == 3
     assert len(response.embeddings[0]) == DIMENSION
-    assert response.model == "text-embedding-004"
+    assert response.model == "gemini-embedding-001"
     assert response.dimension == DIMENSION
     assert response.latency_ms >= 0
 

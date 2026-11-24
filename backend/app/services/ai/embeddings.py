@@ -1,4 +1,4 @@
-"""EmbeddingService — text embedding via Google text-embedding-004 with batch support.
+"""EmbeddingService — text embedding via Google Gemini Embedding with batch support.
 
 Usage:
     service = get_embedding_service()
@@ -80,7 +80,7 @@ def _log_retry(retry_state: object) -> None:
 
 
 class EmbeddingService:
-    """Generate embeddings via Google text-embedding-004.
+    """Generate embeddings via Google Gemini Embedding.
 
     Supports batched embedding with automatic chunking when the input
     exceeds the configured batch size.

@@ -31,7 +31,8 @@ from app.services.crypto.kms import KMSService
 
 logger = structlog.get_logger()
 
-# Embedding dimension for text-embedding-004 / multilingual-e5-large
+# Gemini Embedding supports a reduced 768-dimensional output, which keeps
+# storage and retrieval costs appropriate for this first operational tenant.
 EMBEDDING_DIMENSION = 768
 
 # Tables to clone from tenant_template, in FK-dependency order.

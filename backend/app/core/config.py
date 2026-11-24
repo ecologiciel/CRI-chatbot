@@ -60,7 +60,10 @@ class Settings(BaseSettings):
     gemini_max_output_tokens: int = Field(default=2048, description="Max output tokens per request")
     gemini_temperature: float = Field(default=0.3, description="Sampling temperature (0.0-2.0)")
     gemini_timeout: float = Field(default=30.0, description="Request timeout in seconds")
-    embedding_model: str = Field(default="text-embedding-004", description="Google embedding model")
+    embedding_model: str = Field(
+        default="gemini-embedding-001",
+        description="Google Gemini embedding model",
+    )
     embedding_dimension: int = Field(default=768, description="Embedding vector dimension")
     embedding_batch_size: int = Field(default=100, description="Max texts per batch embed call")
     # TODO Phase 2: embedding_fallback_model for local multilingual-e5-large

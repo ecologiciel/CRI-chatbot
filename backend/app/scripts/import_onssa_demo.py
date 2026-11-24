@@ -17,8 +17,8 @@ from pathlib import Path
 import httpx
 
 DEFAULT_DISCLAIMER = (
-    "Prototype de démonstration non officiel. Les réponses reposent sur une sélection "
-    "de sources publiques ONSSA et ne remplacent pas les informations officielles."
+    "Environnement de présentation alimenté par des sources ONSSA validées. "
+    "Vérifiez toujours les informations importantes auprès des canaux officiels."
 )
 
 
@@ -75,12 +75,12 @@ async def main() -> int:
                 "/api/v1/tenants/",
                 headers=headers,
                 json={
-                    "name": "ONSSA — Démonstration",
+                    "name": "ONSSA",
                     "slug": "onssa",
                     "region": "National",
                     "accent_color": "hsl(160 84% 25%)",
-                    "is_demo": True,
-                    "conversation_retention_days": 7,
+                    "is_demo": False,
+                    "conversation_retention_days": 90,
                     "public_config": {
                         "web_enabled": True,
                         "disclaimer": DEFAULT_DISCLAIMER,
@@ -88,12 +88,31 @@ async def main() -> int:
                 },
             )
             onssa = tenant_response.json()
-            print("Provisioned ONSSA demo tenant")
+            print("Provisioned ONSSA operational tenant")
         else:
-            print("ONSSA demo tenant already exists")
+            print("ONSSA tenant already exists")
+
+        public_config = {
+            **onssa.get("public_config", {}),
+            "web_enabled": True,
+            "disclaimer": DEFAULT_DISCLAIMER,
+        }
+        tenant_update = await _request(
+            client,
+            "PATCH",
+            f"/api/v1/tenants/{onssa['id']}",
+            headers=headers,
+            json={
+                "name": "ONSSA",
+                "is_demo": False,
+                "conversation_retention_days": 90,
+                "public_config": public_config,
+            },
+        )
+        onssa = tenant_update.json()
 
         tenant_admin_email = os.environ.get(
-            "DEMO_TENANT_ADMIN_EMAIL", "onssa.demo@ecologiciel.com"
+            "DEMO_TENANT_ADMIN_EMAIL", "onssa.admin@ecologiciel.com"
         )
         tenant_admin_password = os.environ.get("DEMO_TENANT_ADMIN_PASSWORD", password)
         tenant_admins = await _request(
@@ -115,7 +134,7 @@ async def main() -> int:
                 json={
                     "email": tenant_admin_email,
                     "password": tenant_admin_password,
-                    "full_name": "Administrateur ONSSA — Démonstration",
+                    "full_name": "Administrateur ONSSA",
                     "role": "admin_tenant",
                     "tenant_id": onssa["id"],
                 },

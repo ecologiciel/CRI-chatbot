@@ -100,11 +100,23 @@ async def main() -> int:
             headers=tenant_headers,
             params={"page_size": 100},
         )
-        existing_titles = {item["title"] for item in existing_docs.json()["items"]}
+        existing_documents = {
+            item["title"]: item for item in existing_docs.json()["items"]
+        }
 
         for source in manifest["sources"]:
-            if source["title"] in existing_titles:
-                print(f"Skipped existing document: {source['title']}")
+            existing = existing_documents.get(source["title"])
+            if existing is not None:
+                if existing["status"] != "indexed":
+                    await _request(
+                        client,
+                        "POST",
+                        f"/api/v1/kb/documents/{existing['id']}/reindex",
+                        headers=tenant_headers,
+                    )
+                    print(f"Requeued existing document: {source['title']}")
+                else:
+                    print(f"Skipped indexed document: {source['title']}")
                 continue
             document_path = corpus_dir / "corpus" / f"{source['slug']}.md"
             if not document_path.is_file():

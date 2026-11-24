@@ -36,6 +36,20 @@
       "category": "e-services",
       "language": "fr",
       "url": "https://eservice.onssa.gov.ma/Default.aspx"
+    },
+    {
+      "slug": "controles-phytosanitaires-operatifs",
+      "title": "ONSSA — Contrôles phytosanitaires : objectifs et périmètres",
+      "category": "sante-vegetale",
+      "language": "fr",
+      "url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/"
+    },
+    {
+      "slug": "certification-export-produits-vegetaux",
+      "title": "ONSSA — Certification sanitaire à l’exportation des produits végétaux",
+      "category": "controle-import-export",
+      "language": "fr",
+      "url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/"
     }
   ]
 }

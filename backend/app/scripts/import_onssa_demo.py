@@ -48,7 +48,7 @@ def _collection_date(document_path: Path) -> str:
 
 async def main() -> int:
     base_url = os.environ.get("DEMO_API_URL", "http://backend:8000").rstrip("/")
-    corpus_dir = Path(os.environ.get("DEMO_CORPUS_DIR", "/app/onssa-corpus/corpus"))
+    corpus_dir = Path(os.environ.get("DEMO_CORPUS_DIR", "/app/onssa-corpus"))
     email = _required("DEMO_ADMIN_EMAIL")
     password = _required("DEMO_ADMIN_PASSWORD")
     manifest_path = corpus_dir / "manifest.json"
@@ -106,7 +106,7 @@ async def main() -> int:
             if source["title"] in existing_titles:
                 print(f"Skipped existing document: {source['title']}")
                 continue
-            document_path = corpus_dir / f"{source['slug']}.md"
+            document_path = corpus_dir / "corpus" / f"{source['slug']}.md"
             if not document_path.is_file():
                 print(f"Missing collected document: {document_path}", file=sys.stderr)
                 return 1

@@ -130,6 +130,8 @@ services:
     depends_on:
       backend: { condition: service_healthy }
     networks: [demo-data]
+    healthcheck:
+      disable: true
     restart: unless-stopped
     mem_limit: 1g
 
@@ -143,6 +145,8 @@ services:
     depends_on:
       backend: { condition: service_healthy }
     networks: [demo-data]
+    healthcheck:
+      disable: true
     restart: unless-stopped
     mem_limit: 512m
 
@@ -165,6 +169,8 @@ services:
       backend: { condition: service_healthy }
       ingestion-worker: { condition: service_started }
     networks: [demo-data]
+    healthcheck:
+      disable: true
     restart: "no"
     mem_limit: 1g
 
@@ -211,6 +217,7 @@ services:
     command:
       - --api.dashboard=false
       - --ping=true
+      - --entrypoints.traefik.address=:8080
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.web.http.redirections.entrypoint.to=websecure

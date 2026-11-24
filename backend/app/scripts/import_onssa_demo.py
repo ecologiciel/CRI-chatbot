@@ -92,6 +92,38 @@ async def main() -> int:
         else:
             print("ONSSA demo tenant already exists")
 
+        tenant_admin_email = os.environ.get(
+            "DEMO_TENANT_ADMIN_EMAIL", "onssa.demo@ecologiciel.com"
+        )
+        tenant_admin_password = os.environ.get("DEMO_TENANT_ADMIN_PASSWORD", password)
+        tenant_admins = await _request(
+            client,
+            "GET",
+            "/api/v1/auth/admins",
+            headers=headers,
+            params={"tenant_id": onssa["id"], "page_size": 100},
+        )
+        if not any(
+            item["email"] == tenant_admin_email
+            for item in tenant_admins.json()["items"]
+        ):
+            await _request(
+                client,
+                "POST",
+                "/api/v1/auth/admins",
+                headers=headers,
+                json={
+                    "email": tenant_admin_email,
+                    "password": tenant_admin_password,
+                    "full_name": "Administrateur ONSSA — Démonstration",
+                    "role": "admin_tenant",
+                    "tenant_id": onssa["id"],
+                },
+            )
+            print(f"Provisioned ONSSA tenant admin: {tenant_admin_email}")
+        else:
+            print("ONSSA tenant admin already exists")
+
         tenant_headers = {**headers, "X-Tenant-ID": onssa["id"]}
         existing_docs = await _request(
             client,

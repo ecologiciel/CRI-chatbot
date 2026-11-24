@@ -48,7 +48,7 @@ def _collection_date(document_path: Path) -> str:
 
 async def main() -> int:
     base_url = os.environ.get("DEMO_API_URL", "http://backend:8000").rstrip("/")
-    corpus_dir = Path(os.environ.get("DEMO_CORPUS_DIR", "/app/onssa-corpus"))
+    corpus_dir = Path(os.environ.get("DEMO_CORPUS_DIR", "/app/onssa-corpus/corpus"))
     email = _required("DEMO_ADMIN_EMAIL")
     password = _required("DEMO_ADMIN_PASSWORD")
     manifest_path = corpus_dir / "manifest.json"

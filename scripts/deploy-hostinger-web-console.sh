@@ -9,7 +9,7 @@ cd "$DEPLOY_DIR"
 test -f .env.demo
 
 "${COMPOSE[@]}" build backend frontend-demo frontend-admin
-"${COMPOSE[@]}" up -d --remove-orphans
+"${COMPOSE[@]}" up -d --remove-orphans --force-recreate
 
 echo "Waiting for the API to become healthy..."
 for attempt in $(seq 1 36); do

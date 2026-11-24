@@ -207,7 +207,7 @@ services:
     mem_limit: 512m
 
   traefik:
-    image: traefik:v3.2
+    image: traefik:v3.7.20
     command:
       - --api.dashboard=false
       - --ping=true

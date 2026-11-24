@@ -32,7 +32,10 @@ RUN addgroup -S cri && adduser -S cri -G cri
 
 # Copy standalone output
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=cri:cri /app/.next/standalone ./
+# `outputFileTracingRoot` is the repository root. Next therefore preserves the
+# application directory below `.next/standalone`; copy that directory itself so
+# the runtime entrypoint is `/app/server.js`.
+COPY --from=builder --chown=cri:cri /app/.next/standalone/frontend ./
 COPY --from=builder --chown=cri:cri /app/.next/static ./.next/static
 
 USER cri

@@ -20,6 +20,13 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
+# The data network is intentionally internal on the VPS.  Seed tiktoken's
+# tokenizer vocabulary while the image is built, so workers never need to
+# contact Azure Blob Storage at runtime just to tokenize a document.
+ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
+RUN mkdir -p "$TIKTOKEN_CACHE_DIR" \
+    && python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+
 # Copy application code and the reviewed ONSSA demonstration corpus.  The
 # corpus is intentionally embedded so Hostinger Docker Manager can initialize
 # a new project without SSH, bind mounts, or a second artifact store.

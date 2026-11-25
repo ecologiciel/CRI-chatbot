@@ -502,6 +502,16 @@ jobs:
         run: npm run build
         working-directory: frontend
 
+  # The fixture uses a unique Compose project, temporary keys and synthetic data.
+  test-hostinger-backup:
+    name: Test encrypted Hostinger backup
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify encrypted archive, locking and restart on failure
+        run: bash scripts/backup/test-hostinger-cold-backup.sh
+
   # ---------------------------------------------------------------------------
   # Docker Build + Security Scan (only on push to develop/main, after all tests)
   # ---------------------------------------------------------------------------

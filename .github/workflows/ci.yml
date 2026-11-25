@@ -274,6 +274,7 @@ jobs:
           createdb -h localhost -U cri_admin rag_pipeline_test
           createdb -h localhost -U cri_admin conversation_test
           createdb -h localhost -U cri_admin auth_password_test
+          createdb -h localhost -U cri_admin kms_rotation_test
 
       - name: Run Phase 2 tests
         env:
@@ -281,6 +282,7 @@ jobs:
           RAG_PIPELINE_TEST_DSN: postgresql+asyncpg://cri_admin:test-password@localhost:5432/rag_pipeline_test
           CONVERSATION_TEST_DSN: postgresql+asyncpg://cri_admin:test-password@localhost:5432/conversation_test
           AUTH_PASSWORD_TEST_DSN: postgresql+asyncpg://cri_admin:test-password@localhost:5432/auth_password_test
+          KMS_ROTATION_TEST_DSN: postgresql+asyncpg://cri_admin:test-password@localhost:5432/kms_rotation_test
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: cri_platform
@@ -324,6 +326,7 @@ jobs:
             tests/test_whitelist_api.py \
             tests/test_audit.py \
             tests/test_kms.py \
+            tests/test_master_key_rotation.py \
             tests/test_contacts_crm.py \
             -v --tb=short -x
         working-directory: backend

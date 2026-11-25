@@ -1,0 +1,133 @@
+"""Rewrapping preserves data keys and fails closed on any damaged envelope."""
+
+import os
+import secrets
+import uuid
+
+import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from app.services.crypto.master_key_rotation import rewrap_key_blobs
+
+
+def _wrap(master: bytes, data_key: bytes) -> bytes:
+    nonce = secrets.token_bytes(12)
+    return nonce + AESGCM(master).encrypt(nonce, data_key, None)
+
+
+def _unwrap(master: bytes, blob: bytes) -> bytes:
+    return AESGCM(master).decrypt(blob[:12], blob[12:], None)
+
+
+def test_rewrap_preserves_each_data_key_and_changes_envelopes():
+    old, new = secrets.token_bytes(32), secrets.token_bytes(32)
+    data_keys = [secrets.token_bytes(32), secrets.token_bytes(32)]
+    originals = [_wrap(old, key) for key in data_keys]
+    result = rewrap_key_blobs(originals, old, new)
+    assert [_unwrap(new, blob) for blob in result] == data_keys
+    assert all(a != b for a, b in zip(originals, result, strict=True))
+    assert [_unwrap(old, blob) for blob in originals] == data_keys
+
+
+@pytest.mark.parametrize("reason", ["invalid_key", "same_key", "empty", "wrong_key", "damaged"])
+def test_rewrap_rejects_invalid_inputs(reason):
+    old, new = secrets.token_bytes(32), secrets.token_bytes(32)
+    blobs = [_wrap(old, secrets.token_bytes(32)), _wrap(old, secrets.token_bytes(32))]
+    if reason == "invalid_key":
+        new = b"short"
+    elif reason == "same_key":
+        new = old
+    elif reason == "empty":
+        blobs = []
+    elif reason == "wrong_key":
+        old = secrets.token_bytes(32)
+    else:
+        blobs[1] = blobs[1][:-1] + bytes([blobs[1][-1] ^ 1])
+    with pytest.raises(ValueError):
+        rewrap_key_blobs(blobs, old, new)
+
+
+@pytest.mark.asyncio
+async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damage():
+    from sqlalchemy import select, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    import app.models  # noqa: F401 — register relationships for ORM configuration
+    from app.models.tenant import Tenant
+    from app.models.tenant_key import TenantKey
+    from app.services.crypto.master_key_rotation import rewrap_tenant_keys
+
+    dsn = os.getenv("KMS_ROTATION_TEST_DSN")
+    if not dsn:
+        pytest.skip("Requires a fresh disposable kms_rotation_test PostgreSQL database")
+    engine = create_async_engine(dsn)
+    created = False
+    try:
+        async with engine.begin() as conn:
+            assert (
+                await conn.execute(text("SELECT current_database()"))
+            ).scalar_one() == "kms_rotation_test"
+            assert (
+                await conn.execute(text("SELECT to_regclass('public.tenants') IS NULL"))
+            ).scalar_one()
+            assert (
+                await conn.execute(text("SELECT to_regclass('public.tenant_keys') IS NULL"))
+            ).scalar_one()
+            await conn.run_sync(Tenant.__table__.create)
+            await conn.run_sync(TenantKey.__table__.create)
+        created = True
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        old, new = secrets.token_bytes(32), secrets.token_bytes(32)
+        active, historical = secrets.token_bytes(32), secrets.token_bytes(32)
+        tenant_id = uuid.uuid4()
+        async with factory.begin() as session:
+            session.add(Tenant(id=tenant_id, slug="testrotation", name="Test", region="Test"))
+            await session.flush()
+            session.add_all(
+                [
+                    TenantKey(
+                        tenant_id=tenant_id,
+                        encrypted_key=_wrap(old, active),
+                        key_version=2,
+                        is_active=True,
+                    ),
+                    TenantKey(
+                        tenant_id=tenant_id,
+                        encrypted_key=_wrap(old, historical),
+                        key_version=1,
+                        is_active=False,
+                    ),
+                ]
+            )
+        assert await rewrap_tenant_keys(factory, old, new) == 2
+        async with factory() as session:
+            rows = list(
+                (await session.execute(select(TenantKey).order_by(TenantKey.key_version))).scalars()
+            )
+            assert [_unwrap(new, row.encrypted_key) for row in rows] == [historical, active]
+            before = [bytes(row.encrypted_key) for row in rows]
+        with pytest.raises(ValueError):
+            await rewrap_tenant_keys(factory, old, secrets.token_bytes(32))
+        async with factory() as session:
+            rows = list(
+                (await session.execute(select(TenantKey).order_by(TenantKey.key_version))).scalars()
+            )
+            assert [bytes(row.encrypted_key) for row in rows] == before
+        async with factory.begin() as session:
+            rows = list(
+                (await session.execute(select(TenantKey).order_by(TenantKey.key_version))).scalars()
+            )
+            rows[1].encrypted_key = before[1][:-1] + bytes([before[1][-1] ^ 1])
+        with pytest.raises(ValueError, match="could not be authenticated"):
+            await rewrap_tenant_keys(factory, new, secrets.token_bytes(32))
+        async with factory() as session:
+            rows = list(
+                (await session.execute(select(TenantKey).order_by(TenantKey.key_version))).scalars()
+            )
+            assert bytes(rows[0].encrypted_key) == before[0]
+    finally:
+        if created:
+            async with engine.begin() as conn:
+                await conn.run_sync(TenantKey.__table__.drop)
+                await conn.run_sync(Tenant.__table__.drop)
+        await engine.dispose()

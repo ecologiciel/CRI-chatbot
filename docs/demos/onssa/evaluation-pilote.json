@@ -1,5 +1,5 @@
 {
-  "description": "Jeu pilote basé sur deux synthèses ONSSA ; validation métier encore nécessaire.",
+  "description": "Jeu pilote basé sur des sources ONSSA ; validation métier encore nécessaire.",
   "language": "fr",
   "cases": [
     {
@@ -42,6 +42,13 @@
       "question": "Qui décide de la certification ?",
       "expected_document": "certification-export-produits-vegetaux.md",
       "expected_passage": "la décision de\ncertification relèvent exclusivement des services compétents de l’ONSSA",
+      "answerable": true
+    },
+    {
+      "id": "phyto-loi-76-17",
+      "question": "Quelle loi 76-17 protège les plantes ?",
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "n°76-17 relative à la protection des végétaux",
       "answerable": true
     },
     {

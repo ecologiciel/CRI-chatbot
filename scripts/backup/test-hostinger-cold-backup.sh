@@ -7,10 +7,12 @@ fixture=$(mktemp -d "$root/hostinger-backup-test.XXXXXXXX")
 suffix=$(basename "$fixture" | tr -cd 'a-zA-Z0-9' | tr '[:upper:]' '[:lower:]')
 project="test_${suffix}"
 compose=(docker compose --project-name "$project" --env-file "$fixture/.env.demo" -f "$fixture/docker-compose.hostinger.yml" -f "$fixture/docker-compose.hostinger.local.yml")
+lock_pid=""
 
 cleanup() {
     local result=$?
     trap - EXIT
+    if [[ -n "$lock_pid" ]]; then kill "$lock_pid" 2>/dev/null || true; fi
     # Only the freshly generated test project and its disposable volumes.
     if [[ "$project" =~ ^test_hostingerbackuptest[a-z0-9]+$ ]]; then
         "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || result=1
@@ -80,6 +82,22 @@ grep -Fxq SECRET=fixture-only "$fixture/extracted/env.demo"
 test -f "$fixture/extracted/metadata/manifest.txt"
 [[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
 
+# Concurrent archives could otherwise restart writers in the middle of a
+# second capture. The second process must fail before stopping anything.
+mkfifo "$fixture/release-lock"
+( flock -x 9; touch "$fixture/lock-ready"; read -r _ < "$fixture/release-lock" ) 9>"$fixture/backups/.cold-backup.lock" &
+lock_pid=$!
+for attempt in $(seq 1 30); do [[ -f "$fixture/lock-ready" ]] && break; sleep 1; done
+test -f "$fixture/lock-ready"
+if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"; then
+    echo 'A concurrent backup was unexpectedly accepted' >&2
+    exit 1
+fi
+[[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
+printf 'release\n' > "$fixture/release-lock"
+wait "$lock_pid"
+lock_pid=""
+
 # A signing-only key cannot encrypt. Verify that a failure after stop restarts
 # the original services and leaves no plaintext or partial archive.
 gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Signing Fixture <sign@example.com>' rsa2048 sign 1d >/dev/null 2>&1
@@ -90,4 +108,4 @@ if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$pr
 fi
 [[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
 [[ -z $(find "$fixture/backups" -name '*.partial' -print -quit) ]]
-echo 'Isolated encrypted backup, decryption, data checks and failure recovery: OK'
+echo 'Isolated encrypted backup, decryption, locking and failure recovery: OK'

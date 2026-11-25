@@ -15,11 +15,17 @@ COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$DEPLOY_DIR/.env.d
 command -v docker >/dev/null
 command -v gpg >/dev/null
 command -v sha256sum >/dev/null
+command -v flock >/dev/null
 test -r "$RECIPIENT"
 test -f "$DEPLOY_DIR/.env.demo"
 docker image inspect redis:7-alpine >/dev/null
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
+exec 9> "$BACKUP_DIR/.cold-backup.lock"
+if ! flock -n 9; then
+    echo "Another cold backup is already running." >&2
+    exit 1
+fi
 workdir=$(mktemp -d "$BACKUP_DIR/.cold-backup.XXXXXXXX")
 chmod 700 "$workdir"
 mkdir -m 700 "$workdir/metadata"

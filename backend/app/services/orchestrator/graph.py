@@ -223,7 +223,7 @@ def build_conversation_graph() -> Any:
     blocked_node = BlockedResponseNode()
 
     # Build graph
-    graph = StateGraph(ConversationState)
+    graph: Any = StateGraph(ConversationState)
 
     # ── Add nodes (wrapped for LangGraph) ──
     graph.add_node(

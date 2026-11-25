@@ -1,0 +1,505 @@
+{
+  "description": "Candidats fondés sur le corpus de démonstration ; non validés par un expert ONSSA. Les absences de réponse, les sources alternatives et la traduction arabe doivent être vérifiées avant tout usage comme référence.",
+  "cases": [
+    {
+      "id": "candidate-01",
+      "question": "Quel est le but des contrôles phytosanitaires ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "prévenir l’introduction et",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-02",
+      "question": "Que cherche-t-on à empêcher concernant les organismes nuisibles ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "la propagation d’organismes nuisibles réglementés",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-03",
+      "question": "Quel patrimoine les contrôles contribuent-ils à protéger ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "protection du patrimoine végétal",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-04",
+      "question": "Quels produits sont vérifiés à l’entrée du pays ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "la vérification phytosanitaire des végétaux et produits",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-05",
+      "question": "Que prévoit la surveillance sur le territoire ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "la surveillance des cultures",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-06",
+      "question": "Quelles mesures peuvent accompagner la surveillance des cultures ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "mesures de protection lorsque cela est nécessaire",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-07",
+      "question": "Quelles exigences sont prises en compte pour les exportations ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "exigences applicables au pays de destination",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-08",
+      "question": "Cette fiche remplace-t-elle les instructions de l’ONSSA ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "les instructions du service ONSSA compétent",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-09",
+      "question": "ما الهدف من المراقبة الصحية للنباتات؟",
+      "language": "ar",
+      "answerable": true,
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "prévenir l’introduction et",
+      "source_url": "https://www.onssa.gov.ma/sante-vegetale-dsa/protection-des-vegetaux/protection-du-patrimoine-vegetale/controles-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-10",
+      "question": "Comment commencer une demande de certification pour exporter des végétaux ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "l’opérateur constitue un dossier de certification",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-11",
+      "question": "À quel service faut-il déposer le dossier de certification ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "le dépose auprès du service ONSSA territorialement compétent",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-12",
+      "question": "Le dossier peut-il nécessiter des résultats d’analyses ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "résultats d’analyses",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-13",
+      "question": "Qui prend la décision de certification ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "certification relèvent exclusivement des services compétents de l’ONSSA",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-14",
+      "question": "Doit-on tenir compte des exigences du pays de destination ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "fixées par le pays de destination",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-15",
+      "question": "La fiche garantit-elle l’obtention du certificat ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "ni garantir l’obtention d’un",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-16",
+      "question": "Peut-on confirmer l’éligibilité d’un envoi à partir de cette fiche ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "Il ne doit pas confirmer l’éligibilité",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-17",
+      "question": "La procédure concerne-t-elle la certification de produits végétaux à exporter ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "l’exportation de produits végétaux",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-18",
+      "question": "أين يودع ملف طلب الشهادة الصحية لتصدير المنتجات النباتية؟",
+      "language": "ar",
+      "answerable": true,
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "le dépose auprès du service ONSSA territorialement compétent",
+      "source_url": "https://www.onssa.gov.ma/controle-a-limportation-et-a-lexportation/certification-a-lexportation/exportation-des-produits-alimentaires/produits-vegetaux/procedure-de-controle/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-19",
+      "question": "Quelle loi relative à la protection des végétaux est citée ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "n°76-17 relative à la protection des végétaux",
+      "source_url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-20",
+      "question": "À quel domaine se rapporte la loi 76-17 ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "n°76-17 relative à la protection des végétaux",
+      "source_url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-21",
+      "question": "Quel décret du 21 juillet 2022 est mentionné ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "décret n°2-22-243 du",
+      "source_url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-22",
+      "question": "Quelle est la date du décret 2-22-243 cité ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "21 juillet 2022",
+      "source_url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-23",
+      "question": "Quel arrêté concerne les procès-verbaux et cartes professionnelles ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "l’arrêté n°3411-22",
+      "source_url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-24",
+      "question": "La liste des textes sur la fiche est-elle exhaustive ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "ne constitue pas une base juridique exhaustive",
+      "source_url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-25",
+      "question": "Quel support officiel faut-il consulter pour la version de référence ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "la version\nofficielle du Bulletin officiel reste la référence",
+      "source_url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-26",
+      "question": "ما هو رقم القانون المذكور بشأن حماية النباتات؟",
+      "language": "ar",
+      "answerable": true,
+      "expected_document": "controle-phytosanitaire.md",
+      "expected_passage": "n°76-17 relative à la protection des végétaux",
+      "source_url": "https://www.onssa.gov.ma/reglementation/reglementation-sectorielle/sante-vegetale/controle-phytosanitaire/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-27",
+      "question": "Quels sont les principaux domaines couverts par l’ONSSA ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "accueil.md",
+      "expected_passage": "santé animale, contrôle des produits",
+      "source_url": "https://www.onssa.gov.ma/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-28",
+      "question": "L’ONSSA présente-t-il un domaine consacré à la santé végétale ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "accueil.md",
+      "expected_passage": "santé végétale, contrôle à l’importation",
+      "source_url": "https://www.onssa.gov.ma/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-29",
+      "question": "Le site mentionne-t-il les laboratoires parmi ses métiers ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "accueil.md",
+      "expected_passage": "laboratoires.",
+      "source_url": "https://www.onssa.gov.ma/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-30",
+      "question": "Quel numéro du centre de relation figure dans cette fiche ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "accueil.md",
+      "expected_passage": "080 100 36 37",
+      "source_url": "https://www.onssa.gov.ma/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-31",
+      "question": "Quelle adresse de contact figure dans la fiche d’accueil ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "accueil.md",
+      "expected_passage": "contact@onssa.gov.ma",
+      "source_url": "https://www.onssa.gov.ma/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-32",
+      "question": "Quels exemples de services électroniques sont cités ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "accueil.md",
+      "expected_passage": "sont notamment ATLAS, le paiement",
+      "source_url": "https://www.onssa.gov.ma/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-33",
+      "question": "ما رقم مركز العلاقة المذكور في وثيقة الاستقبال؟",
+      "language": "ar",
+      "answerable": true,
+      "expected_document": "accueil.md",
+      "expected_passage": "080 100 36 37",
+      "source_url": "https://www.onssa.gov.ma/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-34",
+      "question": "Pour qui l’ONSSA exerce-t-il les missions décrites dans la rubrique réglementation ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "reglementation.md",
+      "expected_passage": "pour le compte de l’État",
+      "source_url": "https://www.onssa.gov.ma/reglementation/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-35",
+      "question": "La protection de la santé du consommateur fait-elle partie des missions citées ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "reglementation.md",
+      "expected_passage": "santé du consommateur",
+      "source_url": "https://www.onssa.gov.ma/reglementation/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-36",
+      "question": "Quelle est la valeur des consolidations publiées en ligne ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "reglementation.md",
+      "expected_passage": "ont une valeur\ndocumentaire",
+      "source_url": "https://www.onssa.gov.ma/reglementation/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-37",
+      "question": "Quels textes font foi selon la fiche ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "reglementation.md",
+      "expected_passage": "seuls les textes publiés au Bulletin officiel du Royaume",
+      "source_url": "https://www.onssa.gov.ma/reglementation/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-38",
+      "question": "Environ combien de textes sont présentés dans la rubrique ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "reglementation.md",
+      "expected_passage": "plus de 300 textes législatifs et",
+      "source_url": "https://www.onssa.gov.ma/reglementation/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-39",
+      "question": "Quelles catégories de réglementation sont mentionnées ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "reglementation.md",
+      "expected_passage": "réglementation transversale, sectorielle et",
+      "source_url": "https://www.onssa.gov.ma/reglementation/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-40",
+      "question": "ما النصوص التي يعتد بها حسب وثيقة التنظيم؟",
+      "language": "ar",
+      "answerable": true,
+      "expected_document": "reglementation.md",
+      "expected_passage": "seuls les textes publiés au Bulletin officiel du Royaume",
+      "source_url": "https://www.onssa.gov.ma/reglementation/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-41",
+      "question": "Que publie la rubrique de surveillance des risques phytosanitaires ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "risques-phytosanitaires.md",
+      "expected_passage": "bulletins de veille phytosanitaire",
+      "source_url": "https://www.onssa.gov.ma/evaluation-des-risques/surveillance-des-risques-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-42",
+      "question": "Quelle période est associée au bulletin numéro 1 dans la fiche ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "risques-phytosanitaires.md",
+      "expected_passage": "bulletins n°1 (juillet-septembre 2019)",
+      "source_url": "https://www.onssa.gov.ma/evaluation-des-risques/surveillance-des-risques-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-43",
+      "question": "Quel numéro de bulletin est associé à avril-juin 2026 ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "risques-phytosanitaires.md",
+      "expected_passage": "n°26 (avril-juin 2026)",
+      "source_url": "https://www.onssa.gov.ma/evaluation-des-risques/surveillance-des-risques-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-44",
+      "question": "Pourquoi faut-il préciser la période d’un bulletin de veille ?",
+      "language": "fr",
+      "answerable": true,
+      "expected_document": "risques-phytosanitaires.md",
+      "expected_passage": "Ces bulletins sont temporels",
+      "source_url": "https://www.onssa.gov.ma/evaluation-des-risques/surveillance-des-risques-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-45",
+      "question": "ما الفترة المذكورة للنشرة رقم 26؟",
+      "language": "ar",
+      "answerable": true,
+      "expected_document": "risques-phytosanitaires.md",
+      "expected_passage": "n°26 (avril-juin 2026)",
+      "source_url": "https://www.onssa.gov.ma/evaluation-des-risques/surveillance-des-risques-phytosanitaires/",
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-46",
+      "question": "Quel est le tarif exact de la certification pour une cargaison en 2027 ?",
+      "language": "fr",
+      "answerable": false,
+      "expected_document": null,
+      "expected_passage": null,
+      "source_url": null,
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-47",
+      "question": "Quel délai garanti en jours faut-il pour obtenir le certificat ?",
+      "language": "fr",
+      "answerable": false,
+      "expected_document": null,
+      "expected_passage": null,
+      "source_url": null,
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-48",
+      "question": "Mon envoi de tomates est-il automatiquement éligible à la certification ?",
+      "language": "fr",
+      "answerable": false,
+      "expected_document": null,
+      "expected_passage": null,
+      "source_url": null,
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-49",
+      "question": "Quelle est la sanction exacte pour une entreprise précise en infraction ?",
+      "language": "fr",
+      "answerable": false,
+      "expected_document": null,
+      "expected_passage": null,
+      "source_url": null,
+      "human_reviewed": false
+    },
+    {
+      "id": "candidate-50",
+      "question": "ما المبلغ الدقيق لرسوم الشهادة لشحنتي في سنة 2027؟",
+      "language": "ar",
+      "answerable": false,
+      "expected_document": null,
+      "expected_passage": null,
+      "source_url": null,
+      "human_reviewed": false
+    }
+  ]
+}

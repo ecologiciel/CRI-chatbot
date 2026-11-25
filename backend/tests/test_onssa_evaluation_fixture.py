@@ -25,6 +25,29 @@ def test_pilot_questions_are_traceable_to_source_passages():
         assert case["expected_passage"] in content, case["id"]
 
 
+def test_candidate_questions_are_traceable_and_not_marked_as_reviewed():
+    root = Path(__file__).resolve().parents[2] / "docs" / "demos" / "onssa"
+    cases = json.loads((root / "evaluation-candidats.json").read_text(encoding="utf-8"))["cases"]
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    urls = {source["slug"]: source["url"] for source in manifest["sources"]}
+    assert len(cases) == 50
+    assert len({case["id"] for case in cases}) == len(cases)
+    assert len({case["question"] for case in cases}) == len(cases)
+    assert {case["language"] for case in cases} == {"fr", "ar"}
+    assert sum(not case["answerable"] for case in cases) == 5
+    assert all(case["human_reviewed"] is False for case in cases)
+    for case in cases:
+        if not case["answerable"]:
+            assert case["expected_document"] is None
+            assert case["expected_passage"] is None
+            assert case["source_url"] is None
+            continue
+        name = case["expected_document"]
+        assert Path(name).name == name
+        assert case["expected_passage"] in (root / "corpus" / name).read_text(encoding="utf-8")
+        assert case["source_url"] == urls[Path(name).stem]
+
+
 @pytest.mark.asyncio
 async def test_seed_adds_only_missing_case_and_keeps_human_review_unset():
     from app.scripts.seed_onssa_evaluation import seed

@@ -79,6 +79,7 @@ async def test_recall_denominator_excludes_abstentions_and_missing_labels():
     assert run.metrics["source_recall_at_3"] == 0
     assert run.metrics["source_recall_at_5"] == 0.5
     assert run.metrics["abstention_accuracy"] == 0.5
+    assert run.metrics["confidence_abstention_proxy"] == 0.5
     assert run.metrics["citation_coverage"] == 0.25
     assert run.metrics["human_faithfulness_reviewed"] == 1
     assert run.metrics["retrieval_latency_p95_ms"] >= run.metrics["retrieval_latency_p50_ms"] >= 0

@@ -17,7 +17,7 @@ from app.services.rag.retrieval import get_retrieval_service
 
 
 class RAGEvaluationService:
-    async def run(self, tenant: TenantContext, triggered_by: uuid.UUID) -> RAGEvaluationRun:
+    async def run(self, tenant: TenantContext, triggered_by: uuid.UUID | None) -> RAGEvaluationRun:
         async with tenant.db_session() as session:
             result = await session.execute(
                 select(RAGEvaluationCase).where(RAGEvaluationCase.is_active.is_(True))
@@ -74,6 +74,9 @@ class RAGEvaluationService:
             else None,
             "recall_evaluated_cases": eligible_recall,
             "citation_coverage": round(citation_hits / total, 4) if total else None,
+            # This measures the confidence threshold only. Generation may
+            # still answer with a warning, so it is not observed abstention.
+            "confidence_abstention_proxy": round(abstention_hits / total, 4) if total else None,
             "abstention_accuracy": round(abstention_hits / total, 4) if total else None,
             "retrieval_latency_p50_ms": round(statistics.median(latencies), 1)
             if latencies

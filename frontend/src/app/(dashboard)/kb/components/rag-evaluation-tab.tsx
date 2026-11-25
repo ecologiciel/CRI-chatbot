@@ -19,7 +19,7 @@ export function RAGEvaluationTab() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="font-heading font-semibold flex items-center gap-2"><BarChart3 className="h-4 w-4" /> Évaluation RAG</h2>
-          <p className="text-sm text-muted-foreground mt-1">Mesures indicatives : la présence de provenance ne garantit pas la justesse d’une citation.</p>
+          <p className="text-sm text-muted-foreground mt-1">Mesures indicatives : la provenance ne garantit pas la justesse d’une citation et le seuil de confiance ne mesure pas les abstentions réelles.</p>
         </div>
         <Button
           size="sm"
@@ -37,7 +37,7 @@ export function RAGEvaluationTab() {
         <div className="grid gap-3 sm:grid-cols-3 text-sm">
           <Metric label="Rappel sources @5" value={percentage(latest.metrics.source_recall_at_5)} />
           <Metric label="Cas avec provenance complète" value={percentage(latest.metrics.citation_coverage)} />
-          <Metric label="Abstention correcte" value={percentage(latest.metrics.abstention_accuracy)} />
+          <Metric label="Accord du seuil de confiance" value={percentage(latest.metrics.confidence_abstention_proxy)} />
         </div>
       ) : <p className="text-sm text-muted-foreground">Aucune évaluation exécutée. Ajoutez des cas via l’API d’évaluation puis lancez le monitoring.</p>}
     </div>

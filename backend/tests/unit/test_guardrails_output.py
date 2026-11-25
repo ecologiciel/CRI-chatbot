@@ -42,14 +42,14 @@ class TestPIIMaskedInOutput:
 
     @pytest.mark.asyncio
     async def test_cin_in_response_masked(self):
-        """CIN in LLM output is replaced with [CIN_1]."""
+        """CIN in LLM output is replaced with a user-facing redaction label."""
         guard = _make_guard()
         result = await guard.check(
             "Le client AB123456 a un dossier en cours.",
             confidence=0.9,
         )
 
-        assert "[CIN_1]" in result.cleaned_text
+        assert "[information masquée]" in result.cleaned_text
         assert "AB123456" not in result.cleaned_text
         assert result.pii_masked_count >= 1
         assert any("pii_found" in issue for issue in result.issues)

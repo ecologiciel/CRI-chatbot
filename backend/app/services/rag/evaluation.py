@@ -31,7 +31,7 @@ class RAGEvaluationService:
             safe_query = get_pii_masker().mask(case.query).masked_text
             start = time.monotonic()
             retrieval = await get_retrieval_service().retrieve(
-                tenant, safe_query, language=case.language, top_k=5
+                tenant, safe_query, language=case.language, top_k=5, allow_language_fallback=True
             )
             latencies.append((time.monotonic() - start) * 1000)
             expected_document_ids = {str(value) for value in (case.expected_document_ids or [])}

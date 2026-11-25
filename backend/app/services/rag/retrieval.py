@@ -248,6 +248,7 @@ class RetrievalService:
         filters: dict | None = None,
         language: str | None = None,
         confidence_threshold: float = CONFIDENCE_THRESHOLD,
+        allow_language_fallback: bool = False,
     ) -> RetrievalResult:
         """Retrieve relevant chunks for a query.
 
@@ -262,6 +263,7 @@ class RetrievalService:
                 - regions: list[str] — match any
             language: Optional language filter (exact match: fr/ar/en).
             confidence_threshold: Minimum confidence for is_confident flag.
+            allow_language_fallback: Search other languages only if the first search is empty.
 
         Returns:
             RetrievalResult with chunks, confidence, and metadata.
@@ -299,11 +301,31 @@ class RetrievalService:
                 score_threshold=0.0,  # Return all, let confidence decide
             )
 
+            fallback_used = False
+            if not results and published_ids and language and allow_language_fallback:
+                # Preserve tenant collection, publication IDs and every explicit
+                # metadata filter; only the document-language condition changes.
+                qdrant_filter = self._restrict_to_published(
+                    self._build_qdrant_filter(filters, None), published_ids
+                )
+                results = await self._qdrant.search(
+                    collection_name=tenant.qdrant_collection,
+                    query_vector=query_embedding,
+                    limit=top_k,
+                    query_filter=qdrant_filter,
+                    with_payload=True,
+                    score_threshold=0.0,
+                )
+                fallback_used = True
+
             if self._hybrid_enabled:
                 try:
                     async with asyncio.timeout(3):
                         lexical_ids = await self._lexical_point_ids(
-                            tenant, query, language, max(top_k * 5, top_k)
+                            tenant,
+                            query,
+                            None if fallback_used else language,
+                            max(top_k * 5, top_k),
                         )
                         if lexical_ids:
                             lexical_filter = self._restrict_to_published(qdrant_filter, lexical_ids)
@@ -378,6 +400,7 @@ class RetrievalService:
                 results=len(chunks),
                 confidence=round(confidence, 3),
                 is_confident=is_confident,
+                language_fallback=fallback_used,
                 latency_s=round(latency, 3),
             )
 

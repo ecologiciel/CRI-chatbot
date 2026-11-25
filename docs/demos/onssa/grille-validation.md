@@ -2,7 +2,7 @@
 
 50 questions candidates, aucune validée. Les passages proviennent des fiches locales de démonstration ; vérifiez-les sur les pages officielles. Les cinq absences de réponse et toutes les traductions nécessitent une validation particulière.
 
-La recherche filtre actuellement les documents par langue. Les questions arabes ne peuvent pas être utilisées comme mesure translingue fiable avec les seules fiches françaises.
+Une recherche dans les autres langues est tentée si aucun passage n'est trouvé dans la langue de la question. Les réponses arabes fondées sur les fiches françaises nécessitent une validation linguistique et métier avant toute mesure de qualité.
 
 | Vérifié | N° | Langue | Question | Passage proposé dans le corpus | Source |
 | --- | --- | --- | --- | --- | --- |

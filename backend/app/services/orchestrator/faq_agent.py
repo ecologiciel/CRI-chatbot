@@ -68,6 +68,7 @@ class FAQAgent:
                 tenant,
                 safe_query,
                 language=language,
+                allow_language_fallback=True,
             )
 
             # Step 2: No chunks → short-circuit with "no_answer"

@@ -20,6 +20,7 @@ class PublicSource(BaseModel):
     published_at: str | None = None
     section_path: list[str] = Field(default_factory=list)
     page_numbers: list[int] = Field(default_factory=list)
+    language: str | None = None
 
 
 class PublicChatResponse(BaseModel):

@@ -89,6 +89,14 @@ async def test_reindex_failure_preserves_published_search():
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
                 assert "Première version" in result.chunks[0].content
+                strict = await RetrievalService().retrieve(tenant, "guide", language="ar")
+                assert strict.chunks == []
+                fallback = await RetrievalService().retrieve(
+                    tenant, "guide", language="ar", allow_language_fallback=True
+                )
+                assert len(fallback.chunks) == 1
+                assert fallback.chunks[0].document_id == str(document_id)
+                assert fallback.chunks[0].metadata["language"] == "fr"
                 # Index payloads are not the authoritative source of text,
                 # document identity or provenance.
                 await qdrant.set_payload(

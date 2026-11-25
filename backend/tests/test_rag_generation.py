@@ -43,10 +43,11 @@ def test_public_source_preserves_section_path():
         document_id="document",
         content="texte",
         score=0.9,
-        metadata={"title": "Guide", "section_path": ["Guide", "Export"]},
+        metadata={"title": "Guide", "section_path": ["Guide", "Export"], "language": "fr"},
     )
     source = PublicSource.model_validate(GenerationService._build_sources([chunk])[0])
     assert source.section_path == ["Guide", "Export"]
+    assert source.language == "fr"
 
 
 def test_source_merges_verified_pages_for_the_same_document():

@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-type Source = { title?: string | null; url?: string | null; published_at?: string | null; section_path?: string[]; page_numbers?: number[] };
+type Source = { title?: string | null; url?: string | null; published_at?: string | null; section_path?: string[]; page_numbers?: number[]; language?: string | null };
 type ChatMessage = { role: "user" | "assistant"; content: string; sources?: Source[] };
 
 const INTRO: ChatMessage = {
@@ -86,6 +86,7 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
                         {source.published_at ? ` — ${source.published_at}` : ""}
                         {source.section_path?.length ? ` — ${source.section_path.join(" › ")}` : ""}
                         {source.page_numbers?.length ? ` — p. ${source.page_numbers.join(", ")}` : ""}
+                        {source.language ? ` — ${source.language.toUpperCase()}` : ""}
                       </li>
                     ))}
                   </ul>

@@ -164,6 +164,52 @@ class TestRetrieveWithFilters:
         assert qdrant_filter is not None
         assert len(qdrant_filter.must) == 3  # language + sectors + published IDs
 
+    @pytest.mark.asyncio
+    async def test_language_fallback_preserves_tenant_publication_and_other_filters(
+        self, tenant_context
+    ):
+        point = _make_qdrant_point("p1", 0.8)
+        service, embedder, qdrant = _make_service(qdrant_results=[point])
+        service._hybrid_enabled = False
+        qdrant.search.side_effect = [[], [point]]
+
+        result = await service.retrieve(
+            tenant_context,
+            "question arabe",
+            language="ar",
+            filters={"regions": ["rabat"]},
+            allow_language_fallback=True,
+        )
+
+        assert [chunk.chunk_id for chunk in result.chunks] == ["p1"]
+        assert embedder.embed_single.await_count == 1
+        first, fallback = [call.kwargs for call in qdrant.search.await_args_list]
+        assert (
+            first["collection_name"]
+            == fallback["collection_name"]
+            == tenant_context.qdrant_collection
+        )
+        assert len(first["query_filter"].must) == 3
+        assert len(fallback["query_filter"].must) == 2
+        assert fallback["query_filter"].must[-1] == first["query_filter"].must[-1]
+        assert fallback["query_filter"].must[0] == first["query_filter"].must[1]
+
+    @pytest.mark.asyncio
+    async def test_language_fallback_is_opt_in_and_prefers_requested_language(self, tenant_context):
+        service, _, qdrant = _make_service()
+        service._hybrid_enabled = False
+        await service.retrieve(tenant_context, "question", language="ar")
+        assert qdrant.search.await_count == 1
+
+        point = _make_qdrant_point("p1", 0.8)
+        service, _, qdrant = _make_service(qdrant_results=[point])
+        service._hybrid_enabled = False
+        result = await service.retrieve(
+            tenant_context, "question", language="ar", allow_language_fallback=True
+        )
+        assert qdrant.search.await_count == 1
+        assert len(result.chunks) == 1
+
 
 @pytest.mark.asyncio
 async def test_hybrid_fuses_lexical_results_and_keeps_user_filters(tenant_context):

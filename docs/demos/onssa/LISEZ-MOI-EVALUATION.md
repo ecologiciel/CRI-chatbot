@@ -23,9 +23,11 @@ Avant d'ajouter une question à l'évaluation opérationnelle :
 4. Examiner la réponse générée et les passages cités séparément : retrouver un
    document parmi les cinq premiers ne prouve pas qu'une réponse est correcte.
 
-Les documents ONSSA indexés pour cette démo sont en français. La recherche
-actuelle filtre les documents par langue : les questions arabes ne forment donc
-pas encore un test de recherche translingue opérationnel. Il faut disposer de
-documents arabes validés ou tester une recherche translingue avant de les inclure
-dans un indicateur de performance. Les passages de tableaux, les PDF longs et
-les pages précises nécessitent également un corpus représentatif supplémentaire.
+Les documents ONSSA indexés pour cette démo sont en français. Pour le chat et
+l'évaluation, une recherche sans filtre de langue est tentée si aucun passage
+n'existe dans la langue demandée. La langue des documents consultés apparaît
+dans les sources. Six questions arabes candidates ont retrouvé leur passage
+attendu dans un essai exploratoire ; les traductions et les réponses générées
+doivent encore être évaluées par des personnes compétentes avant de servir
+d'indicateur de performance. Les tableaux, les PDF longs et les pages précises
+nécessitent également un corpus représentatif supplémentaire.

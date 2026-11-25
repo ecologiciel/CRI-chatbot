@@ -133,6 +133,7 @@ class GenerationService:
                     filters=request.retrieval_filters,
                     language=language,
                     confidence_threshold=request.confidence_threshold,
+                    allow_language_fallback=True,
                 )
                 chunks = retrieval_result.chunks
                 confidence = retrieval_result.confidence
@@ -308,6 +309,7 @@ class GenerationService:
                 "url": metadata.get("source_url"),
                 "section_path": metadata.get("section_path") or [],
                 "page_numbers": pages,
+                "language": metadata.get("language") or None,
             }
             sources.append(source)
             by_document[chunk.document_id] = source

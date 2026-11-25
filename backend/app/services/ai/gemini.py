@@ -100,6 +100,7 @@ class GeminiService:
     def __init__(self, settings: Settings) -> None:
         self._client = genai.Client(api_key=settings.gemini_api_key)
         self._model = settings.gemini_model
+        self._fallback_model = settings.gemini_fallback_model
         self._max_output_tokens = settings.gemini_max_output_tokens
         self._temperature = settings.gemini_temperature
         self._timeout = settings.gemini_timeout
@@ -126,10 +127,32 @@ class GeminiService:
         start_time = time.monotonic()
 
         try:
-            return await asyncio.wait_for(
-                self._generate_with_retry(request, tenant, trace_id, start_time),
-                timeout=self._timeout,
-            )
+            fallback = self._fallback_model and self._fallback_model != self._model
+            primary_timeout = self._timeout / 2 if fallback else self._timeout
+            try:
+                return await asyncio.wait_for(
+                    self._generate_with_retry(request, tenant, trace_id, start_time, self._model),
+                    timeout=primary_timeout,
+                )
+            except Exception as exc:
+                if not fallback or not (isinstance(exc, TimeoutError) or _is_retryable(exc)):
+                    raise
+                remaining = self._timeout - (time.monotonic() - start_time)
+                if remaining <= 0:
+                    raise TimeoutError("generation deadline exceeded") from exc
+                self._logger.warning(
+                    "gemini_fallback",
+                    tenant=tenant.slug,
+                    trace_id=trace_id,
+                    model=self._fallback_model,
+                    cause=type(exc).__name__,
+                )
+                return await asyncio.wait_for(
+                    self._generate_with_retry(
+                        request, tenant, trace_id, start_time, self._fallback_model
+                    ),
+                    timeout=remaining,
+                )
         except GeminiError:
             raise
         except Exception as exc:
@@ -161,6 +184,7 @@ class GeminiService:
         tenant: TenantContext,
         trace_id: str,
         start_time: float,
+        model: str,
     ) -> GeminiResponse:
         """Internal method with tenacity retry. Raises raw SDK exceptions."""
         config = types.GenerateContentConfig(
@@ -172,7 +196,7 @@ class GeminiService:
         )
 
         response = await self._client.aio.models.generate_content(
-            model=self._model,
+            model=model,
             contents=request.contents,
             config=config,
         )
@@ -191,14 +215,10 @@ class GeminiService:
         )
 
         # Prometheus metrics
-        GEMINI_REQUESTS.labels(tenant=tenant.slug, model=self._model, status="success").inc()
-        GEMINI_TOKENS.labels(tenant=tenant.slug, model=self._model, direction="input").inc(
-            input_tokens
-        )
-        GEMINI_TOKENS.labels(tenant=tenant.slug, model=self._model, direction="output").inc(
-            output_tokens
-        )
-        GEMINI_LATENCY.labels(tenant=tenant.slug, model=self._model).observe(latency_ms / 1000)
+        GEMINI_REQUESTS.labels(tenant=tenant.slug, model=model, status="success").inc()
+        GEMINI_TOKENS.labels(tenant=tenant.slug, model=model, direction="input").inc(input_tokens)
+        GEMINI_TOKENS.labels(tenant=tenant.slug, model=model, direction="output").inc(output_tokens)
+        GEMINI_LATENCY.labels(tenant=tenant.slug, model=model).observe(latency_ms / 1000)
 
         # Cost tracking per tenant in Redis
         await self._track_cost(tenant, input_tokens, output_tokens)
@@ -207,7 +227,7 @@ class GeminiService:
         self._logger.info(
             "gemini_generate",
             trace_id=trace_id,
-            model=self._model,
+            model=model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=round(latency_ms, 1),
@@ -220,7 +240,7 @@ class GeminiService:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=input_tokens + output_tokens,
-            model=self._model,
+            model=model,
             latency_ms=round(latency_ms, 1),
             finish_reason=finish_reason,
         )

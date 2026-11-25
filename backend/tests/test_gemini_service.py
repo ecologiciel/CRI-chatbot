@@ -25,6 +25,7 @@ def _make_settings(**overrides):
     settings = MagicMock()
     settings.gemini_api_key = "test-api-key"
     settings.gemini_model = "gemini-2.5-flash"
+    settings.gemini_fallback_model = ""
     settings.gemini_max_output_tokens = 2048
     settings.gemini_temperature = 0.3
     settings.gemini_timeout = 30.0

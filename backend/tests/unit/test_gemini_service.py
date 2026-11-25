@@ -20,6 +20,7 @@ def _make_settings():
     s = MagicMock()
     s.gemini_api_key = "test-key"
     s.gemini_model = "gemini-2.5-flash"
+    s.gemini_fallback_model = ""
     s.gemini_max_output_tokens = 1024
     s.gemini_temperature = 0.3
     s.gemini_timeout = 15.0
@@ -102,6 +103,29 @@ class TestClassifyIntent:
 
 class TestRetryExhaustion:
     @pytest.mark.asyncio
+    async def test_fallback_model_is_used_after_transient_primary_failures(
+        self, tenant_context, monkeypatch
+    ):
+        client = _make_client()
+
+        async def generate_content(*, model, **kwargs):
+            if model == "gemini-2.5-flash":
+                raise errors.ServerError(503, {"error": {"message": "temporarily unavailable"}})
+            return make_mock_gemini_response(text="Réponse du modèle de secours")
+
+        client.aio.models.generate_content = AsyncMock(side_effect=generate_content)
+        settings = _make_settings()
+        settings.gemini_fallback_model = "gemini-3-flash-preview"
+        monkeypatch.setattr(GeminiService._generate_with_retry.retry, "wait", wait_none())
+        with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=_make_redis()):
+            service = GeminiService(settings)
+            service._client = client
+            result = await service.generate(GeminiRequest(contents="test"), tenant_context)
+        assert result.model == "gemini-3-flash-preview"
+        assert result.text == "Réponse du modèle de secours"
+        assert client.aio.models.generate_content.await_count == 4
+
+    @pytest.mark.asyncio
     async def test_generation_timeout_bounds_all_attempts(self, tenant_context):
         client = _make_client()
 
@@ -141,7 +165,9 @@ class TestRetryExhaustion:
             side_effect=errors.ClientError(400, {"error": {"message": "invalid request"}})
         )
         with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=_make_redis()):
-            service = GeminiService(_make_settings())
+            settings = _make_settings()
+            settings.gemini_fallback_model = "gemini-3-flash-preview"
+            service = GeminiService(settings)
             service._client = client
             with pytest.raises(GeminiError):
                 await service.generate(GeminiRequest(contents="test"), tenant_context)

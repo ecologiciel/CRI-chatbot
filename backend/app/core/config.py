@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     gemini_model: str = Field(
         default="gemini-2.5-flash", description="Gemini model ID for generation"
     )
+    gemini_fallback_model: str = Field(default="", description="Optional fallback generation model")
     gemini_max_output_tokens: int = Field(default=2048, description="Max output tokens per request")
     gemini_temperature: float = Field(default=0.3, description="Sampling temperature (0.0-2.0)")
     gemini_timeout: float = Field(

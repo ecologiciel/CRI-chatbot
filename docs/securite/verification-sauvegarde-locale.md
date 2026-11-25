@@ -1,0 +1,13 @@
+# Vérification locale d’une sauvegarde Hostinger réelle
+
+Le 26 novembre 2026, la copie chiffrée du 25 novembre à 21 h 22 UTC a été restaurée deux fois sur l’ordinateur de l’utilisateur. L’empreinte et le déchiffrement ont été contrôlés ; PostgreSQL, MinIO et Qdrant ont été restaurés dans des volumes Docker temporaires `tmpfs`, avec un Redis neuf. L’API et ses quatre dépendances ont démarré sur un réseau interne sans port publié. La base contenait six documents ONSSA indexés ; un fichier MinIO a été relu et un point Qdrant a été rapproché de son document PostgreSQL. Les conteneurs, volumes, réseau et fichiers temporaires ont ensuite été supprimés.
+
+Ce contrôle porte sur **une archive datée et un échantillon**, pas sur tous les fichiers, toutes les recherches ou une conversation IA. L’archive est antérieure aux derniers changements et aux rotations de certains secrets. Avant toute remise en ligne après une véritable restauration, les secrets exposés doivent être renouvelés. Redis est volontairement recréé vide afin de ne pas rejouer d’anciennes tâches. Les systèmes `tmpfs` peuvent utiliser le swap de l’ordinateur : ils ne garantissent pas l’absence de traces sur disque.
+
+## Refaire le contrôle
+
+Prérequis : Docker local sous Linux/WSL avec un daemon de confiance, GnuPG, Python 3, les images `postgres:16-alpine`, `redis:7-alpine`, `qdrant/qdrant:v1.12.1`, `dappros/minio:RELEASE.2025-09-07T16-13-09Z`, et une image backend locale construite depuis le dépôt. Prévoir suffisamment de place dans `/dev/shm` et en mémoire. Vérifier le nom du daemon local avec `docker info --format '{{.Name}}'` ; le script refuse les contextes Docker distants et les variables `DOCKER_HOST` ou `DOCKER_CONTEXT`.
+
+La commande `scripts/backup/test-local-real-restore.sh` exige les variables `BACKUP_DIR`, `BACKUP_EXPECTED_DAEMON` et `BACKUP_TEST_BACKEND_IMAGE`. Elle lit la phrase de passe GPG sur son entrée standard. Ne la placer ni dans les arguments d’une commande, ni dans un journal, ni dans une conversation. Le script vérifie l’empreinte, refuse les chemins d’archive dangereux, ne publie aucun port et supprime ses propres ressources à la fin ; vérifier sa sortie et sa réussite. Il faut traiter toute erreur de nettoyage avant un nouvel essai.
+
+Sur cet ordinateur, la phrase de passe est protégée par DPAPI pour le compte Windows actuel. La copie du dossier sans ce compte ou sans une procédure de récupération portable peut être inutilisable ailleurs. Conserver une seconde copie indépendante ainsi qu’un moyen de récupération séparé et testé ; la sauvegarde n’est pas encore planifiée automatiquement.

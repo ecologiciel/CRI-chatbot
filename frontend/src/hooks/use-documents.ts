@@ -29,6 +29,9 @@ export function useDocuments(params?: DocumentsParams) {
         status: params?.status,
         category: params?.category,
       }),
+    refetchInterval: (query) => query.state.data?.items.some(
+      (document) => document.status === "pending" || document.status === "indexing",
+    ) ? 15_000 : false,
   });
 }
 

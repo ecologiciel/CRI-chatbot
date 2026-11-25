@@ -271,6 +271,34 @@ class TestIngestDocumentDedup:
 
 
 class TestIngestDocumentFailure:
+    def test_legacy_provider_message_is_not_serialized_in_document_response(self):
+        from app.core.ingestion_errors import EMBEDDING, GENERIC
+        from app.schemas.kb import KBDocumentResponse
+
+        old = KBDocumentResponse.model_construct(error_message="provider secret detail")
+        new = KBDocumentResponse.model_construct(error_message=EMBEDDING)
+        assert old.model_dump()["error_message"] == GENERIC
+        assert new.model_dump()["error_message"] == EMBEDDING
+
+    @pytest.mark.asyncio
+    async def test_provider_error_persists_only_safe_operator_message(self):
+        from app.core.exceptions import EmbeddingError
+
+        service, _, embedder, _, _, _, patcher = _make_ingestion_service()
+        embedder.embed_batch.side_effect = EmbeddingError("sensitive-provider-value")
+        service._update_document_status = AsyncMock()
+        with patcher, pytest.raises(IngestionError):
+            await service.ingest_document(
+                tenant=TEST_TENANT,
+                document_id=DOCUMENT_ID,
+                content="A document that cannot be embedded.",
+                title="Guide",
+            )
+        status_call = service._update_document_status.await_args_list[-1]
+        message = status_call.kwargs["error_message"]
+        assert "service d’IA" in message
+        assert "sensitive-provider-value" not in message
+
     @pytest.mark.asyncio
     async def test_qdrant_error_sets_status_error(self):
         """Qdrant upsert failure → status=error, raises IngestionError."""

@@ -88,6 +88,15 @@ const languageLabels: Record<string, string> = {
 
 const categories = ["Procédures", "Incitations", "Juridique", "Général"];
 
+const safeIngestionMessages = new Set([
+  "La génération des représentations a échoué. Vérifiez le service d’IA et réessayez.",
+  "Le découpage du document a échoué. Vérifiez son contenu et réessayez.",
+  "Un document au contenu identique est déjà indexé.",
+  "Le traitement a dépassé le délai prévu. Réessayez.",
+  "Impossible de placer le document en file de traitement. Réessayez.",
+  "Le traitement a échoué. Consultez les journaux du service.",
+]);
+
 function formatFileSize(bytes: number | null): string {
   if (bytes === null) return "—";
   if (bytes < 1024) return `${bytes} o`;
@@ -310,6 +319,16 @@ export function DocumentTable() {
                         )}
                         {status.label}
                       </Badge>
+                      {(doc.status === "pending" || doc.status === "indexing") && (
+                        <p className="mt-1 text-xs text-muted-foreground">Mis à jour {formatRelativeDate(doc.updated_at).toLowerCase()}</p>
+                      )}
+                      {doc.status === "error" && (
+                        <p className="mt-1 max-w-xs text-xs text-destructive">
+                          {doc.error_message && safeIngestionMessages.has(doc.error_message)
+                            ? doc.error_message
+                            : "Le traitement a échoué. Consultez les journaux du service."}
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
                       {formatRelativeDate(doc.created_at)}

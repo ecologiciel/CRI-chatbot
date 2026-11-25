@@ -3,8 +3,9 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+from app.core.ingestion_errors import public_ingestion_error
 from app.models.enums import KBDocumentStatus
 
 
@@ -74,6 +75,11 @@ class KBDocumentResponse(BaseModel):
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("error_message")
+    def serialize_error_message(self, message: str | None) -> str | None:
+        """Legacy failures can contain provider details and must not be exposed."""
+        return public_ingestion_error(message)
 
 
 class KBChunkResponse(BaseModel):

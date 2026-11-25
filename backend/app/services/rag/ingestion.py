@@ -21,7 +21,8 @@ from prometheus_client import Counter, Histogram
 from qdrant_client.models import PointStruct
 from sqlalchemy import delete, func, select, text, update
 
-from app.core.exceptions import IngestionError
+from app.core.exceptions import DuplicateResourceError, IngestionError
+from app.core.ingestion_errors import safe_ingestion_error
 from app.core.qdrant import get_qdrant
 from app.core.tenant import TenantContext
 from app.models.enums import KBDocumentStatus
@@ -160,7 +161,7 @@ class IngestionService:
             # 3. Dedup check
             if await self._is_duplicate(tenant, document_id, content_hash):
                 log.info("ingestion_skipped_duplicate", content_hash=content_hash)
-                raise ValueError(
+                raise DuplicateResourceError(
                     "Un document au contenu identique est déjà indexé ; "
                     "ce document n'a pas été indexé."
                 )
@@ -254,14 +255,14 @@ class IngestionService:
             INGESTION_DOCS.labels(tenant=tenant.slug, status="error").inc()
             INGESTION_LATENCY.labels(tenant=tenant.slug).observe(latency)
 
-            log.error("ingestion_failed", error=str(exc))
+            log.error("ingestion_failed", error_type=type(exc).__name__)
 
             # Set document status to error
             await self._update_document_status(
                 tenant,
                 document_id,
                 KBDocumentStatus.error,
-                error_message=str(exc),
+                error_message=safe_ingestion_error(exc),
             )
 
             raise IngestionError(

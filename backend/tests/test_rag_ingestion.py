@@ -97,7 +97,18 @@ def _mock_db_session():
     mock_result = MagicMock()
     mock_result.first.return_value = None
     mock_result.fetchall.return_value = []
-    mock_session.execute = AsyncMock(return_value=mock_result)
+    def execute_result(statement, *args, **kwargs):
+        sql = str(statement)
+        if "max(kb_chunks.index_version)" in sql:
+            result = MagicMock()
+            result.scalar_one.return_value = None
+            return result
+        if sql.startswith("SELECT kb_documents.") and "kb_documents.content_hash =" not in sql:
+            result = MagicMock()
+            result.scalar_one.return_value = MagicMock(active_index_version=None)
+            return result
+        return mock_result
+    mock_session.execute = AsyncMock(side_effect=execute_result)
     mock_session.commit = AsyncMock()
     mock_session.add = MagicMock()
 
@@ -146,6 +157,7 @@ def _make_ingestion_service(
         from app.services.rag.ingestion import IngestionService
 
         service = IngestionService()
+        service._publish_candidate = AsyncMock()
 
     # Patch tenant.db_session to return our mock session
     patcher = patch.object(
@@ -214,7 +226,7 @@ class TestIngestDocumentDedup:
         async def execute_side_effect(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            if call_count == 2:
+            if call_count == 3:
                 # Dedup check returns a match
                 return mock_existing
             return MagicMock(
@@ -229,16 +241,13 @@ class TestIngestDocumentDedup:
             mock_session=mock_session,
         )
 
-        with patcher:
-            result = await service.ingest_document(
+        with patcher, pytest.raises(IngestionError, match="identique"):
+            await service.ingest_document(
                 tenant=TEST_TENANT,
                 document_id=DOCUMENT_ID,
                 content="Duplicate content here.",
                 title="Duplicate Doc",
             )
-
-        # Should return 0 (skipped)
-        assert result == 0
 
         # Qdrant should NOT have been called for upsert
         mock_qdrant.upsert.assert_not_awaited()

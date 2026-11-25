@@ -89,6 +89,24 @@ class TestExtractPDF:
 
 
 class TestExtractDocx:
+    def test_docx_table_keeps_headings_and_document_order(self):
+        import io
+        from docx import Document
+
+        doc = Document()
+        doc.add_paragraph("Avant le tableau")
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "Produit"
+        table.cell(0, 1).text = "Condition"
+        table.cell(1, 0).text = "Tomate"
+        table.cell(1, 1).text = "Contrôle requis"
+        doc.add_paragraph("Après le tableau")
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        result = extract_text(buffer.getvalue(), "test.docx")
+        assert "Produit: Tomate | Condition: Contrôle requis" in result
+        assert result.index("Avant le tableau") < result.index("Produit: Tomate") < result.index("Après le tableau")
+
     """Test DOCX extraction."""
 
     def test_extract_docx_basic(self):

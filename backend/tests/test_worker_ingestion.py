@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -62,6 +63,25 @@ def _mock_minio_response(content: bytes = b"Document text content") -> tuple:
 
 
 class TestIngestDocumentTask:
+    @pytest.mark.asyncio
+    async def test_recovery_selects_approved_stale_jobs_with_stable_ids(self):
+        from app.workers.ingestion import _recover_tenant_documents
+
+        doc_id = uuid.uuid4()
+        updated_at = datetime(2026, 1, 1, tzinfo=UTC)
+        session = _mock_tenant_session()
+        session.execute.return_value.all.return_value = [(doc_id, updated_at)]
+        redis = MagicMock()
+        redis.enqueue_job = AsyncMock(return_value=object())
+        with patch.object(TenantContext, "db_session", return_value=session):
+            assert await _recover_tenant_documents({"redis": redis}, TEST_TENANT, updated_at + timedelta(hours=1)) == 1
+            assert await _recover_tenant_documents({"redis": redis}, TEST_TENANT, updated_at + timedelta(hours=1)) == 1
+        first, second = redis.enqueue_job.await_args_list
+        assert first.kwargs["_job_id"] == second.kwargs["_job_id"]
+        assert first.args == ("ingest_document_task", TEST_TENANT.slug, str(doc_id))
+        sql = str(session.execute.await_args.args[0])
+        assert "validated_at IS NOT NULL" in sql and "expires_at" in sql
+
     @pytest.mark.asyncio
     async def test_ingest_success(self):
         """Ingest task runs full pipeline and returns chunk count."""
@@ -157,6 +177,44 @@ class TestIngestDocumentTask:
 
 
 class TestReindexDocumentTask:
+    @pytest.mark.asyncio
+    async def test_error_handler_preserves_revoked_status(self):
+        from app.workers.ingestion import _mark_document_error
+
+        doc_id = uuid.uuid4()
+        document = _make_doc_orm(doc_id, status=KBDocumentStatus.rejected)
+        session = _mock_tenant_session(document)
+        with (
+            patch("app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=TEST_TENANT),
+            patch.object(TenantContext, "db_session", return_value=session),
+        ):
+            await _mark_document_error("rabat", doc_id)
+        assert document.status == KBDocumentStatus.rejected
+        assert "FOR UPDATE" in str(session.execute.await_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_extraction_failure_sets_error_without_reindexing(self):
+        from app.workers.ingestion import reindex_document_task
+
+        doc_id = uuid.uuid4()
+        document = _make_doc_orm(doc_id)
+        session = _mock_tenant_session(document)
+        service = MagicMock()
+        service.reindex_document = AsyncMock()
+        with (
+            patch("app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=TEST_TENANT),
+            patch.object(TenantContext, "db_session", return_value=session),
+            patch("app.core.minio.get_object_bytes", new_callable=AsyncMock, return_value=b"invalid"),
+            patch("app.services.rag.ingestion.get_ingestion_service", return_value=service),
+            patch("app.workers.ingestion.extract_text", side_effect=IngestionError("sensitive detail")),
+            pytest.raises(IngestionError),
+        ):
+            await reindex_document_task({}, "rabat", str(doc_id))
+
+        assert document.status == KBDocumentStatus.error
+        assert "sensitive detail" not in document.error_message
+        service.reindex_document.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_reindex_success(self):
         """Reindex task runs full pipeline and returns chunk count."""

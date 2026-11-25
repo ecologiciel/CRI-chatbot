@@ -7,7 +7,7 @@ and patched TenantResolver for middleware bypass.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -57,6 +57,14 @@ def _make_document_orm(
         "id": doc_id or uuid.uuid4(),
         "title": "Guide de l'investisseur",
         "source_url": None,
+        "source_authority": "ONSSA",
+        "source_reference": "Guide",
+        "source_version": "v1",
+        "published_at": date(2025, 6, 1),
+        "verified_at": datetime(2025, 6, 1, tzinfo=UTC),
+        "expires_at": None,
+        "validated_by": uuid.uuid4(),
+        "validated_at": datetime(2025, 6, 1, tzinfo=UTC),
         "category": "guide",
         "language": "fr",
         "content_hash": "abc123",
@@ -148,7 +156,7 @@ class TestUploadDocument:
             obj.title = (
                 obj.title if hasattr(obj, "title") and isinstance(obj.title, str) else "Test"
             )
-            obj.status = KBDocumentStatus.pending
+            obj.status = KBDocumentStatus.pending_validation
             obj.source_url = None
             obj.category = getattr(obj, "category", None)
             obj.language = getattr(obj, "language", "fr")
@@ -193,9 +201,9 @@ class TestUploadDocument:
 
         assert response.status_code == 202
         data = response.json()
-        assert data["status"] == "pending"
+        assert data["status"] == "pending_validation"
         mock_minio.put_object.assert_called_once()
-        mock_arq.enqueue_job.assert_called_once()
+        mock_arq.enqueue_job.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_upload_file_too_large(self):

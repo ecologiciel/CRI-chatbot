@@ -297,6 +297,7 @@ class GenerationService:
                     "version": metadata.get("source_version"),
                     "published_at": metadata.get("published_at"),
                     "url": metadata.get("source_url"),
+                    "section_path": metadata.get("section_path") or [],
                 }
             )
             if len(sources) == 3:

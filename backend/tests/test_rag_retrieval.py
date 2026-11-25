@@ -57,6 +57,7 @@ def _make_retrieval_service(
         from app.services.rag.retrieval import RetrievalService
 
         service = RetrievalService()
+        service._published_point_ids = AsyncMock(return_value=[str(uuid.uuid4())])
 
     return service, mock_qdrant, mock_embedder
 
@@ -188,17 +189,17 @@ class TestRetrieveWithFilters:
         qdrant_filter = search_kwargs["query_filter"]
 
         assert qdrant_filter is not None
-        assert len(qdrant_filter.must) == 3  # language + sectors + legal_forms
+        assert len(qdrant_filter.must) == 4  # language + sectors + legal_forms + published IDs
 
         # Check that the filter has the right field conditions
-        field_keys = {cond.key for cond in qdrant_filter.must}
+        field_keys = {cond.key for cond in qdrant_filter.must if hasattr(cond, "key")}
         assert "language" in field_keys
         assert "applicable_sectors" in field_keys
         assert "legal_forms" in field_keys
 
     @pytest.mark.asyncio
     async def test_no_filters_passes_none(self):
-        """No filters → query_filter=None."""
+        """Published-version restriction remains when no metadata filter is provided."""
         mock_qdrant = AsyncMock()
         mock_qdrant.search = AsyncMock(return_value=[])
 
@@ -210,7 +211,8 @@ class TestRetrieveWithFilters:
         )
 
         search_kwargs = mock_qdrant.search.call_args.kwargs
-        assert search_kwargs["query_filter"] is None
+        assert len(search_kwargs["query_filter"].must) == 1
+        assert search_kwargs["query_filter"].must[0].has_id
 
 
 class TestConfidenceScoring:

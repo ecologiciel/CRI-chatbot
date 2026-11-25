@@ -8,19 +8,24 @@ Usage:
 from __future__ import annotations
 
 import time
+from datetime import date
 
 import structlog
 from prometheus_client import Counter, Histogram
 from qdrant_client.models import (
     FieldCondition,
     Filter,
+    HasIdCondition,
     MatchAny,
     MatchValue,
 )
+from sqlalchemy import or_, select
 
 from app.core.exceptions import RetrievalError
 from app.core.qdrant import get_qdrant
 from app.core.tenant import TenantContext
+from app.models.kb import KBChunk, KBDocument
+from app.models.enums import KBDocumentStatus
 from app.schemas.rag import RetrievalResult, RetrievedChunk
 from app.services.ai.embeddings import get_embedding_service
 
@@ -65,6 +70,33 @@ class RetrievalService:
         self._embedder = get_embedding_service()
         self._qdrant = get_qdrant()
         self._logger = logger.bind(service="retrieval")
+
+    async def _published_point_ids(self, tenant: TenantContext) -> list[str]:
+        """Return only vectors belonging to each document's published version."""
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(KBChunk.qdrant_point_id)
+                .join(KBDocument, KBDocument.id == KBChunk.document_id)
+                .where(
+                    KBChunk.index_version == KBDocument.active_index_version,
+                    KBChunk.qdrant_point_id.is_not(None),
+                    KBDocument.status.not_in([
+                        KBDocumentStatus.pending_validation,
+                        KBDocumentStatus.rejected,
+                        KBDocumentStatus.expired,
+                    ]),
+                    or_(KBDocument.expires_at.is_(None), KBDocument.expires_at >= date.today()),
+                )
+            )
+            return list(result.scalars().all())
+
+    @staticmethod
+    def _restrict_to_published(filter_: Filter | None, point_ids: list[str]) -> Filter:
+        """Constrain Qdrant before ranking so staged points cannot displace results."""
+        conditions = list(filter_.must or []) if filter_ else []
+        conditions.append(HasIdCondition(has_id=point_ids))
+        return Filter(must=conditions, should=filter_.should if filter_ else None,
+                      must_not=filter_.must_not if filter_ else None)
 
     async def retrieve(
         self,
@@ -112,6 +144,8 @@ class RetrievalService:
 
             # 2. Build Qdrant filter
             qdrant_filter = self._build_qdrant_filter(filters, language)
+            published_ids = await self._published_point_ids(tenant)
+            qdrant_filter = self._restrict_to_published(qdrant_filter, published_ids)
 
             # 3. Search Qdrant
             results = await self._qdrant.search(
@@ -147,6 +181,9 @@ class RetrievalService:
                             "regions": payload.get("regions", []),
                             "summary": payload.get("summary", ""),
                             "chunk_index": payload.get("chunk_index", 0),
+                            "start_char": payload.get("start_char"),
+                            "end_char": payload.get("end_char"),
+                            "section_path": payload.get("section_path", []),
                         },
                     )
                 )

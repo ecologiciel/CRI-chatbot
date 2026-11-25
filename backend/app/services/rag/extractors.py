@@ -83,14 +83,36 @@ def _extract_pdf(data: bytes) -> str:
 
 
 def _extract_docx(data: bytes) -> str:
-    """Extract text from DOCX using python-docx."""
+    """Extract paragraphs and tables in document order using python-docx."""
     from docx import Document
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
 
     doc = Document(io.BytesIO(data))
     paragraphs: list[str] = []
-    for para in doc.paragraphs:
-        if para.text.strip():
-            paragraphs.append(para.text)
+    for element in doc.element.body.iterchildren():
+        if isinstance(element, CT_P):
+            paragraph = Paragraph(element, doc)
+            if paragraph.text.strip():
+                paragraphs.append(paragraph.text)
+        elif isinstance(element, CT_Tbl):
+            table = Table(element, doc)
+            rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+            if not rows:
+                continue
+            header = rows[0]
+            if any(header):
+                paragraphs.append(" | ".join(header))
+            for row in rows[1:]:
+                if any(row):
+                    # Repeat the column names so a row remains intelligible if
+                    # the chunker splits it from the original header.
+                    paragraphs.append(" | ".join(
+                        f"{header[i]}: {value}" if i < len(header) and header[i] else value
+                        for i, value in enumerate(row)
+                    ))
 
     return "\n\n".join(paragraphs)
 

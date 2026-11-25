@@ -20,6 +20,7 @@ class ChunkResult:
     token_count: int
     start_char: int
     end_char: int
+    section_path: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

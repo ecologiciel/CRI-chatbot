@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import UTC, date, datetime, timedelta
 
 import structlog
+from arq import cron
 from arq.connections import RedisSettings
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.core.config import get_settings
 from app.models.enums import KBDocumentStatus
@@ -22,6 +24,29 @@ from app.models.kb import KBDocument
 from app.services.rag.extractors import extract_text
 
 logger = structlog.get_logger()
+
+
+async def _mark_document_error(tenant_slug: str, doc_uuid: uuid.UUID) -> None:
+    """Record an operational failure without persisting provider secrets or content."""
+    from app.core.tenant import TenantResolver
+
+    try:
+        tenant = await TenantResolver.from_slug(tenant_slug)
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(KBDocument).where(KBDocument.id == doc_uuid).with_for_update()
+            )
+            document = result.scalar_one_or_none()
+            if document and document.status not in {
+                KBDocumentStatus.error,
+                KBDocumentStatus.rejected,
+                KBDocumentStatus.expired,
+                KBDocumentStatus.pending_validation,
+            }:
+                document.status = KBDocumentStatus.error
+                document.error_message = "Le traitement a échoué. Consultez les journaux du service."
+    except Exception:
+        logger.warning("failed_to_set_error_status", tenant=tenant_slug, document_id=str(doc_uuid))
 
 
 # ---------------------------------------------------------------------------
@@ -121,19 +146,7 @@ async def ingest_document_task(
         duration = round(time.monotonic() - start, 1)
         log.error("ingestion_failed", error=str(exc), duration_s=duration)
 
-        # Best-effort: mark document as error if IngestionService didn't already
-        try:
-            from app.core.tenant import TenantResolver
-
-            t = await TenantResolver.from_slug(tenant_slug)
-            async with t.db_session() as session:
-                result = await session.execute(select(KBDocument).where(KBDocument.id == doc_uuid))
-                d = result.scalar_one_or_none()
-                if d and d.status != KBDocumentStatus.error:
-                    d.status = KBDocumentStatus.error
-                    d.error_message = str(exc)[:500]
-        except Exception:
-            log.warning("failed_to_set_error_status")
+        await _mark_document_error(tenant_slug, doc_uuid)
 
         raise
 
@@ -195,7 +208,58 @@ async def reindex_document_task(
     except Exception as exc:
         duration = round(time.monotonic() - start, 1)
         log.error("reindex_failed", error=str(exc), duration_s=duration)
+        await _mark_document_error(tenant_slug, doc_uuid)
         raise
+
+
+async def _recover_tenant_documents(ctx: dict, tenant, cutoff: datetime) -> int:
+    """Requeue stale approved work with a stable ID for each observed state."""
+    async with tenant.db_session() as session:
+        result = await session.execute(
+            select(KBDocument.id, KBDocument.updated_at)
+            .where(
+                KBDocument.status.in_([KBDocumentStatus.pending, KBDocumentStatus.indexing]),
+                KBDocument.updated_at < cutoff,
+                KBDocument.validated_at.is_not(None),
+                KBDocument.validated_by.is_not(None),
+                KBDocument.file_path.is_not(None),
+                or_(KBDocument.expires_at.is_(None), KBDocument.expires_at >= date.today()),
+            )
+            .order_by(KBDocument.updated_at)
+            .limit(100)
+        )
+        candidates = result.all()
+    queued = 0
+    for document_id, updated_at in candidates:
+        stamp = int(updated_at.timestamp() * 1_000_000)
+        job = await ctx["redis"].enqueue_job(
+            "ingest_document_task", tenant.slug, str(document_id),
+            _job_id=f"kb-recovery:{tenant.slug}:{document_id}:{stamp}",
+        )
+        queued += int(job is not None)
+    return queued
+
+
+async def recover_stale_ingestions(ctx: dict) -> int:
+    """Reconcile abandoned jobs across active tenants, without touching live jobs."""
+    from app.core.database import get_session_factory
+    from app.core.tenant import TenantResolver
+    from app.models.enums import TenantStatus
+    from app.models.tenant import Tenant
+
+    async with get_session_factory()() as session:
+        result = await session.execute(select(Tenant.slug).where(Tenant.status == TenantStatus.active))
+        slugs = result.scalars().all()
+    cutoff = datetime.now(UTC) - timedelta(minutes=30)
+    queued = 0
+    for slug in slugs:
+        try:
+            tenant = await TenantResolver.from_slug(slug)
+            queued += await _recover_tenant_documents(ctx, tenant, cutoff)
+        except Exception as exc:
+            logger.warning("ingestion_recovery_tenant_failed", tenant=slug, error_type=type(exc).__name__)
+    logger.info("ingestion_recovery_complete", queued=queued)
+    return queued
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +281,7 @@ class WorkerSettings:
     """ARQ worker configuration."""
 
     functions = [ingest_document_task, reindex_document_task]
+    cron_jobs = [cron(recover_stale_ingestions, minute={0, 10, 20, 30, 40, 50})]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _get_redis_settings()

@@ -148,7 +148,7 @@ class TestPIIAnonymization:
 
     @pytest.mark.asyncio
     async def test_cin_anonymized_before_gemini(self, tenant_context):
-        """CIN in chunk content is replaced with [CIN] in Gemini prompt."""
+        """CIN in chunk content is replaced with the indexed masking token."""
         chunks = [
             RetrievedChunk(
                 chunk_id="c1",
@@ -173,7 +173,7 @@ class TestPIIAnonymization:
         call_args = gemini.generate.call_args
         gemini_request = call_args[0][0]
         assert "AB123456" not in gemini_request.contents
-        assert "[CIN]" in gemini_request.contents
+        assert "[CIN_1]" in gemini_request.contents
 
 
 class TestPreRetrievedChunks:

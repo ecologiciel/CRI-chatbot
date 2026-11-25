@@ -34,6 +34,18 @@ TEST_TENANT = TenantContext(
 )
 
 
+def test_public_source_preserves_section_path():
+    from app.schemas.public_chat import PublicSource
+    from app.services.rag.generation import GenerationService
+
+    chunk = RetrievedChunk(
+        chunk_id="point", document_id="document", content="texte", score=0.9,
+        metadata={"title": "Guide", "section_path": ["Guide", "Export"]},
+    )
+    source = PublicSource.model_validate(GenerationService._build_sources([chunk])[0])
+    assert source.section_path == ["Guide", "Export"]
+
+
 def _make_chunks(n: int = 3, score: float = 0.9) -> list[RetrievedChunk]:
     """Create sample RetrievedChunk instances."""
     return [
@@ -186,7 +198,7 @@ class TestGenerationSuccess:
         call_args = mock_gemini.generate.call_args
         gemini_request = call_args[0][0]
         assert gemini_request.system_instruction is not None
-        assert "CRI" in gemini_request.system_instruction
+        assert "المؤسسة" in gemini_request.system_instruction
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +245,7 @@ class TestGenerationConfidence:
 
         assert response.confidence == 0.0
         assert response.is_confident is False
-        assert "contacter directement le CRI" in response.answer
+        assert "contacter l'institution" in response.answer
         assert response.model == "none"
         # Gemini should NOT be called when there are no chunks
         mock_gemini.generate.assert_not_awaited()
@@ -247,7 +259,7 @@ class TestGenerationConfidence:
 class TestAnonymization:
     @pytest.mark.asyncio
     async def test_cin_anonymized(self):
-        """CIN pattern in chunk content is replaced with [CIN] before Gemini call."""
+        """CIN pattern in chunk content is masked before the Gemini call."""
         chunks = [
             RetrievedChunk(
                 chunk_id="c1",
@@ -266,11 +278,11 @@ class TestAnonymization:
         call_args = mock_gemini.generate.call_args
         gemini_request = call_args[0][0]
         assert "AB123456" not in gemini_request.contents
-        assert "[CIN]" in gemini_request.contents
+        assert "[CIN_1]" in gemini_request.contents
 
     @pytest.mark.asyncio
     async def test_phone_anonymized(self):
-        """+212 phone number is replaced with [TELEPHONE]."""
+        """A +212 phone number is masked."""
         chunks = [
             RetrievedChunk(
                 chunk_id="c1",
@@ -288,11 +300,11 @@ class TestAnonymization:
         call_args = mock_gemini.generate.call_args
         gemini_request = call_args[0][0]
         assert "+212612345678" not in gemini_request.contents
-        assert "[TELEPHONE]" in gemini_request.contents
+        assert "[PHONE_1]" in gemini_request.contents
 
     @pytest.mark.asyncio
     async def test_email_anonymized(self):
-        """Email address is replaced with [EMAIL]."""
+        """Email address is masked."""
         chunks = [
             RetrievedChunk(
                 chunk_id="c1",
@@ -310,7 +322,7 @@ class TestAnonymization:
         call_args = mock_gemini.generate.call_args
         gemini_request = call_args[0][0]
         assert "info@example.com" not in gemini_request.contents
-        assert "[EMAIL]" in gemini_request.contents
+        assert "[EMAIL_1]" in gemini_request.contents
 
 
 # ---------------------------------------------------------------------------
@@ -320,16 +332,16 @@ class TestAnonymization:
 
 class TestPromptTemplates:
     def test_system_prompt_french_contains_rules(self):
-        """French system prompt contains CRI rules and vouvoiement."""
+        """French system prompt contains institutional rules and vouvoiement."""
         prompt = PromptTemplates.get_system_prompt("fr")
-        assert "Centre Regional d'Investissement" in prompt or "CRI" in prompt
+        assert "institution" in prompt
         assert "Vouvoiement" in prompt
         assert "UNIQUEMENT" in prompt
 
     def test_system_prompt_arabic_contains_rules(self):
-        """Arabic system prompt contains Arabic CRI rules."""
+        """Arabic system prompt contains institutional rules."""
         prompt = PromptTemplates.get_system_prompt("ar")
-        assert "CRI" in prompt
+        assert "المؤسسة" in prompt
 
     def test_build_context_formats_correctly(self):
         """3 chunks + history -> XML-tagged context string."""
@@ -356,11 +368,11 @@ class TestPromptTemplates:
         assert len(greeting_ar) > 0
 
         greeting_en = PromptTemplates.get_message("greeting", "en")
-        assert "CRI virtual assistant" in greeting_en
+        assert "document assistant" in greeting_en
 
         # Unknown language falls back to French
         greeting_unknown = PromptTemplates.get_message("greeting", "zh")
-        assert "assistant virtuel du CRI" in greeting_unknown
+        assert "assistant documentaire" in greeting_unknown
 
 
 # ---------------------------------------------------------------------------

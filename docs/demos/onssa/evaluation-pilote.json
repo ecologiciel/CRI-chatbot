@@ -1,0 +1,55 @@
+{
+  "description": "Jeu pilote basé sur deux synthèses ONSSA ; validation métier encore nécessaire.",
+  "language": "fr",
+  "cases": [
+    {
+      "id": "phyto-objectif-01",
+      "question": "Quel est l'objectif des contrôles phytosanitaires ?",
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "prévenir l’introduction et\nla propagation d’organismes nuisibles réglementés pour les végétaux",
+      "answerable": true
+    },
+    {
+      "id": "phyto-import-01",
+      "question": "Que vérifie-t-on à l'importation dans le cadre phytosanitaire ?",
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "la vérification phytosanitaire des végétaux et produits\n  végétaux concernés",
+      "answerable": true
+    },
+    {
+      "id": "phyto-territoire-01",
+      "question": "Quelle surveillance est effectuée sur le territoire ?",
+      "expected_document": "controles-phytosanitaires-operatifs.md",
+      "expected_passage": "la surveillance des cultures",
+      "answerable": true
+    },
+    {
+      "id": "export-dossier-01",
+      "question": "Comment démarrer une demande de certification sanitaire à l'exportation ?",
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "l’opérateur constitue un dossier de certification et\nle dépose auprès du service ONSSA territorialement compétent",
+      "answerable": true
+    },
+    {
+      "id": "export-exigences-01",
+      "question": "Les exigences du pays de destination sont-elles importantes ?",
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "des exigences sanitaires ou phytosanitaires\nfixées par le pays de destination",
+      "answerable": true
+    },
+    {
+      "id": "export-competence-01",
+      "question": "Qui décide de la certification ?",
+      "expected_document": "certification-export-produits-vegetaux.md",
+      "expected_passage": "la décision de\ncertification relèvent exclusivement des services compétents de l’ONSSA",
+      "answerable": true
+    },
+    {
+      "id": "hors-corpus-01",
+      "question": "Quel est le tarif exact de certification pour une cargaison de tomates en 2027 ?",
+      "expected_document": null,
+      "expected_passage": null,
+      "answerable": false
+    }
+  ]
+}

@@ -12,9 +12,9 @@ from datetime import UTC, date, datetime
 from pathlib import PurePosixPath
 
 import structlog
-from fastapi import APIRouter, Depends, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import selectinload
 
 from app.core.arq import get_arq_pool
@@ -32,6 +32,8 @@ from app.schemas.kb import (
     KBDocumentResponse,
     KBDocumentValidationRequest,
 )
+from app.services.rag.publication_policy import ensure_publishable as _ensure_publishable
+from app.services.rag.publication_policy import ensure_validated as _ensure_reindexable
 
 logger = structlog.get_logger()
 
@@ -58,24 +60,20 @@ def _validate_file_signature(extension: str, file_bytes: bytes) -> None:
         raise ValidationError("Un document texte ne peut pas contenir de données binaires.")
 
 
-def _ensure_publishable(document: KBDocument) -> None:
-    missing = [
-        name
-        for name, value in {
-            "source_authority": document.source_authority,
-            "source_reference": document.source_reference,
-            "source_version": document.source_version,
-            "published_at": document.published_at,
-        }.items()
-        if not value
-    ]
-    if missing:
-        raise ValidationError(
-            "Les métadonnées de preuve sont incomplètes.",
-            details={"missing": missing},
-        )
-    if document.expires_at and document.expires_at < date.today():
-        raise ValidationError("Ce document est expiré et ne peut pas être publié.")
+async def _enqueue_ingestion(tenant: TenantContext, document_id: uuid.UUID, task: str) -> None:
+    """Expose enqueue failures and avoid leaving a document silently pending."""
+    try:
+        pool = get_arq_pool()
+        await pool.enqueue_job(task, tenant.slug, str(document_id))
+    except Exception as exc:
+        logger.error("ingestion_enqueue_failed", tenant=tenant.slug, document_id=str(document_id), error_type=type(exc).__name__)
+        async with tenant.db_session() as session:
+            await session.execute(
+                update(KBDocument)
+                .where(KBDocument.id == document_id, KBDocument.status == KBDocumentStatus.pending)
+                .values(status=KBDocumentStatus.error, error_message="Impossible de placer le document en file de traitement. Réessayez.")
+            )
+        raise HTTPException(status_code=503, detail="Service d’indexation indisponible. Réessayez.") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +201,7 @@ async def validate_document(
         await session.refresh(document)
         response = KBDocumentResponse.model_validate(document)
 
-    pool = get_arq_pool()
-    await pool.enqueue_job("ingest_document_task", tenant.slug, str(document_id))
+    await _enqueue_ingestion(tenant, document_id, "ingest_document_task")
     logger.info("document_validated_and_enqueued", tenant=tenant.slug, document_id=str(document_id))
     return response
 
@@ -310,33 +307,33 @@ async def delete_document(
 
     log = logger.bind(tenant=tenant.slug, document_id=str(document_id), admin_id=admin.sub)
 
-    # 1. Fetch document
+    # Hold the same transaction-scoped lock as ingestion until the document
+    # record is deleted. Otherwise a concurrent worker can republish points
+    # between the Qdrant cleanup and deletion of the document.
     async with tenant.db_session() as session:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+            {"lock_key": f"kb:{tenant.id}:{document_id}"},
+        )
         result = await session.execute(select(KBDocument).where(KBDocument.id == document_id))
         doc = result.scalar_one_or_none()
+        if doc is None:
+            raise ResourceNotFoundError(
+                f"Document not found: {document_id}",
+                details={"document_id": str(document_id)},
+            )
 
-    if doc is None:
-        raise ResourceNotFoundError(
-            f"Document not found: {document_id}",
-            details={"document_id": str(document_id)},
-        )
+        file_path = doc.file_path
+        service = get_ingestion_service()
+        await service.delete_document(tenant, document_id)
 
-    file_path = doc.file_path
+        if file_path:
+            try:
+                minio = get_minio()
+                await minio.remove_object(tenant.minio_bucket, file_path)
+            except Exception as exc:
+                log.warning("minio_delete_failed", file_path=file_path, error=str(exc))
 
-    # 2. Delete chunks from Qdrant + DB
-    service = get_ingestion_service()
-    await service.delete_document(tenant, document_id)
-
-    # 3. Delete MinIO file (best-effort)
-    if file_path:
-        try:
-            minio = get_minio()
-            await minio.remove_object(tenant.minio_bucket, file_path)
-        except Exception as exc:
-            log.warning("minio_delete_failed", file_path=file_path, error=str(exc))
-
-    # 4. Delete KBDocument record
-    async with tenant.db_session() as session:
         await session.execute(delete(KBDocument).where(KBDocument.id == document_id))
 
     log.info("document_deleted")
@@ -381,6 +378,8 @@ async def reindex_document(
                 details={"document_id": str(document_id)},
             )
 
+        _ensure_reindexable(doc)
+
         # Reset status to pending
         doc.status = KBDocumentStatus.pending
         doc.error_message = None
@@ -389,12 +388,7 @@ async def reindex_document(
         response = KBDocumentResponse.model_validate(doc)
 
     # Enqueue reindex task
-    pool = get_arq_pool()
-    await pool.enqueue_job(
-        "reindex_document_task",
-        tenant.slug,
-        str(document_id),
-    )
+    await _enqueue_ingestion(tenant, document_id, "reindex_document_task")
     log.info("reindex_enqueued")
 
     return response

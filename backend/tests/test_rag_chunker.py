@@ -72,6 +72,28 @@ class TestChunkShortText:
 
 
 class TestChunkLongText:
+    def test_offsets_are_exact_for_repeated_text_and_unicode(self):
+        service = ChunkingService(chunk_size=40, overlap=8, max_chunk_size=50)
+        text = ("## Titre\n\nTexte répété. السلامة الصحية.\n\n" * 40) + "FIN"
+        chunks = service.chunk_text(text)
+        assert chunks[0].start_char == 0
+        assert chunks[-1].end_char == len(text)
+        assert all(text[c.start_char:c.end_char] == c.content for c in chunks)
+        assert all(a.end_char >= b.start_char and a.start_char < b.start_char for a, b in zip(chunks, chunks[1:]))
+
+    def test_single_long_unicode_sentence_respects_hard_limit(self):
+        service = ChunkingService(chunk_size=64, overlap=16, max_chunk_size=96)
+        text = "السلامة الصحية للمنتجات " * 300
+        chunks = service.chunk_text(text)
+        assert len(chunks) > 1
+        assert all(chunk.token_count <= 96 for chunk in chunks)
+        assert "�" not in "".join(chunk.content for chunk in chunks)
+
+    def test_overlap_cannot_exceed_hard_limit(self):
+        service = ChunkingService(chunk_size=40, overlap=30, max_chunk_size=50)
+        text = "\n\n".join(["word " * 25] * 5)
+        assert all(chunk.token_count <= 50 for chunk in service.chunk_text(text))
+
     def test_chunk_long_text_produces_multiple_chunks(self):
         """Text of ~3000 tokens produces multiple chunks within size bounds."""
         service = ChunkingService(chunk_size=768, overlap=128, max_chunk_size=1024)
@@ -93,6 +115,13 @@ class TestChunkLongText:
 
 
 class TestChunkPreservesParagraphs:
+    def test_markdown_heading_paths_and_fenced_code(self):
+        text = "# Guide\nIntroduction\n\n## Import\nTexte import.\n\n```\n# pas un titre\n```\n\n## Export\nTexte export."
+        chunks = ChunkingService().chunk_text(text)
+        assert any(c.section_path == ("Guide", "Import") and "pas un titre" in c.content for c in chunks)
+        assert any(c.section_path == ("Guide", "Export") and "Texte export" in c.content for c in chunks)
+        assert all(text[c.start_char:c.end_char] == c.content for c in chunks)
+
     def test_paragraphs_not_split_mid_text(self):
         """Paragraphs that fit within max_chunk_size are not split mid-paragraph."""
         service = ChunkingService(chunk_size=200, overlap=30)

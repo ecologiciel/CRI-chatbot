@@ -13,6 +13,38 @@ _QDRANT_PATCH = "app.services.rag.retrieval.get_qdrant"
 DIMENSION = 768
 
 
+def test_published_filter_is_applied_alongside_existing_conditions():
+    from qdrant_client.models import FieldCondition, Filter, HasIdCondition, MatchValue
+
+    original = Filter(must=[FieldCondition(key="language", match=MatchValue(value="fr"))])
+    result = RetrievalService._restrict_to_published(original, ["00000000-0000-0000-0000-000000000001"])
+    assert len(result.must) == 2
+    assert isinstance(result.must[-1], HasIdCondition)
+    assert result.must[-1].has_id == ["00000000-0000-0000-0000-000000000001"]
+    assert len(original.must) == 1
+
+
+@pytest.mark.asyncio
+async def test_published_point_query_uses_tenant_scoped_session(tenant_context):
+    from contextlib import asynccontextmanager
+    from app.core.tenant import TenantContext
+
+    session = AsyncMock()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = ["published-point"]
+    session.execute.return_value = result
+
+    @asynccontextmanager
+    async def tenant_session(_self):
+        yield session
+
+    service, _, _ = _make_service()
+    with patch.object(TenantContext, "db_session", tenant_session):
+        assert await RetrievalService._published_point_ids(service, tenant_context) == ["published-point"]
+    statement = str(session.execute.await_args.args[0])
+    assert "active_index_version" in statement and "index_version" in statement
+
+
 def _make_qdrant_point(point_id, score, content="chunk text", doc_id="doc-1"):
     """Create a mock Qdrant ScoredPoint."""
     point = MagicMock()
@@ -51,6 +83,7 @@ def _make_service(qdrant_results=None, embed_error=False):
         patch(_QDRANT_PATCH, return_value=mock_qdrant),
     ):
         service = RetrievalService()
+        service._published_point_ids = AsyncMock(return_value=["00000000-0000-0000-0000-000000000001"])
         return service, mock_embedder, mock_qdrant
 
 
@@ -105,7 +138,7 @@ class TestRetrieveWithFilters:
         call_kwargs = qdrant.search.call_args
         qdrant_filter = call_kwargs.kwargs.get("query_filter")
         assert qdrant_filter is not None
-        assert len(qdrant_filter.must) == 2  # language + sectors
+        assert len(qdrant_filter.must) == 3  # language + sectors + published IDs
 
 
 class TestRetrieveEmpty:

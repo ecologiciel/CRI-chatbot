@@ -77,6 +77,7 @@ class KBDocument(UUIDMixin, TimestampMixin, Base):
         server_default=KBDocumentStatus.pending.value,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active_index_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metadata_: Mapped[dict | None] = mapped_column(
         "metadata",
         JSONB,
@@ -97,7 +98,7 @@ class KBDocument(UUIDMixin, TimestampMixin, Base):
 class KBChunk(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "kb_chunks"
     __table_args__ = (
-        UniqueConstraint("document_id", "chunk_index", name="uq_kb_chunks_doc_index"),
+        UniqueConstraint("document_id", "index_version", "chunk_index", name="uq_kb_chunks_doc_version_index"),
         Index("ix_kb_chunks_document_id", "document_id"),
         Index("ix_kb_chunks_qdrant_point_id", "qdrant_point_id"),
     )
@@ -109,6 +110,7 @@ class KBChunk(UUIDMixin, TimestampMixin, Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    index_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     qdrant_point_id: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,

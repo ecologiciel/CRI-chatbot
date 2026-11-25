@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 import uuid
 
 import structlog
 from prometheus_client import Counter, Histogram
 from qdrant_client.models import PointStruct
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, text, update
 
 from app.core.exceptions import IngestionError
 from app.core.qdrant import get_qdrant
@@ -29,6 +30,7 @@ from app.services.ai.embeddings import get_embedding_service
 from app.services.ai.gemini import get_gemini_service
 from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.rag.chunker import get_chunking_service
+from app.services.rag.publication_policy import ensure_validated
 
 logger = structlog.get_logger()
 
@@ -55,7 +57,7 @@ INGESTION_LATENCY = Histogram(
 # Metadata enrichment: batch size for Gemini calls
 ENRICHMENT_BATCH_SIZE = 5
 
-ENRICHMENT_SYSTEM_PROMPT = """Tu es un classificateur de contenu pour les Centres Régionaux d'Investissement (CRI) du Maroc.
+ENRICHMENT_SYSTEM_PROMPT = """Tu es un classificateur de contenu documentaire institutionnel marocain.
 Pour chaque texte fourni, extrais les métadonnées structurées suivantes en JSON :
 - related_laws: liste des lois/décrets mentionnés (ex: "Loi 47-18", "Décret 2-19-1086")
 - applicable_sectors: secteurs économiques concernés (ex: "industrie", "tourisme", "agriculture", "commerce")
@@ -82,6 +84,21 @@ class IngestionService:
         self._logger = logger.bind(service="ingestion")
 
     async def ingest_document(
+        self,
+        tenant: TenantContext,
+        document_id: uuid.UUID,
+        content: str,
+        title: str,
+    ) -> int:
+        """Serialize ingestion per tenant/document across worker processes."""
+        async with tenant.db_session() as lock_session:
+            await lock_session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": f"kb:{tenant.id}:{document_id}"},
+            )
+            return await self._ingest_locked(tenant, document_id, content, title)
+
+    async def _ingest_locked(
         self,
         tenant: TenantContext,
         document_id: uuid.UUID,
@@ -123,13 +140,20 @@ class IngestionService:
             # 3. Dedup check
             if await self._is_duplicate(tenant, document_id, content_hash):
                 log.info("ingestion_skipped_duplicate", content_hash=content_hash)
-                await self._update_document_status(
-                    tenant,
-                    document_id,
-                    KBDocumentStatus.indexed,
-                    content_hash=content_hash,
+                raise ValueError(
+                    "Un document au contenu identique est déjà indexé ; "
+                    "ce document n'a pas été indexé."
                 )
-                return 0
+
+            async with tenant.db_session() as session:
+                document = (await session.execute(
+                    select(KBDocument).where(KBDocument.id == document_id)
+                )).scalar_one()
+                active_version = document.active_index_version
+                max_version = (await session.execute(
+                    select(func.max(KBChunk.index_version)).where(KBChunk.document_id == document_id)
+                )).scalar_one()
+                candidate_version = max(active_version or 0, max_version or 0) + 1
 
             # 4. Chunk the content
             chunk_results = self._chunker.chunk_text(content)
@@ -160,6 +184,7 @@ class IngestionService:
                 document_id,
                 title,
                 provenance,
+                index_version=candidate_version,
             )
 
             # 8. Save KBChunk records in tenant DB
@@ -169,15 +194,17 @@ class IngestionService:
                 chunk_results,
                 metadata_list,
                 point_ids,
+                index_version=candidate_version,
             )
 
-            # 9. Update document status → indexed
-            await self._update_document_status(
+            # 9. Verify the candidate and atomically switch the active pointer.
+            await self._publish_candidate(
                 tenant,
                 document_id,
-                KBDocumentStatus.indexed,
-                chunk_count=len(chunk_results),
-                content_hash=content_hash,
+                active_version,
+                candidate_version,
+                len(chunk_results),
+                content_hash,
             )
 
             # Metrics
@@ -283,7 +310,6 @@ class IngestionService:
         Returns:
             Number of new chunks created.
         """
-        await self.delete_document(tenant, document_id)
         return await self.ingest_document(tenant, document_id, content, title)
 
     # -----------------------------------------------------------------------
@@ -309,9 +335,16 @@ class IngestionService:
             values["content_hash"] = content_hash
 
         async with tenant.db_session() as session:
-            await session.execute(
-                update(KBDocument).where(KBDocument.id == document_id).values(**values)
-            )
+            statement = update(KBDocument).where(KBDocument.id == document_id)
+            if status in {KBDocumentStatus.indexing, KBDocumentStatus.error}:
+                statement = statement.where(KBDocument.status.not_in([
+                    KBDocumentStatus.pending_validation,
+                    KBDocumentStatus.rejected,
+                    KBDocumentStatus.expired,
+                ]))
+            result = await session.execute(statement.values(**values))
+            if status == KBDocumentStatus.indexing and result.rowcount == 0:
+                raise IngestionError("Document absent ou non autorisé pour l’indexation")
             await session.commit()
 
     async def _is_duplicate(
@@ -427,6 +460,7 @@ class IngestionService:
         document_id: uuid.UUID,
         title: str,
         provenance: dict,
+        index_version: int | None = None,
     ) -> list[str]:
         """Upsert vectors into Qdrant collection.
 
@@ -441,8 +475,24 @@ class IngestionService:
         point_ids: list[str] = []
         points: list[PointStruct] = []
 
-        for i, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=False)):
-            point_id = str(uuid.uuid4())
+        if len(chunks) != len(embeddings):
+            raise ValueError(
+                f"Embedding count mismatch: {len(chunks)} chunks, {len(embeddings)} vectors"
+            )
+
+        # Check every vector before writing any batch.  A malformed value in a
+        # later batch must not leave the earlier batches partially indexed.
+        from app.services.tenant.provisioning import EMBEDDING_DIMENSION
+
+        for vector in embeddings:
+            if len(vector) != EMBEDDING_DIMENSION or not all(math.isfinite(v) for v in vector):
+                raise ValueError("Invalid embedding dimension or non-finite value")
+
+        for i, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=True)):
+            point_id = (
+                str(uuid.uuid5(document_id, f"index:{index_version}:chunk:{chunk.chunk_index}"))
+                if index_version is not None else str(uuid.uuid4())
+            )
             point_ids.append(point_id)
 
             metadata = metadata_list[i] if i < len(metadata_list) else {}
@@ -450,7 +500,11 @@ class IngestionService:
             payload = {
                 "document_id": str(document_id),
                 "chunk_index": chunk.chunk_index,
-                "content": chunk.content[:2000],  # Limit payload size
+                "index_version": index_version,
+                "start_char": chunk.start_char,
+                "end_char": chunk.end_char,
+                "section_path": list(chunk.section_path),
+                "content": chunk.content,
                 "title": title,
                 "source_authority": provenance.get("source_authority"),
                 "source_reference": provenance.get("source_reference"),
@@ -491,6 +545,87 @@ class IngestionService:
 
         return point_ids
 
+    async def _verify_candidate_vectors(
+        self,
+        tenant: TenantContext,
+        document_id: uuid.UUID,
+        index_version: int,
+        point_ids: list[str],
+    ) -> None:
+        """Verify all staged points exist and belong to this document generation."""
+        if not point_ids or len(set(point_ids)) != len(point_ids):
+            raise ValueError("Candidate point IDs are empty or duplicated")
+        found: set[str] = set()
+        for start in range(0, len(point_ids), 100):
+            batch = point_ids[start:start + 100]
+            records = await self._qdrant.retrieve(
+                collection_name=tenant.qdrant_collection,
+                ids=batch,
+                with_payload=True,
+                with_vectors=True,
+            )
+            for record in records:
+                payload = record.payload or {}
+                vector = record.vector
+                from app.services.tenant.provisioning import EMBEDDING_DIMENSION
+
+                if (
+                    str(record.id) not in batch
+                    or payload.get("document_id") != str(document_id)
+                    or payload.get("index_version") != index_version
+                    or not isinstance(vector, list)
+                    or len(vector) != EMBEDDING_DIMENSION
+                    or not all(math.isfinite(v) for v in vector)
+                ):
+                    raise ValueError("Candidate vector does not match document generation")
+                found.add(str(record.id))
+        if found != set(point_ids):
+            raise ValueError("Candidate vector set is incomplete")
+
+    async def _publish_candidate(
+        self,
+        tenant: TenantContext,
+        document_id: uuid.UUID,
+        expected_active_version: int | None,
+        candidate_version: int,
+        expected_count: int,
+        content_hash: str,
+    ) -> None:
+        """Publish a verified candidate under a document row lock.
+
+        A caller must have persisted the candidate chunks first.  A concurrent
+        publication invalidates the expected version and fails closed.
+        """
+        if candidate_version <= (expected_active_version or 0) or expected_count <= 0:
+            raise ValueError("Invalid candidate generation or chunk count")
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(KBDocument).where(KBDocument.id == document_id).with_for_update()
+            )
+            document = result.scalar_one_or_none()
+            if document is None:
+                raise ValueError("Document no longer exists")
+            ensure_validated(document)
+            if document.active_index_version != expected_active_version:
+                raise ValueError("Active generation changed concurrently")
+            result = await session.execute(
+                select(KBChunk.chunk_index, KBChunk.qdrant_point_id)
+                .where(KBChunk.document_id == document_id, KBChunk.index_version == candidate_version)
+                .order_by(KBChunk.chunk_index)
+            )
+            rows = result.all()
+            if len(rows) != expected_count or [row[0] for row in rows] != list(range(expected_count)):
+                raise ValueError("Candidate chunks are incomplete")
+            point_ids = [row[1] for row in rows]
+            if any(point_id is None for point_id in point_ids):
+                raise ValueError("Candidate chunks are missing vector IDs")
+            await self._verify_candidate_vectors(tenant, document_id, candidate_version, point_ids)
+            document.active_index_version = candidate_version
+            document.chunk_count = expected_count
+            document.content_hash = content_hash
+            document.status = KBDocumentStatus.indexed
+            document.error_message = None
+
     @staticmethod
     async def _get_document_provenance(
         tenant: TenantContext,
@@ -518,15 +653,22 @@ class IngestionService:
         chunks: list[ChunkResult],
         metadata_list: list[dict],
         point_ids: list[str],
+        index_version: int = 1,
     ) -> None:
         """Bulk insert KBChunk records into the tenant's DB schema."""
         async with tenant.db_session() as session:
             for i, chunk in enumerate(chunks):
-                metadata = metadata_list[i] if i < len(metadata_list) else {}
+                metadata = {
+                    **(metadata_list[i] if i < len(metadata_list) else {}),
+                    "start_char": chunk.start_char,
+                    "end_char": chunk.end_char,
+                    "section_path": list(chunk.section_path),
+                }
                 db_chunk = KBChunk(
                     document_id=document_id,
                     content=chunk.content,
                     chunk_index=chunk.chunk_index,
+                    index_version=index_version,
                     qdrant_point_id=point_ids[i] if i < len(point_ids) else None,
                     token_count=chunk.token_count,
                     metadata_=metadata,

@@ -49,6 +49,8 @@ services:
   backend:
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     entrypoint: [sleep, '600']
+    healthcheck:
+      disable: true
 volumes:
   pg:
   objects:

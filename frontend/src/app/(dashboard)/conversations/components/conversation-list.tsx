@@ -4,10 +4,10 @@ import { Search } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { mockConversations } from "@/lib/mock-data";
-import type { Conversation, ConversationStatus } from "@/types/conversation";
+import { useConversations } from "@/hooks/use-conversations";
+import type { ConversationRecord } from "@/types/conversation";
 
 function getInitials(name: string | null, phone: string): string {
   if (name) {
@@ -51,7 +51,7 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 }
 
-const statusIndicator: Partial<Record<ConversationStatus, React.ReactNode>> = {
+const statusIndicator: Partial<Record<ConversationRecord["status"], React.ReactNode>> = {
   active: (
     <span className="h-2.5 w-2.5 rounded-full bg-[hsl(var(--success))]" />
   ),
@@ -70,14 +70,8 @@ export function ConversationList({
   onSelect,
 }: ConversationListProps) {
   const [search, setSearch] = useState("");
-
-  const filtered = mockConversations.filter((conv) => {
-    const q = search.toLowerCase();
-    return (
-      (conv.contact_name?.toLowerCase().includes(q) ?? false) ||
-      conv.contact_phone.includes(q)
-    );
-  });
+  const [page, setPage] = useState(1);
+  const { data, isLoading, isError, refetch } = useConversations(page, search);
 
   return (
     <div className="flex flex-col h-full border-e border-border">
@@ -88,7 +82,7 @@ export function ConversationList({
           <Input
             placeholder="Rechercher..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             className="ps-9 h-9"
           />
         </div>
@@ -96,12 +90,19 @@ export function ConversationList({
 
       {/* List */}
       <ScrollArea className="flex-1">
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          <div className="p-6 text-center text-sm text-muted-foreground">Chargement…</div>
+        ) : isError ? (
+          <div className="p-6 text-center text-sm text-destructive">
+            Impossible de charger les conversations.
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="mt-2">Réessayer</Button>
+          </div>
+        ) : !data?.items.length ? (
           <div className="p-6 text-center text-sm text-muted-foreground">
             Aucune conversation trouvée
           </div>
         ) : (
-          filtered.map((conv) => (
+          data.items.map((conv) => (
             <ConversationItem
               key={conv.id}
               conversation={conv}
@@ -111,6 +112,13 @@ export function ConversationList({
           ))
         )}
       </ScrollArea>
+      {data && data.total > data.page_size && (
+        <div className="flex items-center justify-between border-t p-2 text-xs">
+          <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Précédent</Button>
+          <span>Page {page}</span>
+          <Button variant="ghost" size="sm" disabled={page * data.page_size >= data.total} onClick={() => setPage(page + 1)}>Suivant</Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -120,18 +128,18 @@ function ConversationItem({
   isActive,
   onSelect,
 }: {
-  conversation: Conversation;
+  conversation: ConversationRecord;
   isActive: boolean;
   onSelect: () => void;
 }) {
-  const displayName = conversation.contact_name ?? conversation.contact_phone;
+  const displayName = conversation.contact_name ?? conversation.contact_phone ?? "Visiteur web";
   const initials = getInitials(
     conversation.contact_name,
-    conversation.contact_phone
+    conversation.contact_phone ?? "web"
   );
   const avatarColor = getAvatarColor(
     conversation.contact_name,
-    conversation.contact_phone
+    conversation.contact_phone ?? "web"
   );
   const indicator = statusIndicator[conversation.status];
 
@@ -162,18 +170,13 @@ function ConversationItem({
           </span>
         </div>
         <p className="text-xs text-muted-foreground truncate mt-0.5">
-          {conversation.last_message}
+          {conversation.last_message ?? "Aucun message"}
         </p>
       </div>
 
       {/* Right indicators */}
       <div className="flex flex-col items-center gap-1.5 shrink-0 pt-0.5">
         {indicator}
-        {conversation.unread_count > 0 && (
-          <Badge className="h-5 min-w-[20px] px-1.5 text-[10px] font-bold">
-            {conversation.unread_count}
-          </Badge>
-        )}
       </div>
     </button>
   );

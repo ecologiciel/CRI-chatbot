@@ -24,6 +24,11 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
+# The upstream Node image can lag Alpine security fixes. npm is only needed in
+# the build stages; removing it from the runtime also reduces its attack surface.
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 

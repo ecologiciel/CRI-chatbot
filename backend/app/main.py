@@ -18,6 +18,7 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.campaigns import router as campaigns_router
 from app.api.v1.contacts import router as contacts_router
+from app.api.v1.conversations import router as conversations_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.dossiers import router as dossiers_router
 from app.api.v1.escalation import router as escalation_router
@@ -163,6 +164,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(campaigns_router, prefix="/api/v1")
     app.include_router(contacts_router, prefix="/api/v1")
+    app.include_router(conversations_router, prefix="/api/v1")
     app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(dossiers_router, prefix="/api/v1")
     app.include_router(escalation_router, prefix="/api/v1")

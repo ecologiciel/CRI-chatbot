@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Menu, Search, Globe, Bell, User, Settings, LogOut } from "lucide-react";
+import { Menu, Globe, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -81,22 +80,6 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
       {/* Right section */}
       <div className="flex items-center gap-2">
-        {/* Search button (visual only) */}
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(
-            "hidden sm:flex items-center gap-2 text-muted-foreground font-normal",
-            "h-9 px-3 bg-muted/50 border-border"
-          )}
-        >
-          <Search className="h-4 w-4" strokeWidth={1.75} />
-          <span className="text-sm">Rechercher...</span>
-          <kbd className="pointer-events-none ms-4 hidden select-none items-center gap-1 rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground sm:flex">
-            <span className="text-xs">⌘</span>K
-          </kbd>
-        </Button>
-
         {/* Language selector */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -122,14 +105,6 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" strokeWidth={1.75} />
-          <Badge className="absolute -top-1 -end-1 h-5 w-5 p-0 flex items-center justify-center text-[10px] bg-destructive border-2 border-card">
-            3
-          </Badge>
-        </Button>
-
         {/* User avatar dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -152,15 +127,6 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 </span>
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <User className="h-4 w-4" />
-              <span>Profil</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Settings className="h-4 w-4" />
-              <span>Paramètres</span>
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => logout()}

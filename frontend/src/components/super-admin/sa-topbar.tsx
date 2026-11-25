@@ -5,11 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Menu,
-  Search,
   Globe,
-  Bell,
-  User,
-  Settings,
   LogOut,
   ChevronRight,
   Home,
@@ -161,22 +157,6 @@ export function SATopbar({ onMenuClick }: SATopbarProps) {
           Super-Admin
         </Badge>
 
-        {/* Search button (visual only) */}
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(
-            "hidden sm:flex items-center gap-2 text-muted-foreground font-normal",
-            "h-9 px-3 bg-muted/50 border-border"
-          )}
-        >
-          <Search className="h-4 w-4" strokeWidth={1.75} />
-          <span className="text-sm">Rechercher...</span>
-          <kbd className="pointer-events-none ms-4 hidden select-none items-center gap-1 rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground sm:flex">
-            <span className="text-xs">⌘</span>K
-          </kbd>
-        </Button>
-
         {/* Language selector */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -202,14 +182,6 @@ export function SATopbar({ onMenuClick }: SATopbarProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" strokeWidth={1.75} />
-          <Badge className="absolute -top-1 -end-1 h-5 w-5 p-0 flex items-center justify-center text-[10px] bg-destructive border-2 border-card">
-            3
-          </Badge>
-        </Button>
-
         {/* User avatar dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -232,15 +204,6 @@ export function SATopbar({ onMenuClick }: SATopbarProps) {
                 </span>
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <User className="h-4 w-4" />
-              <span>Profil</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Settings className="h-4 w-4" />
-              <span>Paramètres</span>
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => logout()}

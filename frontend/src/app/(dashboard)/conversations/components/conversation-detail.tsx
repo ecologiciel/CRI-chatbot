@@ -1,33 +1,30 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Phone, Bot, User, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageBubble } from "./message-bubble";
-import { mockConversations, mockMessages } from "@/lib/mock-data";
-import type { ConversationStatus } from "@/types/conversation";
+import { useConversation, useConversationMessages } from "@/hooks/use-conversations";
+import type { ConversationRecord } from "@/types/conversation";
 
-const statusLabels: Record<ConversationStatus, { label: string; className: string }> = {
+const statusLabels: Record<ConversationRecord["status"], { label: string; className: string }> = {
   active: {
     label: "Active",
     className: "bg-[hsl(var(--success))]/10 text-[hsl(var(--success))] border-0",
   },
-  waiting: {
-    label: "En attente",
+  human_handled: {
+    label: "Prise en charge",
     className: "bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))] border-0",
   },
   escalated: {
     label: "Escaladée",
     className: "bg-destructive/10 text-destructive border-0",
   },
-  closed: {
+  ended: {
     label: "Terminée",
-    className: "bg-muted text-muted-foreground border-0",
-  },
-  archived: {
-    label: "Archivée",
     className: "bg-muted text-muted-foreground border-0",
   },
 };
@@ -46,8 +43,11 @@ interface ConversationDetailProps {
 
 export function ConversationDetail({ conversationId }: ConversationDetailProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const conversation = mockConversations.find((c) => c.id === conversationId);
-  const messages = mockMessages[conversationId] ?? [];
+  const [page, setPage] = useState(1);
+  const { data: conversation, isLoading, isError, refetch } = useConversation(conversationId);
+  const messagesQuery = useConversationMessages(conversationId, page);
+
+  useEffect(() => setPage(1), [conversationId]);
 
   useEffect(() => {
     // Auto-scroll to bottom
@@ -59,7 +59,10 @@ export function ConversationDetail({ conversationId }: ConversationDetailProps) 
         scrollArea.scrollTop = scrollArea.scrollHeight;
       }
     }
-  }, [conversationId]);
+  }, [conversationId, messagesQuery.data]);
+
+  if (isLoading) return <div className="p-6 text-sm">Chargement…</div>;
+  if (isError) return <div className="p-6 text-sm">Impossible de charger la conversation. <Button variant="outline" size="sm" onClick={() => refetch()}>Réessayer</Button></div>;
 
   if (!conversation) {
     return (
@@ -69,7 +72,7 @@ export function ConversationDetail({ conversationId }: ConversationDetailProps) 
     );
   }
 
-  const displayName = conversation.contact_name ?? conversation.contact_phone;
+  const displayName = conversation.contact_name ?? conversation.contact_phone ?? "Visiteur web";
   const status = statusLabels[conversation.status];
 
   return (
@@ -97,10 +100,7 @@ export function ConversationDetail({ conversationId }: ConversationDetailProps) 
             </Badge>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
-            <Phone className="h-3 w-3" />
-            <span className="font-mono">
-              {maskPhone(conversation.contact_phone)}
-            </span>
+            {conversation.contact_phone ? <><Phone className="h-3 w-3" /><span className="font-mono">{maskPhone(conversation.contact_phone)}</span></> : <span>Canal web</span>}
           </div>
         </div>
       </div>
@@ -108,11 +108,21 @@ export function ConversationDetail({ conversationId }: ConversationDetailProps) 
       {/* Messages */}
       <ScrollArea ref={scrollRef} className="flex-1 px-4 py-3">
         <div className="space-y-1">
-          {messages.map((msg) => (
+          {messagesQuery.isLoading && <p className="text-sm text-muted-foreground">Chargement des messages…</p>}
+          {messagesQuery.isError && <p className="text-sm text-destructive">Impossible de charger les messages. <Button variant="outline" size="sm" onClick={() => messagesQuery.refetch()}>Réessayer</Button></p>}
+          {messagesQuery.data?.items.map((msg) => (
             <MessageBubble key={msg.id} message={msg} />
           ))}
         </div>
       </ScrollArea>
+
+      {messagesQuery.data && messagesQuery.data.total > messagesQuery.data.page_size && (
+        <div className="flex items-center justify-between border-t p-2 text-xs">
+          <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Précédent</Button>
+          <span>Page {page}</span>
+          <Button variant="ghost" size="sm" disabled={page * messagesQuery.data.page_size >= messagesQuery.data.total} onClick={() => setPage(page + 1)}>Suivant</Button>
+        </div>
+      )}
 
       {/* Supervision banner */}
       <div className="shrink-0 border-t border-border px-4 py-3">

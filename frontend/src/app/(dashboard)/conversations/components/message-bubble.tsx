@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import type { Message } from "@/types/conversation";
+import type { ConversationMessageRecord } from "@/types/conversation";
 
 function formatTime(timestamp: string): string {
   return new Date(timestamp).toLocaleTimeString("fr-FR", {
@@ -11,7 +11,7 @@ function formatTime(timestamp: string): string {
 }
 
 interface MessageBubbleProps {
-  message: Message;
+  message: ConversationMessageRecord;
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
@@ -45,7 +45,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             : "bg-card border border-border rounded-ts-none"
         )}
       >
-        <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
+        <p className="text-sm whitespace-pre-wrap break-words">{content || `[${type}]`}</p>
         <p
           className={cn(
             "text-[10px] mt-1.5",

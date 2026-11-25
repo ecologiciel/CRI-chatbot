@@ -34,3 +34,22 @@ export interface Message {
   timestamp: string;
   is_read: boolean;
 }
+
+export interface ConversationRecord {
+  id: string;
+  contact_name: string | null;
+  contact_phone: string | null;
+  channel: string;
+  agent_type: "public" | "internal";
+  status: "active" | "ended" | "escalated" | "human_handled";
+  last_message: string | null;
+  last_message_at: string;
+}
+
+export interface ConversationMessageRecord {
+  id: string;
+  direction: MessageDirection;
+  type: "text" | "image" | "audio" | "document" | "interactive" | "system";
+  content: string | null;
+  timestamp: string;
+}

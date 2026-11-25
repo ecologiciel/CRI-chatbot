@@ -29,7 +29,7 @@ export default function ConversationsPage() {
               Conversations
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Supervision des conversations WhatsApp
+              Supervision des conversations
             </p>
           </div>
         )}
@@ -41,7 +41,7 @@ export default function ConversationsPage() {
           Conversations
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Supervision des conversations WhatsApp
+          Supervision des conversations
         </p>
       </div>
 

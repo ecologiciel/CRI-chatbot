@@ -53,6 +53,24 @@ class ConversationList(BaseModel):
     page_size: int
 
 
+class ConversationSummary(BaseModel):
+    id: uuid.UUID
+    contact_name: str | None
+    contact_phone: str | None
+    channel: str
+    agent_type: AgentType
+    status: ConversationStatus
+    last_message: str | None
+    last_message_at: datetime
+
+
+class ConversationSummaryList(BaseModel):
+    items: list[ConversationSummary]
+    total: int
+    page: int
+    page_size: int
+
+
 # --- Message schemas ---
 
 
@@ -90,3 +108,10 @@ class MessageResponse(BaseModel):
     whatsapp_message_id: str | None
     timestamp: datetime
     created_at: datetime
+
+
+class ConversationMessagePage(BaseModel):
+    items: list[MessageResponse]
+    total: int
+    page: int
+    page_size: int

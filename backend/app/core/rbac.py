@@ -61,13 +61,29 @@ async def get_current_admin(
     auth_service = AuthService()
     payload = await auth_service.verify_access_token(credentials.credentials, ip_address=ip_address)
 
-    # Verify admin still active in DB (token could outlive deactivation)
+    tenant = getattr(request.state, "tenant", None)
+    await ensure_admin_access(payload, tenant.id if tenant is not None else None)
+    return payload
+
+
+async def ensure_admin_access(payload: AdminTokenPayload, tenant_id: uuid.UUID | None) -> None:
+    """Verify current account claims and constrain tenant-scoped access."""
+    # Do not trust stale role or tenant claims after an account is changed.
+    try:
+        account_id = uuid.UUID(payload.sub)
+        account_tenant_id = uuid.UUID(payload.tenant_id) if payload.tenant_id else None
+        account_role = AdminRole(payload.role)
+    except (ValueError, TypeError) as exc:
+        raise AuthenticationError("Invalid account claims") from exc
+
     factory = get_session_factory()
     async with factory() as session:
         result = await session.execute(
             select(Admin.id).where(
-                Admin.id == uuid.UUID(payload.sub),
+                Admin.id == account_id,
                 Admin.is_active.is_(True),
+                Admin.role == account_role,
+                Admin.tenant_id == account_tenant_id,
             )
         )
         if result.scalar_one_or_none() is None:
@@ -78,7 +94,13 @@ async def get_current_admin(
             )
             raise AuthenticationError("Admin account is no longer active")
 
-    return payload
+    if (
+        tenant_id is not None
+        and payload.role != AdminRole.super_admin.value
+        and (payload.tenant_id is None or str(payload.tenant_id) != str(tenant_id))
+    ):
+        logger.warning("admin_tenant_mismatch", admin_id=payload.sub)
+        raise AuthorizationError("The authenticated account cannot access this tenant")
 
 
 def require_role(*roles: AdminRole):

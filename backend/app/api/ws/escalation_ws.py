@@ -31,9 +31,11 @@ from fastapi import Query, WebSocket, WebSocketDisconnect
 
 from app.core.exceptions import (
     AuthenticationError,
+    AuthorizationError,
     TenantInactiveError,
     TenantNotFoundError,
 )
+from app.core.rbac import ensure_admin_access
 from app.core.redis import get_redis
 from app.core.tenant import TenantResolver
 from app.models.enums import AdminRole
@@ -191,9 +193,18 @@ async def escalation_ws_endpoint(
 
     # --- Resolve tenant ---
     try:
-        await TenantResolver.from_slug(tenant_slug)
+        tenant = await TenantResolver.from_slug(tenant_slug)
     except (TenantNotFoundError, TenantInactiveError):
         await websocket.close(code=4004, reason="Invalid or inactive tenant")
+        return
+
+    try:
+        await ensure_admin_access(admin, tenant.id)
+    except AuthenticationError:
+        await websocket.close(code=4001, reason="Inactive or changed account")
+        return
+    except AuthorizationError:
+        await websocket.close(code=4003, reason="Tenant access denied")
         return
 
     # --- Accept connection ---

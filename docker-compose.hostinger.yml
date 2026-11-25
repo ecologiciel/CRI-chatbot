@@ -22,6 +22,12 @@ x-backend-environment: &backend-environment
 
 x-source-repository: &source-repository https://github.com/ecologiciel/CRI-chatbot.git#ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
 
+# Application images run as non-root and do not require Linux capabilities.
+# Restrict privilege escalation for the public API, UI and background workers.
+x-app-hardening: &app-hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 services:
 
   postgres:
@@ -88,6 +94,7 @@ services:
     mem_limit: 1g
 
   backend:
+    <<: *app-hardening
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     build:
       context: *source-repository
@@ -126,6 +133,7 @@ services:
     mem_limit: 2g
 
   ingestion-worker:
+    <<: *app-hardening
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
@@ -146,6 +154,7 @@ services:
     mem_limit: 1g
 
   learning-worker:
+    <<: *app-hardening
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
@@ -163,6 +172,7 @@ services:
     mem_limit: 768m
 
   purge-worker:
+    <<: *app-hardening
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
@@ -178,6 +188,7 @@ services:
     mem_limit: 512m
 
   demo-bootstrap:
+    <<: *app-hardening
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
@@ -205,6 +216,7 @@ services:
     mem_limit: 1g
 
   frontend-demo:
+    <<: *app-hardening
     image: chatbot-demo-frontend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     build:
       context: https://github.com/ecologiciel/CRI-chatbot.git#ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af:frontend
@@ -226,6 +238,7 @@ services:
     mem_limit: 512m
 
   frontend-admin:
+    <<: *app-hardening
     image: chatbot-demo-admin:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     build:
       context: https://github.com/ecologiciel/CRI-chatbot.git#ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af:frontend

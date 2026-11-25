@@ -26,6 +26,7 @@ class RAGEvaluationService:
 
         recall_at_3 = recall_at_5 = eligible_recall = citation_hits = abstention_hits = 0
         latencies: list[float] = []
+        case_results: list[dict] = []
         for case in cases:
             safe_query = get_pii_masker().mask(case.query).masked_text
             start = time.monotonic()
@@ -34,6 +35,14 @@ class RAGEvaluationService:
             )
             latencies.append((time.monotonic() - start) * 1000)
             expected_document_ids = {str(value) for value in (case.expected_document_ids or [])}
+            first_expected_rank = next(
+                (
+                    index
+                    for index, chunk in enumerate(retrieval.chunks[:5], 1)
+                    if chunk.document_id in expected_document_ids
+                ),
+                None,
+            )
             if expected_document_ids and not case.expects_abstention:
                 eligible_recall += 1
                 recall_at_3 += int(
@@ -63,6 +72,18 @@ class RAGEvaluationService:
             predicted_abstention = not retrieval.is_confident
             if predicted_abstention == case.expects_abstention:
                 abstention_hits += 1
+            case_results.append(
+                {
+                    "case_id": str(case.id),
+                    "expected_document_rank": first_expected_rank,
+                    "recall_evaluated": bool(expected_document_ids and not case.expects_abstention),
+                    "expects_abstention": case.expects_abstention,
+                    "low_confidence": predicted_abstention,
+                    "retrieved_document_ids": list(
+                        dict.fromkeys(chunk.document_id for chunk in retrieval.chunks[:5])
+                    ),
+                }
+            )
         total = len(cases)
         sorted_latencies = sorted(latencies)
         metrics = {
@@ -89,6 +110,7 @@ class RAGEvaluationService:
             "human_faithfulness_reviewed": sum(
                 case.human_faithfulness is not None for case in cases
             ),
+            "case_results": case_results,
             "mode": "monitoring_non_blocking",
             "completed_at": datetime.now(UTC).isoformat(),
         }

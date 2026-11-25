@@ -14,6 +14,7 @@ async def test_recall_denominator_excludes_abstentions_and_missing_labels():
     target = str(uuid.uuid4())
     cases = [
         SimpleNamespace(
+            id=uuid.uuid4(),
             query="question 1",
             language="fr",
             expected_document_ids=[target],
@@ -21,6 +22,7 @@ async def test_recall_denominator_excludes_abstentions_and_missing_labels():
             human_faithfulness=True,
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             query="question 2",
             language="fr",
             expected_document_ids=[target],
@@ -28,6 +30,7 @@ async def test_recall_denominator_excludes_abstentions_and_missing_labels():
             human_faithfulness=None,
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             query="sans réponse",
             language="fr",
             expected_document_ids=[],
@@ -35,6 +38,7 @@ async def test_recall_denominator_excludes_abstentions_and_missing_labels():
             human_faithfulness=None,
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             query="sans étiquette",
             language="fr",
             expected_document_ids=[],
@@ -82,5 +86,14 @@ async def test_recall_denominator_excludes_abstentions_and_missing_labels():
     assert run.metrics["confidence_abstention_proxy"] == 0.5
     assert run.metrics["citation_coverage"] == 0.25
     assert run.metrics["human_faithfulness_reviewed"] == 1
+    results = run.metrics["case_results"]
+    assert results[0]["expected_document_rank"] == 4
+    assert results[0]["case_id"] == str(cases[0].id)
+    assert results[0]["retrieved_document_ids"] == ["a", "b", "c", target]
+    assert results[1]["recall_evaluated"] is True
+    assert results[1]["expected_document_rank"] is None
+    assert results[2]["recall_evaluated"] is False
+    assert results[2]["expects_abstention"] is True
+    assert results[3]["recall_evaluated"] is False
     assert run.metrics["retrieval_latency_p95_ms"] >= run.metrics["retrieval_latency_p50_ms"] >= 0
     assert all(call.kwargs["top_k"] == 5 for call in retriever.retrieve.await_args_list)

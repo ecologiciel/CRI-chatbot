@@ -55,7 +55,25 @@ export interface UnansweredQuestion {
 export interface RAGEvaluationRun {
   id: string;
   case_count: number;
-  metrics: Record<string, number | string>;
+  metrics: Record<string, unknown>;
   triggered_by: string | null;
   created_at: string;
+}
+
+export interface RAGEvaluationCase {
+  id: string;
+  query: string;
+  language: "fr" | "ar" | "en";
+  expected_document_ids: string[];
+  expects_abstention: boolean;
+  is_active: boolean;
+}
+
+export interface RAGEvaluationCaseResult {
+  case_id: string;
+  expected_document_rank: number | null;
+  recall_evaluated: boolean;
+  expects_abstention: boolean;
+  low_confidence: boolean;
+  retrieved_document_ids: string[];
 }

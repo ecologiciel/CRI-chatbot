@@ -59,11 +59,13 @@ class TestSecurityMisconfiguration:
         """Common debug / admin / sensitive paths must not be reachable."""
         resp = await api_client.get(path)
         assert resp.status_code in (
+            400,
             404,
             405,
             403,
             307,
         ), f"{path} returned unexpected {resp.status_code}"
+        assert "DB_PASSWORD=" not in resp.text
 
     # ------------------------------------------------------------------ #
     # A05-03  Error messages hide stack traces

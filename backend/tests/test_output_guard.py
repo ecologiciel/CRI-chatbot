@@ -50,8 +50,18 @@ class TestOutputGuardPII:
         assert result.is_valid is True
         assert result.pii_masked_count >= 1
         assert "AB123456" not in result.cleaned_text
-        assert "[CIN_1]" in result.cleaned_text
+        assert "[information masquée]" in result.cleaned_text
         assert any("pii_found" in issue for issue in result.issues)
+
+    @pytest.mark.asyncio
+    async def test_copied_context_placeholder_is_not_shown_as_contact_information(self):
+        result = await OutputGuardService().check(
+            text="البريد الإلكتروني: [EMAIL_1]", confidence=0.9, language="ar"
+        )
+        assert "[EMAIL_1]" not in result.cleaned_text
+        assert "[معلومات محجوبة]" in result.cleaned_text
+        assert result.pii_masked_count == 0
+        assert "masked_placeholders_replaced" in result.issues
 
 
 class TestOutputGuardConfidence:

@@ -49,6 +49,12 @@ class OutputGuardResult:
 # ---------------------------------------------------------------------------
 
 CONFIDENCE_THRESHOLD = 0.7
+_MASK_TOKEN = re.compile(r"\[(?:CIN|PHONE|EMAIL|AMOUNT|IBAN|DOSSIER)_\d+\]")
+_MASKED_LABELS = {
+    "fr": "[information masquée]",
+    "ar": "[معلومات محجوبة]",
+    "en": "[information withheld]",
+}
 
 # Informal/unprofessional language patterns
 _INFORMAL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -120,10 +126,16 @@ class OutputGuardService:
 
         # 1. PII masking
         pii_result = self._masker.mask(text)
-        cleaned = pii_result.masked_text
+        # The model can copy tokens from redacted context even if no new PII
+        # is detected in its answer. Never expose those internal identifiers.
+        cleaned, placeholders = _MASK_TOKEN.subn(
+            _MASKED_LABELS.get(language, _MASKED_LABELS["fr"]), pii_result.masked_text
+        )
 
         if pii_result.pii_count > 0:
             issues.append(f"pii_found: {pii_result.pii_count} item(s) masked")
+        if placeholders:
+            issues.append("masked_placeholders_replaced")
 
         # 2. Confidence check
         confidence_ok = confidence >= CONFIDENCE_THRESHOLD

@@ -36,7 +36,9 @@ class PromptTemplates:
             "4. Ne donne JAMAIS de conseils juridiques ou fiscaux personnalisés.\n"
             "5. Si on te demande des informations personnelles (CIN, dossier), renvoie "
             "vers les canaux officiels de l'institution.\n"
-            "6. Réponds en français."
+            "6. Réponds en français.\n"
+            "7. Ne reproduis pas les marqueurs de masquage comme [EMAIL_1] ; "
+            "omets les coordonnées masquées et renvoie vers les canaux officiels."
         ),
         "ar": (
             "أنت مساعد وثائقي مؤسساتي. دورك مساعدة المستعملين اعتماداً على وثائق المؤسسة.\n\n"
@@ -46,7 +48,8 @@ class PromptTemplates:
             "3. استخدم أسلوباً رسمياً ومحترماً.\n"
             "4. لا تقدم أبداً استشارات قانونية أو ضريبية شخصية.\n"
             "5. إذا طُلب منك معلومات شخصية (رقم البطاقة، ملف)، أحل على القنوات الرسمية للمؤسسة.\n"
-            "6. أجب بالعربية الفصحى."
+            "6. أجب بالعربية الفصحى.\n"
+            "7. لا تنسخ رموز الإخفاء مثل [EMAIL_1]؛ احذف بيانات الاتصال المحجوبة وأحل إلى القنوات الرسمية."
         ),
         "en": (
             "You are an institutional document assistant. Help users using the institution's documents.\n\n"
@@ -58,7 +61,9 @@ class PromptTemplates:
             "4. NEVER provide personalized legal or tax advice.\n"
             "5. If asked for personal information (ID, case file), redirect to the "
             "institution's official channels.\n"
-            "6. Answer in English."
+            "6. Answer in English.\n"
+            "7. Never repeat masking tokens such as [EMAIL_1]; omit masked contact details "
+            "and refer to official channels."
         ),
     }
 

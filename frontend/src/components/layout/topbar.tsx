@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Menu, Globe, LogOut } from "lucide-react";
+import { Menu, Globe, KeyRound, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Breadcrumb } from "@/components/layout/breadcrumb";
 import { useAuth } from "@/hooks/use-auth";
+import { ChangePasswordDialog } from "@/components/layout/change-password-dialog";
 import type { Locale } from "@/types";
 
 const localeLabels: Record<Locale, string> = {
@@ -40,6 +41,7 @@ function getInitials(name: string): string {
 export function Topbar({ onMenuClick }: TopbarProps) {
   const { admin, logout } = useAuth();
   const [locale, setLocale] = React.useState<Locale>("fr");
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
 
   React.useEffect(() => {
     const saved = localStorage.getItem("locale") as Locale | null;
@@ -128,6 +130,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
+              <KeyRound className="h-4 w-4" />
+              <span>Modifier le mot de passe</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => logout()}
               className="text-destructive focus:text-destructive"
@@ -137,6 +144,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
       </div>
     </header>
   );

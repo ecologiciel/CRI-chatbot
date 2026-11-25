@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -138,6 +140,16 @@ def create_app() -> FastAPI:
     ).instrument(app).expose(app, endpoint="/metrics")
 
     # --- Exception handlers ---
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        if request.url.path == "/api/v1/auth/change-password":
+            # FastAPI's default validation response can echo submitted input.
+            return JSONResponse(
+                status_code=422,
+                content={"error": "ValidationError", "message": "Données invalides"},
+            )
+        return await request_validation_exception_handler(request, exc)
+
     @app.exception_handler(CRIBaseException)
     async def cri_exception_handler(request: Request, exc: CRIBaseException) -> JSONResponse:
         logger.warning(

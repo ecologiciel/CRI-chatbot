@@ -16,6 +16,7 @@ interface AuthContextValue {
   apiClient: ApiClient;
   login: (credentials: LoginCredentials) => Promise<Admin>;
   logout: () => Promise<void>;
+  endSession: () => void;
 }
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
@@ -172,8 +173,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       apiClient,
       login,
       logout,
+      endSession: onAuthFailure,
     }),
-    [admin, isLoading, apiClient, login, logout],
+    [admin, isLoading, apiClient, login, logout, onAuthFailure],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

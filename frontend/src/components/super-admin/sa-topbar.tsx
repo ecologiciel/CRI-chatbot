@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   Menu,
   Globe,
+  KeyRound,
   LogOut,
   ChevronRight,
   Home,
@@ -24,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
+import { ChangePasswordDialog } from "@/components/layout/change-password-dialog";
 import type { Locale } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +110,7 @@ interface SATopbarProps {
 export function SATopbar({ onMenuClick }: SATopbarProps) {
   const { admin, logout } = useAuth();
   const [locale, setLocale] = React.useState<Locale>("fr");
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
 
   React.useEffect(() => {
     const saved = localStorage.getItem("locale") as Locale | null;
@@ -205,6 +208,11 @@ export function SATopbar({ onMenuClick }: SATopbarProps) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
+              <KeyRound className="h-4 w-4" />
+              <span>Modifier le mot de passe</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => logout()}
               className="text-destructive focus:text-destructive"
@@ -214,6 +222,7 @@ export function SATopbar({ onMenuClick }: SATopbarProps) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
       </div>
     </header>
   );

@@ -17,7 +17,7 @@ from app.core.database import get_session_factory
 from app.core.exceptions import AuthenticationError
 from app.core.rbac import get_current_admin
 from app.models.admin import Admin
-from app.schemas.admin import AdminResponse
+from app.schemas.admin import AdminPasswordChange, AdminResponse
 from app.schemas.auth import (
     AdminTokenPayload,
     AuthTokenResponse,
@@ -81,6 +81,18 @@ async def get_me(
         raise AuthenticationError("Admin account not found")
 
     return AdminResponse.model_validate(db_admin)
+
+
+@router.post("/change-password", status_code=204, response_class=Response)
+async def change_password(
+    data: AdminPasswordChange,
+    admin: AdminTokenPayload = Depends(get_current_admin),
+) -> Response:
+    """Replace the current account password and revoke its active session."""
+    await AuthService().change_password(
+        uuid.UUID(admin.sub), data.current_password, data.new_password
+    )
+    return Response(status_code=204)
 
 
 @router.post("/logout", status_code=204, response_class=Response)

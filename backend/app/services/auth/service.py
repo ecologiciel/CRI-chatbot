@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import get_session_factory
-from app.core.exceptions import AccountLockedError, AuthenticationError
+from app.core.exceptions import AccountLockedError, AuthenticationError, ValidationError
 from app.core.metrics import LOGIN_ATTEMPTS
 from app.core.redis import get_redis
 from app.models.admin import Admin
@@ -83,62 +83,50 @@ class AuthService:
         # 1. Check lockout
         await self._check_rate_limit(email)
 
-        # 2. Fetch admin from DB
+        # Serialize session registration with password changes for this account.
         factory = get_session_factory()
         async with factory() as session:
             result = await session.execute(
-                select(Admin).where(
-                    Admin.email == email,
-                    Admin.is_active.is_(True),
-                )
+                select(Admin)
+                .where(Admin.email == email, Admin.is_active.is_(True))
+                .with_for_update()
             )
             admin = result.scalar_one_or_none()
 
-        if not admin:
-            await self._record_failed_attempt(email)
-            LOGIN_ATTEMPTS.labels(tenant="", status="failed").inc()
-            log.warning("login_failed", reason="admin_not_found_or_inactive")
-            raise AuthenticationError("Invalid credentials")
+            if not admin:
+                await self._record_failed_attempt(email)
+                LOGIN_ATTEMPTS.labels(tenant="", status="failed").inc()
+                log.warning("login_failed", reason="admin_not_found_or_inactive")
+                raise AuthenticationError("Invalid credentials")
 
-        # 3. Verify password
-        if not self.verify_password(password, admin.password_hash):
-            await self._record_failed_attempt(email)
-            LOGIN_ATTEMPTS.labels(tenant="", status="failed").inc()
-            log.warning("login_failed", reason="wrong_password", admin_id=str(admin.id))
-            raise AuthenticationError("Invalid credentials")
+            if not self.verify_password(password, admin.password_hash):
+                await self._record_failed_attempt(email)
+                LOGIN_ATTEMPTS.labels(tenant="", status="failed").inc()
+                log.warning("login_failed", reason="wrong_password", admin_id=str(admin.id))
+                raise AuthenticationError("Invalid credentials")
 
-        # 4. Success — generate tokens
-        access_token, access_jti = JWTManager.create_access_token(
-            admin_id=admin.id,
-            role=admin.role.value,
-            tenant_id=admin.tenant_id,
-        )
-        refresh_session_id = str(uuid.uuid4()) if ip_address else None
-        refresh_token, _jti = await JWTManager.create_refresh_token(
-            admin_id=admin.id, session_id=refresh_session_id
-        )
-
-        # 4b. Register advanced session (IP tracking, single session)
-        if ip_address:
-            from app.services.auth.session_manager import get_session_manager
-
-            session_mgr = get_session_manager()
-            session_result = await session_mgr.register_session(
-                admin_id=str(admin.id),
-                jti=access_jti,
-                ip_address=ip_address,
-                refresh_session_id=refresh_session_id,
+            access_token, access_jti = JWTManager.create_access_token(
+                admin_id=admin.id, role=admin.role.value, tenant_id=admin.tenant_id
             )
-            if session_result.get("ip_alert"):
-                log.warning("ip_change_alert_on_login", admin_id=str(admin.id))
+            refresh_session_id = str(uuid.uuid4()) if ip_address else None
+            refresh_token, _jti = await JWTManager.create_refresh_token(
+                admin_id=admin.id, session_id=refresh_session_id
+            )
 
-        # 5. Reset attempts and update last_login
-        await self._reset_attempts(email)
+            if ip_address:
+                from app.services.auth.session_manager import get_session_manager
 
-        async with factory() as session:
-            result = await session.execute(select(Admin).where(Admin.id == admin.id))
-            db_admin = result.scalar_one()
-            db_admin.last_login = datetime.now(UTC)
+                session_result = await get_session_manager().register_session(
+                    admin_id=str(admin.id),
+                    jti=access_jti,
+                    ip_address=ip_address,
+                    refresh_session_id=refresh_session_id,
+                )
+                if session_result.get("ip_alert"):
+                    log.warning("ip_change_alert_on_login", admin_id=str(admin.id))
+
+            await self._reset_attempts(email)
+            admin.last_login = datetime.now(UTC)
             await session.commit()
 
         settings = get_settings()
@@ -150,6 +138,36 @@ class AuthService:
             refresh_token=refresh_token,
             expires_in=settings.jwt_access_token_expire_minutes * 60,
         )
+
+    async def change_password(
+        self, admin_id: uuid.UUID, current_password: str, new_password: str
+    ) -> None:
+        """Change credentials and revoke the active access and refresh session."""
+        from app.services.auth.session_manager import get_session_manager
+
+        factory = get_session_factory()
+        async with factory() as session:
+            result = await session.execute(
+                select(Admin)
+                .where(Admin.id == admin_id, Admin.is_active.is_(True))
+                .with_for_update()
+            )
+            admin = result.scalar_one_or_none()
+            if admin is None:
+                raise AuthenticationError("Admin account no longer active")
+            await self._check_rate_limit(admin.email)
+            if not self.verify_password(current_password, admin.password_hash):
+                await self._record_failed_attempt(admin.email)
+                raise ValidationError("Mot de passe actuel incorrect")
+            if self.verify_password(new_password, admin.password_hash):
+                raise ValidationError("Le nouveau mot de passe doit être différent")
+            admin.password_hash = self.hash_password(new_password)
+            # Fail closed if Redis is unavailable. The row lock prevents a
+            # concurrent old-password login from installing a later session.
+            await get_session_manager().invalidate_session(str(admin.id))
+            await self._reset_attempts(admin.email)
+            await session.commit()
+        self.logger.info("password_changed", admin_id=str(admin_id))
 
     async def refresh_token(
         self, refresh_token_str: str, ip_address: str | None = None

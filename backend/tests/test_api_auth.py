@@ -69,6 +69,45 @@ def _make_admin_orm(**overrides) -> MagicMock:
     return mock
 
 
+class TestChangePasswordEndpoint:
+    @pytest.mark.asyncio
+    async def test_requires_authentication(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/auth/change-password",
+                json={"current_password": "old", "new_password": "New-Password1!"},
+            )
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_changes_only_authenticated_account_and_enforces_strength(self):
+        payload = _make_token_payload()
+        app.dependency_overrides[get_current_admin] = lambda: payload
+        try:
+            with patch("app.api.v1.auth.AuthService") as service:
+                service.return_value.change_password = AsyncMock()
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    weak = await client.post(
+                        "/api/v1/auth/change-password",
+                        json={"current_password": "old", "new_password": "weak"},
+                    )
+                    assert weak.status_code == 422
+                    assert "weak" not in weak.text and '"old"' not in weak.text
+                    service.return_value.change_password.assert_not_called()
+                    response = await client.post(
+                        "/api/v1/auth/change-password",
+                        json={"current_password": "old", "new_password": "New-Password1!"},
+                    )
+                assert response.status_code == 204
+                service.return_value.change_password.assert_awaited_once_with(
+                    uuid.UUID(payload.sub), "old", "New-Password1!"
+                )
+        finally:
+            app.dependency_overrides.pop(get_current_admin, None)
+
+
 # --- Login tests ---
 
 

@@ -71,7 +71,7 @@ class AdminUpdate(BaseModel):
 class AdminPasswordChange(BaseModel):
     """Schema for changing an admin's password."""
 
-    current_password: str
+    current_password: str = Field(..., min_length=1, max_length=4096)
     new_password: str = Field(..., min_length=12, max_length=128)
 
     @field_validator("new_password")

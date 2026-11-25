@@ -21,6 +21,7 @@ Environment variables (all optional, with defaults for ASGI/CI mode):
 
 import os
 import uuid
+from unittest.mock import AsyncMock, patch
 
 # Env vars must be set BEFORE importing app (triggers Settings())
 os.environ.setdefault("POSTGRES_PASSWORD", "test-password")
@@ -38,9 +39,9 @@ from httpx import ASGITransport
 
 STAGING_URL: str = os.environ.get("TEST_API_URL", "")
 
-TENANT_A_SLUG = os.environ.get("TEST_TENANT_A_SLUG", "test-tenant-a")
+TENANT_A_SLUG = os.environ.get("TEST_TENANT_A_SLUG", "owaspa")
 TENANT_A_ID = os.environ.get("TEST_TENANT_A_ID", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-TENANT_B_SLUG = os.environ.get("TEST_TENANT_B_SLUG", "test-tenant-b")
+TENANT_B_SLUG = os.environ.get("TEST_TENANT_B_SLUG", "owaspb")
 TENANT_B_ID = os.environ.get("TEST_TENANT_B_ID", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 
 ADMIN_A_EMAIL = os.environ.get("TEST_ADMIN_A_EMAIL", "admin-a@test.cri.ma")
@@ -101,12 +102,37 @@ async def api_client():
     if is_asgi_mode():
         from app.main import app
 
-        async with httpx.AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://testserver",
-            timeout=30.0,
-        ) as client:
-            yield client
+        if os.environ.get("OWASP_ASGI_ISOLATED") == "1":
+            from app.core.config import get_settings
+            from app.services.auth import session_manager
+
+            if get_settings().postgres_db != "owasp_ci":
+                raise RuntimeError("OWASP isolated tests require the owasp_ci database")
+            # File storage is an explicit fake: these tests exercise HTTP
+            # validation, while real storage is tested separately.
+            fake_minio = AsyncMock()
+            session_manager._session_manager = None
+            with (
+                patch("app.main.init_minio", return_value=fake_minio),
+                patch("app.core.minio._minio", fake_minio),
+            ):
+                try:
+                    async with app.router.lifespan_context(app):
+                        async with httpx.AsyncClient(
+                            transport=ASGITransport(app=app),
+                            base_url="http://testserver",
+                            timeout=30.0,
+                        ) as client:
+                            yield client
+                finally:
+                    session_manager._session_manager = None
+        else:
+            async with httpx.AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://testserver",
+                timeout=30.0,
+            ) as client:
+                yield client
     else:
         async with httpx.AsyncClient(
             base_url=STAGING_URL,

@@ -157,12 +157,26 @@ jobs:
       - name: Install dependencies
         run: pip install --require-hashes -r backend/requirements.txt
 
+      - name: Prepare isolated OWASP fixtures
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: cri_admin
+          POSTGRES_PASSWORD: test-password
+          REDIS_PASSWORD: ""
+          MINIO_ROOT_PASSWORD: test-password
+          JWT_SECRET_KEY: test-jwt-secret-ci-only
+          KMS_MASTER_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          ENVIRONMENT: development
+        run: bash scripts/ci/setup-owasp.sh
+
       - name: Run Phase 1 tests
         env:
+          OWASP_ASGI_ISOLATED: "1"
           RAG_AUTH_TEST_REDIS_URL: redis://localhost:6379/15
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
-          POSTGRES_DB: cri_platform
+          POSTGRES_DB: owasp_ci
           POSTGRES_USER: cri_admin
           POSTGRES_PASSWORD: test-password
           REDIS_HOST: localhost
@@ -421,12 +435,25 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies
         run: pip install --require-hashes -r backend/requirements.txt
+      - name: Prepare isolated OWASP fixtures
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: cri_admin
+          POSTGRES_PASSWORD: test-password
+          REDIS_PASSWORD: ""
+          MINIO_ROOT_PASSWORD: test-password
+          JWT_SECRET_KEY: test-jwt-secret-ci-only
+          KMS_MASTER_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          ENVIRONMENT: development
+        run: bash scripts/ci/setup-owasp.sh
       - name: Run full suite with coverage
         env:
+          OWASP_ASGI_ISOLATED: "1"
           RAG_AUTH_TEST_REDIS_URL: redis://localhost:6379/15
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
-          POSTGRES_DB: cri_platform
+          POSTGRES_DB: owasp_ci
           POSTGRES_USER: cri_admin
           POSTGRES_PASSWORD: test-password
           REDIS_HOST: localhost

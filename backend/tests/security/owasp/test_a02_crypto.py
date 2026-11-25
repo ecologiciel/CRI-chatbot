@@ -6,8 +6,9 @@ returned by the API, and JWT algorithm confusion attacks are rejected.
 
 import base64
 import json
-import subprocess
+import re
 import time
+from pathlib import Path
 
 import pytest
 
@@ -66,27 +67,18 @@ class TestCryptographicFailures:
             "mock",
         ]
 
+        source_root = Path(__file__).resolve().parents[3] / "app"
+        files = list(source_root.rglob("*.py"))
+        assert files, f"Backend source tree not found: {source_root}"
+        compiled = [re.compile(pattern) for pattern in patterns]
         violations: list[str] = []
-        for pattern in patterns:
-            try:
-                result = subprocess.run(
-                    ["grep", "-rnE", "--include=*.py", pattern, "backend/app/"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    cwd=".",
-                )
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pytest.skip("grep not available or timed out")
-                return
-
-            for line in result.stdout.strip().split("\n"):
-                if not line:
+        for path in files:
+            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if any(fp in line.lower() for fp in false_positive_indicators):
                     continue
-                line_lower = line.lower()
-                if any(fp in line_lower for fp in false_positive_indicators):
-                    continue
-                violations.append(line.strip())
+                if any(pattern.search(line) for pattern in compiled):
+                    # Report the location only; never leak a suspected secret in CI logs.
+                    violations.append(f"{path.relative_to(source_root)}:{line_number}")
 
         assert not violations, "Potential hardcoded secrets found:\n" + "\n".join(
             f"  - {v}" for v in violations

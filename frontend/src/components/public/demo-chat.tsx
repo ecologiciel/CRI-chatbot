@@ -78,7 +78,7 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
               </div>
               {message.sources && message.sources.length > 0 && (
                 <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                  <p className="font-semibold text-slate-700">Sources</p>
+                  <p className="font-semibold text-slate-700">Documents consultés</p>
                   <ul className="mt-1 space-y-1">
                     {message.sources.map((source, sourceIndex) => (
                       <li key={`${source.url ?? source.title}-${sourceIndex}`}>

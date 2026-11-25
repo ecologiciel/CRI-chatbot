@@ -268,6 +268,8 @@ class TestGenerateAIProposal:
 
         # Verify proposed_answer was set
         assert question.proposed_answer == "Pour créer une SARL au Maroc, vous devez..."
+        session.flush.assert_awaited_once()
+        session.refresh.assert_awaited_once_with(question)
 
         # Verify audit was logged
         audit.log_action.assert_awaited_once()

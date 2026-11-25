@@ -305,6 +305,11 @@ class FeedbackService:
             if data.review_note is not None:
                 question.review_note = data.review_note
 
+            # updated_at is server-generated on update; load it before the
+            # session closes so the API can serialize the detached object.
+            await session.flush()
+            await session.refresh(question)
+
             self._logger.info(
                 "unanswered_question_updated",
                 question_id=str(question_id),

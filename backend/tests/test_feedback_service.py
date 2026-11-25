@@ -342,6 +342,8 @@ class TestUpdateUnansweredQuestion:
         assert result.status == UnansweredStatus.approved
         assert result.proposed_answer == "La SARL nécessite un capital minimum de 1 MAD."
         assert result.reviewed_by == admin_id
+        session.flush.assert_awaited_once()
+        session.refresh.assert_awaited_once_with(existing)
 
     @pytest.mark.asyncio
     async def test_update_unanswered_question_not_found(self):

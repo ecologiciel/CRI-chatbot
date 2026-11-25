@@ -240,6 +240,8 @@ class SupervisedLearningService:
 
             # 4. Store the proposal
             question.proposed_answer = proposed_answer
+            await session.flush()
+            await session.refresh(question)
 
             self._logger.info(
                 "ai_proposal_generated",

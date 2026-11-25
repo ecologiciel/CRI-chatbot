@@ -59,6 +59,12 @@ def _make_retrieval_service(
         service = RetrievalService()
         service._published_point_ids = AsyncMock(return_value=[str(uuid.uuid4())])
 
+        async def load_chunks(_tenant, ids):
+            points = mock_qdrant.search.return_value
+            return {str(p.id): dict(p.payload or {}) for p in points if str(p.id) in ids}
+
+        service._load_published_chunks = AsyncMock(side_effect=load_chunks)
+
     return service, mock_qdrant, mock_embedder
 
 

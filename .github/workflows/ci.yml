@@ -253,9 +253,15 @@ jobs:
       - name: Install dependencies
         run: pip install --require-hashes -r backend/requirements.txt
 
+      - name: Create isolated RAG integration database
+        env:
+          PGPASSWORD: test-password
+        run: createdb -h localhost -U cri_admin rag_pipeline_test
+
       - name: Run Phase 2 tests
         env:
           RAG_AUTH_TEST_REDIS_URL: redis://localhost:6379/15
+          RAG_PIPELINE_TEST_DSN: postgresql+asyncpg://cri_admin:test-password@localhost:5432/rag_pipeline_test
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: cri_platform
@@ -273,6 +279,9 @@ jobs:
             tests/test_auth_refresh_session.py \
             tests/test_worker_queue_isolation.py \
             tests/unit/test_gemini_service.py \
+            tests/test_rag_retrieval.py \
+            tests/unit/test_rag_retrieval.py \
+            tests/test_versioned_pipeline_integration.py \
             tests/test_e2e_phase2.py \
             tests/test_escalation_api.py \
             tests/test_escalation_service.py \

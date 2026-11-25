@@ -84,6 +84,17 @@ async def test_reindex_failure_preserves_published_search():
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
                 assert "Première version" in result.chunks[0].content
+                # Index payloads are not the authoritative source of text,
+                # document identity or provenance.
+                await qdrant.set_payload(
+                    collection_name="kb_onssa",
+                    payload={"content": "tronqué", "title": "faux", "document_id": "faux"},
+                    points=[result.chunks[0].chunk_id],
+                )
+                restored = await RetrievalService().retrieve(tenant, "guide")
+                assert "Première version" in restored.chunks[0].content
+                assert restored.chunks[0].metadata["title"] == "Guide"
+                assert restored.chunks[0].document_id == str(document_id)
                 await service.reindex_document(
                     tenant, document_id, "Deuxième version du guide sanitaire.", "Guide"
                 )

@@ -92,6 +92,62 @@ class RetrievalService:
             )
             return list(result.scalars().all())
 
+    async def _load_published_chunks(
+        self, tenant: TenantContext, point_ids: list[str]
+    ) -> dict[str, dict]:
+        """Load complete source text and provenance from the active DB version.
+
+        Qdrant is an index, not the authoritative source. Rechecking the
+        published version also closes the race with a concurrent reindex.
+        """
+        if not point_ids:
+            return {}
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(
+                    KBChunk.qdrant_point_id,
+                    KBChunk.content,
+                    KBChunk.document_id,
+                    KBChunk.metadata_.label("chunk_metadata"),
+                    KBDocument.title,
+                    KBDocument.source_authority,
+                    KBDocument.source_reference,
+                    KBDocument.source_version,
+                    KBDocument.published_at,
+                    KBDocument.source_url,
+                    KBDocument.language,
+                )
+                .join(KBDocument, KBDocument.id == KBChunk.document_id)
+                .where(
+                    KBChunk.qdrant_point_id.in_(point_ids),
+                    KBChunk.index_version == KBDocument.active_index_version,
+                    KBDocument.status.not_in(
+                        [
+                            KBDocumentStatus.pending_validation,
+                            KBDocumentStatus.rejected,
+                            KBDocumentStatus.expired,
+                        ]
+                    ),
+                    or_(KBDocument.expires_at.is_(None), KBDocument.expires_at >= date.today()),
+                )
+            )
+            rows = result.all()
+        return {
+            str(row.qdrant_point_id): {
+                **(row.chunk_metadata or {}),
+                "content": row.content,
+                "document_id": str(row.document_id),
+                "title": row.title,
+                "source_authority": row.source_authority,
+                "source_reference": row.source_reference,
+                "source_version": row.source_version,
+                "published_at": row.published_at.isoformat() if row.published_at else None,
+                "source_url": row.source_url,
+                "language": row.language,
+            }
+            for row in rows
+        }
+
     @staticmethod
     def _restrict_to_published(filter_: Filter | None, point_ids: list[str]) -> Filter:
         """Constrain Qdrant before ranking so staged points cannot displace results."""
@@ -162,10 +218,17 @@ class RetrievalService:
                 score_threshold=0.0,  # Return all, let confidence decide
             )
 
-            # 4. Map to RetrievedChunk
+            # 4. Load full content from the tenant database and recheck its
+            # publication state before exposing any Qdrant result.
+            authoritative = await self._load_published_chunks(
+                tenant, [str(point.id) for point in results]
+            )
             chunks: list[RetrievedChunk] = []
             for point in results:
-                payload = point.payload or {}
+                source = authoritative.get(str(point.id))
+                if source is None:
+                    continue
+                payload = {**(point.payload or {}), **source}
                 chunks.append(
                     RetrievedChunk(
                         chunk_id=str(point.id),

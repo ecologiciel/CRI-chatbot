@@ -91,6 +91,9 @@ def _make_service(qdrant_results=None, embed_error=False):
         service._published_point_ids = AsyncMock(
             return_value=["00000000-0000-0000-0000-000000000001"]
         )
+        service._load_published_chunks = AsyncMock(
+            return_value={str(p.id): dict(p.payload) for p in (qdrant_results or [])}
+        )
         return service, mock_embedder, mock_qdrant
 
 
@@ -125,6 +128,20 @@ class TestRetrieveSuccess:
 
         call_kwargs = qdrant.search.call_args
         assert call_kwargs.kwargs["collection_name"] == "kb_rabat"
+
+    @pytest.mark.asyncio
+    async def test_uses_full_authoritative_text_and_drops_unpublished_hits(self, tenant_context):
+        points = [_make_qdrant_point("p1", 0.9, "truncated"), _make_qdrant_point("p2", 0.8)]
+        service, _, _ = _make_service(qdrant_results=points)
+        full_text = "Texte complet " * 300
+        service._load_published_chunks.return_value = {
+            "p1": {"content": full_text, "document_id": "authoritative-doc", "title": "Source"}
+        }
+        result = await service.retrieve(tenant_context, "test")
+        assert len(result.chunks) == 1
+        assert result.chunks[0].content == full_text
+        assert result.chunks[0].document_id == "authoritative-doc"
+        assert result.chunks[0].metadata["title"] == "Source"
 
 
 class TestRetrieveWithFilters:

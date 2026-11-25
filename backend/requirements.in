@@ -21,14 +21,13 @@ google-genai>=1.0.0
 google-api-core>=2.0.0
 tenacity>=9.0.0
 tiktoken>=0.7.0
-langchain==0.3.14
 langgraph==0.2.60
 httpx==0.28.1
 
 # Security, observability, and document ingestion
 structlog==24.4.0
 cryptography>=43.0.0
-python-jose[cryptography]==3.3.0
+PyJWT[crypto]==2.15.1
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.20
 prometheus-client==0.21.1

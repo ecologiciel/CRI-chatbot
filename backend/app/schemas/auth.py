@@ -28,7 +28,7 @@ class RefreshTokenRequest(BaseModel):
 class AdminTokenPayload(BaseModel):
     """Decoded JWT token payload.
 
-    Uses extra="ignore" so jose.jwt.decode extra fields
+    Uses extra="ignore" so decoded JWT extra fields
     don't break validation.
     """
 

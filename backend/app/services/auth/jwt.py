@@ -10,8 +10,9 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import jwt
 import structlog
-from jose import ExpiredSignatureError, JWTError, jwt
+from jwt import ExpiredSignatureError, InvalidTokenError
 
 from app.core.config import get_settings
 from app.core.exceptions import AuthenticationError
@@ -124,7 +125,7 @@ class JWTManager:
             return payload
         except ExpiredSignatureError as err:
             raise AuthenticationError("Token has expired") from err
-        except JWTError as err:
+        except InvalidTokenError as err:
             raise AuthenticationError("Invalid token") from err
 
     @staticmethod

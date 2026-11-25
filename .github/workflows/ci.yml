@@ -582,6 +582,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Set up Trivy
+        id: image_trivy_setup
         uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
 
       - name: Trivy scan backend
@@ -591,21 +592,50 @@ jobs:
           ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
 
       - name: Trivy scan frontend
+        if: ${{ !cancelled() && steps.image_trivy_setup.outcome == 'success' }}
         run: >-
           trivy image --format sarif --output trivy-frontend.sarif
           --severity CRITICAL,HIGH --exit-code 1
           ghcr.io/${{ env.REPO_LC }}/frontend:${{ github.sha }}
 
+      - name: Trivy scan demo frontend
+        if: ${{ !cancelled() && steps.image_trivy_setup.outcome == 'success' }}
+        run: >-
+          trivy image --format sarif --output trivy-frontend-demo.sarif
+          --severity CRITICAL,HIGH --exit-code 1
+          ghcr.io/${{ env.REPO_LC }}/frontend-demo:${{ github.sha }}
+
+      - name: Trivy scan admin frontend
+        if: ${{ !cancelled() && steps.image_trivy_setup.outcome == 'success' }}
+        run: >-
+          trivy image --format sarif --output trivy-frontend-admin.sarif
+          --severity CRITICAL,HIGH --exit-code 1
+          ghcr.io/${{ env.REPO_LC }}/frontend-admin:${{ github.sha }}
+
       - name: Upload Trivy SARIF (backend)
         uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
-        if: always()
+        if: ${{ !cancelled() && hashFiles('trivy-backend.sarif') != '' }}
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-backend
 
       - name: Upload Trivy SARIF (frontend)
         uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
-        if: always()
+        if: ${{ !cancelled() && hashFiles('trivy-frontend.sarif') != '' }}
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-frontend
+
+      - name: Upload Trivy SARIF (demo frontend)
+        uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
+        if: ${{ !cancelled() && hashFiles('trivy-frontend-demo.sarif') != '' }}
+        with:
+          sarif_file: trivy-frontend-demo.sarif
+          category: trivy-frontend-demo
+
+      - name: Upload Trivy SARIF (admin frontend)
+        uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
+        if: ${{ !cancelled() && hashFiles('trivy-frontend-admin.sarif') != '' }}
+        with:
+          sarif_file: trivy-frontend-admin.sarif
+          category: trivy-frontend-admin

@@ -10,7 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { WhatsAppPreview } from "./whatsapp-preview";
-import { TEMPLATES } from "./step-template";
+import { useCampaignTemplates } from "@/hooks/use-campaigns";
 import type { UseFormSetValue, UseFormWatch } from "react-hook-form";
 import type { CampaignWizardData } from "@/types/campaign";
 import { useState } from "react";
@@ -18,7 +18,6 @@ import { useState } from "react";
 const CONTACT_FIELDS = [
   { value: "contact.name", label: "Nom du contact" },
   { value: "contact.phone", label: "Téléphone" },
-  { value: "contact.cin", label: "CIN" },
   { value: "contact.language", label: "Langue" },
   { value: "custom", label: "Texte personnalisé" },
 ];
@@ -29,11 +28,12 @@ interface StepVariablesProps {
 }
 
 export function StepVariables({ setValue, watch }: StepVariablesProps) {
+  const { data } = useCampaignTemplates();
   const templateId = watch("template_id");
   const variableMapping = watch("variable_mapping") ?? {};
   const [customTexts, setCustomTexts] = useState<Record<string, string>>({});
 
-  const template = TEMPLATES.find((t) => t.id === templateId);
+  const template = data?.items.find((t) => t.id === templateId);
 
   if (!template || template.variables.length === 0) {
     return (

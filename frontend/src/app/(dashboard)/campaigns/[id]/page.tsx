@@ -1,5 +1,7 @@
 "use client";
 
+import { CAMPAIGN_DELIVERY_ENABLED } from "@/lib/campaign-capabilities";
+
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -245,7 +247,7 @@ export default function CampaignDetailPage() {
         <div className="flex gap-2">
           {(campaign.status === "draft" ||
             campaign.status === "scheduled") && (
-            <Button onClick={() => handleAction("launch")}>
+            <Button disabled={!CAMPAIGN_DELIVERY_ENABLED} title="Envoi des campagnes non activé" onClick={() => handleAction("launch")}>
               <Play className="h-4 w-4 me-2" strokeWidth={1.75} />
               Lancer
             </Button>
@@ -260,7 +262,7 @@ export default function CampaignDetailPage() {
             </Button>
           )}
           {campaign.status === "paused" && (
-            <Button onClick={() => handleAction("resume")}>
+            <Button disabled={!CAMPAIGN_DELIVERY_ENABLED} title="Envoi des campagnes non activé" onClick={() => handleAction("resume")}>
               <RotateCw className="h-4 w-4 me-2" strokeWidth={1.75} />
               Reprendre
             </Button>

@@ -4,44 +4,9 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { WhatsAppPreview } from "./whatsapp-preview";
+import { useCampaignTemplates } from "@/hooks/use-campaigns";
 import type { UseFormSetValue, UseFormWatch, FieldErrors } from "react-hook-form";
 import type { CampaignWizardData, WhatsAppTemplate } from "@/types/campaign";
-
-// TODO: Replace with API call when /templates endpoint is available
-const TEMPLATES: WhatsAppTemplate[] = [
-  {
-    id: "welcome_investor",
-    name: "Bienvenue Investisseur",
-    language: "fr",
-    body: "Bonjour {{1}}, bienvenue au CRI Rabat-Salé-Kénitra ! Nous sommes à votre disposition pour accompagner votre projet d'investissement.",
-    footer: "CRI RSK",
-    variables: ["1"],
-  },
-  {
-    id: "dossier_update",
-    name: "Mise à jour dossier",
-    language: "fr",
-    body: "Bonjour {{1}}, votre dossier {{2}} a changé de statut. Nouveau statut : {{3}}. Contactez-nous pour plus d'informations.",
-    variables: ["1", "2", "3"],
-  },
-  {
-    id: "rappel_complement",
-    name: "Rappel complément",
-    language: "fr",
-    body: "Bonjour {{1}}, nous vous rappelons que des documents complémentaires sont attendus pour votre dossier. Merci de les fournir dans les meilleurs délais.",
-    footer: "CRI RSK",
-    buttons: ["📞 Nous contacter"],
-    variables: ["1"],
-  },
-  {
-    id: "welcome_ar",
-    name: "ترحيب بالمستثمر",
-    language: "ar",
-    body: "مرحباً {{1}}، أهلاً بكم في المركز الجهوي للاستثمار الرباط-سلا-القنيطرة! نحن في خدمتكم لمرافقة مشروعكم الاستثماري.",
-    footer: "CRI RSK",
-    variables: ["1"],
-  },
-];
 
 const languageLabels: Record<string, string> = {
   fr: "Français",
@@ -53,13 +18,17 @@ interface StepTemplateProps {
   setValue: UseFormSetValue<CampaignWizardData>;
   watch: UseFormWatch<CampaignWizardData>;
   errors: FieldErrors<CampaignWizardData>;
+  locked: boolean;
 }
 
-export function StepTemplate({ setValue, watch, errors }: StepTemplateProps) {
+export function StepTemplate({ setValue, watch, errors, locked }: StepTemplateProps) {
+  const { data, isLoading, isError, refetch } = useCampaignTemplates();
+  const templates = data?.items ?? [];
   const selectedId = watch("template_id");
-  const selectedTemplate = TEMPLATES.find((t) => t.id === selectedId);
+  const selectedTemplate = templates.find((t) => t.id === selectedId);
 
   function handleSelect(template: WhatsAppTemplate) {
+    if (locked && template.id !== selectedId) return;
     setValue("template_id", template.id, { shouldValidate: true });
     setValue("template_name", template.name);
     setValue("template_language", template.language);
@@ -72,19 +41,26 @@ export function StepTemplate({ setValue, watch, errors }: StepTemplateProps) {
       {/* Template list */}
       <div className="space-y-3">
         <h3 className="text-sm font-medium text-muted-foreground">
-          Sélectionnez un template WhatsApp
+          Sélectionnez un modèle WhatsApp approuvé
         </h3>
+        {isLoading && <p className="text-sm text-muted-foreground">Chargement des modèles Meta…</p>}
+        {isError && <div className="text-sm text-destructive">Impossible de charger les modèles Meta. <button type="button" className="underline" onClick={() => refetch()}>Réessayer</button></div>}
+        {data && !data.configured && <p className="text-sm text-muted-foreground">Le compte WhatsApp de cette institution doit être configuré pour accéder aux modèles approuvés.</p>}
+        {data?.configured && templates.length === 0 && <p className="text-sm text-muted-foreground">Aucun modèle approuvé compatible n’est disponible.</p>}
+        {data?.truncated && <p className="text-sm text-muted-foreground">Seuls les 1 000 premiers modèles ont été examinés.</p>}
+        {locked && <p className="text-sm text-muted-foreground">Le modèle est fixé pour ce brouillon ; créez une nouvelle campagne pour en choisir un autre.</p>}
         {errors.template_id && (
           <p className="text-xs text-destructive">
             Sélectionnez un template
           </p>
         )}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          {TEMPLATES.map((template) => (
+          {templates.map((template) => (
             <Card
               key={template.id}
               className={cn(
                 "cursor-pointer transition-colors hover:border-primary/50",
+                locked && selectedId !== template.id && "cursor-not-allowed opacity-50",
                 selectedId === template.id &&
                   "border-primary ring-1 ring-primary/20"
               )}
@@ -139,5 +115,3 @@ export function StepTemplate({ setValue, watch, errors }: StepTemplateProps) {
   );
 }
 
-// Re-export TEMPLATES for use in other steps
-export { TEMPLATES };

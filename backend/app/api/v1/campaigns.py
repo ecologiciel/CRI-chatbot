@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import uuid
 
+import httpx
 import structlog
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 
 from app.core.exceptions import ValidationError
@@ -31,10 +32,27 @@ from app.schemas.campaign import (
     RecipientRead,
 )
 from app.services.campaign import get_campaign_service
+from app.services.campaign.templates import approved_templates
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+
+
+@router.get("/templates")
+async def list_approved_templates(
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+    after: str | None = Query(default=None, max_length=512),
+) -> dict:
+    """List approved Meta templates compatible with the current campaign sender."""
+    try:
+        return await approved_templates(tenant, after)
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        # Provider errors can contain credentials or internal details; never echo them.
+        raise HTTPException(
+            status_code=502, detail="Impossible de charger les modèles Meta."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

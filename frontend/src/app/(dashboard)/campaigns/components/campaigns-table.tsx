@@ -1,5 +1,7 @@
 "use client";
 
+import { CAMPAIGN_DELIVERY_ENABLED } from "@/lib/campaign-capabilities";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -335,6 +337,7 @@ export function CampaignsTable() {
                           </DropdownMenuItem>
                           {campaign.status === "draft" && (
                             <DropdownMenuItem
+                              disabled={!CAMPAIGN_DELIVERY_ENABLED}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleAction("launch", campaign);
@@ -357,6 +360,7 @@ export function CampaignsTable() {
                           )}
                           {campaign.status === "paused" && (
                             <DropdownMenuItem
+                              disabled={!CAMPAIGN_DELIVERY_ENABLED}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleAction("resume", campaign);

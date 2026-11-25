@@ -10,6 +10,7 @@ import type {
   AudiencePreview,
   QuotaStatus,
   RecipientStatus,
+  WhatsAppTemplate,
 } from "@/types/campaign";
 import type { PaginatedResponse } from "@/types/api";
 
@@ -32,6 +33,35 @@ interface RecipientsParams {
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
+
+interface MetaTemplatePage {
+  configured: boolean;
+  items: WhatsAppTemplate[];
+  next_cursor: string | null;
+}
+
+export function useCampaignTemplates() {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: ["campaigns", "approved-templates"],
+    queryFn: async () => {
+      const items: WhatsAppTemplate[] = [];
+      let after: string | undefined;
+      const seen = new Set<string>();
+      for (let page = 0; page < 10; page++) {
+        const result = await api.get<MetaTemplatePage>("/campaigns/templates", { after });
+        if (!result.configured) return { configured: false, items, truncated: false };
+        items.push(...result.items);
+        if (!result.next_cursor) return { configured: true, items, truncated: false };
+        if (seen.has(result.next_cursor)) throw new Error("Curseur Meta répété");
+        seen.add(result.next_cursor);
+        after = result.next_cursor;
+      }
+      return { configured: true, items, truncated: true };
+    },
+    staleTime: 60_000,
+  });
+}
 
 export function useCampaigns(params?: CampaignsParams) {
   const api = useApiClient();

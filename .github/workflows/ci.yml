@@ -312,6 +312,7 @@ jobs:
             tests/test_learning_service.py \
             tests/test_learning_worker.py \
             tests/test_campaigns_api.py \
+            tests/test_campaign_templates.py \
             tests/test_campaign_service.py \
             tests/test_models_escalation.py \
             tests/test_models_campaign.py \

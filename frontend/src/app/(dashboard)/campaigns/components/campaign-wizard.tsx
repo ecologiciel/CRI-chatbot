@@ -7,6 +7,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FileText, Users, Settings, Send, Check } from "lucide-react";
 import { toast } from "sonner";
+import { useApiClient } from "@/hooks/use-auth";
+import { CAMPAIGN_DELIVERY_ENABLED } from "@/lib/campaign-capabilities";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,12 +16,13 @@ import {
   useUpdateCampaign,
   useLaunchCampaign,
   useScheduleCampaign,
+  useCampaignTemplates,
 } from "@/hooks/use-campaigns";
 import { StepTemplate } from "./step-template";
 import { StepAudience } from "./step-audience";
 import { StepVariables } from "./step-variables";
 import { StepSchedule } from "./step-schedule";
-import type { CampaignWizardData } from "@/types/campaign";
+import type { Campaign, CampaignWizardData } from "@/types/campaign";
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -71,6 +74,7 @@ const STEPS = [
 
 export function CampaignWizard() {
   const router = useRouter();
+  const api = useApiClient();
   const [currentStep, setCurrentStep] = useState(0);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [audienceCount, setAudienceCount] = useState(0);
@@ -80,6 +84,7 @@ export function CampaignWizard() {
   const updateCampaign = useUpdateCampaign();
   const launchCampaign = useLaunchCampaign();
   const scheduleCampaign = useScheduleCampaign();
+  const { data: templateData } = useCampaignTemplates();
 
   const {
     register,
@@ -105,6 +110,19 @@ export function CampaignWizard() {
   });
 
   async function handleNext() {
+    const template = templateData?.items.find((item) => item.id === watch("template_id"));
+    if (currentStep === 0 && !template) {
+      toast.error("Sélectionnez un modèle approuvé disponible.");
+      return;
+    }
+    const mapping = watch("variable_mapping");
+    if (currentStep === 2 && (!template || template.variables.some((key) => {
+      const value = mapping[key]?.trim();
+      return !value || (value.startsWith("custom:") && !value.slice(7).trim());
+    }))) {
+      toast.error("Renseignez toutes les variables du modèle.");
+      return;
+    }
     const fields = STEP_FIELDS[currentStep];
     const valid = await trigger(fields);
     if (valid) {
@@ -117,6 +135,10 @@ export function CampaignWizard() {
   }
 
   async function onSubmit(data: CampaignWizardData) {
+    if (!CAMPAIGN_DELIVERY_ENABLED) {
+      toast.error("L’envoi des campagnes n’est pas encore activé sur cette plateforme.");
+      return;
+    }
     setSubmitting(true);
     try {
       const filter: Record<string, unknown> = {};
@@ -127,6 +149,12 @@ export function CampaignWizard() {
       let campaignId = draftId;
 
       if (campaignId) {
+        const currentDraft = await api.get<Campaign>(`/campaigns/${campaignId}`);
+        if (currentDraft.template_id !== data.template_id || currentDraft.template_name !== data.template_name || currentDraft.template_language !== data.template_language) {
+          toast.error("Le modèle du brouillon ne correspond plus. Créez une nouvelle campagne.");
+          setSubmitting(false);
+          return;
+        }
         // Update the existing draft with final data
         await updateCampaign.mutateAsync({
           id: campaignId,
@@ -239,6 +267,7 @@ export function CampaignWizard() {
             setValue={setValue}
             watch={watch}
             errors={errors}
+            locked={!!draftId}
           />
         )}
         {currentStep === 1 && (
@@ -252,6 +281,7 @@ export function CampaignWizard() {
               // Track audience count from the draft
               setAudienceCount(0);
             }}
+            onAudienceCount={setAudienceCount}
           />
         )}
         {currentStep === 2 && (
@@ -269,6 +299,7 @@ export function CampaignWizard() {
       </div>
 
       {/* Navigation */}
+      {!CAMPAIGN_DELIVERY_ENABLED && <p className="text-sm text-muted-foreground">La sélection des modèles et l’estimation de l’audience sont disponibles. L’envoi et la planification des campagnes ne sont pas encore activés.</p>}
       <div className="flex items-center justify-between border-t pt-6">
         <Button
           type="button"
@@ -284,7 +315,7 @@ export function CampaignWizard() {
             Suivant
           </Button>
         ) : (
-          <Button type="submit" disabled={submitting}>
+          <Button type="submit" disabled={submitting || !CAMPAIGN_DELIVERY_ENABLED}>
             {submitting ? "Création…" : "Créer la campagne"}
           </Button>
         )}

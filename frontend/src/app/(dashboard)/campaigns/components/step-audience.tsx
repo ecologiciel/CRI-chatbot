@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { Users, Loader2, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
@@ -20,20 +21,6 @@ import {
 import type { UseFormSetValue, UseFormWatch, FieldErrors } from "react-hook-form";
 import type { CampaignWizardData, AudiencePreview } from "@/types/campaign";
 
-// Common tags for CRI investors
-const AVAILABLE_TAGS = [
-  "investisseur_actif",
-  "nouveau",
-  "industrie",
-  "commerce",
-  "services",
-  "agriculture",
-  "immobilier",
-  "tourisme",
-  "artisanat",
-  "tech",
-];
-
 const languageOptions = [
   { value: "all", label: "Toutes les langues" },
   { value: "fr", label: "Français" },
@@ -47,6 +34,7 @@ interface StepAudienceProps {
   errors: FieldErrors<CampaignWizardData>;
   draftId: string | null;
   onDraftCreated: (id: string) => void;
+  onAudienceCount: (count: number) => void;
 }
 
 export function StepAudience({
@@ -55,6 +43,7 @@ export function StepAudience({
   errors,
   draftId,
   onDraftCreated,
+  onAudienceCount,
 }: StepAudienceProps) {
   const selectedTags = watch("audience_tags") ?? [];
   const selectedLanguage = watch("audience_language") ?? "all";
@@ -64,6 +53,7 @@ export function StepAudience({
 
   const [preview, setPreview] = useState<AudiencePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [newTag, setNewTag] = useState("");
 
   const createCampaign = useCreateCampaign();
   const updateCampaign = useUpdateCampaign();
@@ -73,8 +63,11 @@ export function StepAudience({
   useEffect(() => {
     if (selectedTags.length === 0) {
       setPreview(null);
+      onAudienceCount(0);
       return;
     }
+    setPreview(null);
+    onAudienceCount(0);
 
     const filter: Record<string, unknown> = {};
     if (selectedTags.length > 0) filter.tags = selectedTags;
@@ -118,8 +111,10 @@ export function StepAudience({
       try {
         const result = await audiencePreview.mutateAsync(campaignId);
         setPreview(result);
+        onAudienceCount(result.count);
       } catch {
-        // Silently fail — preview is optional
+        setPreview(null);
+        onAudienceCount(0);
       }
       setPreviewLoading(false);
     }, 300);
@@ -134,6 +129,14 @@ export function StepAudience({
       ? current.filter((t) => t !== tag)
       : [...current, tag];
     setValue("audience_tags", next, { shouldValidate: true });
+  }
+
+  function addTag() {
+    const tag = newTag.trim();
+    if (tag && !selectedTags.includes(tag)) {
+      setValue("audience_tags", [...selectedTags, tag], { shouldValidate: true });
+    }
+    setNewTag("");
   }
 
   function handleLanguageChange(value: string) {
@@ -152,24 +155,23 @@ export function StepAudience({
             Sélectionnez au moins un critère
           </p>
         )}
+        <p className="text-xs text-muted-foreground">Saisissez les tags déjà attribués aux contacts de cette institution.</p>
+        <div className="flex max-w-md gap-2">
+          <Input value={newTag} onChange={(event) => setNewTag(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addTag(); } }} maxLength={100} placeholder="Tag de contact" aria-label="Tag de contact" />
+          <Button type="button" variant="outline" onClick={addTag}>Ajouter</Button>
+        </div>
         <div className="flex flex-wrap gap-2">
-          {AVAILABLE_TAGS.map((tag) => {
-            const isSelected = selectedTags.includes(tag);
-            return (
+          {selectedTags.map((tag) => (
               <Badge
                 key={tag}
-                variant={isSelected ? "default" : "outline"}
-                className={cn(
-                  "cursor-pointer select-none transition-colors",
-                  isSelected && "bg-primary hover:bg-primary/90"
-                )}
+                variant="default"
+                className="cursor-pointer select-none"
                 onClick={() => toggleTag(tag)}
               >
-                {tag.replace(/_/g, " ")}
-                {isSelected && <X className="ms-1 h-3 w-3" />}
+                {tag}
+                <X className="ms-1 h-3 w-3" />
               </Badge>
-            );
-          })}
+          ))}
         </div>
       </div>
 

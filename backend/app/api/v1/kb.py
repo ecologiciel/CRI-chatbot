@@ -66,14 +66,24 @@ async def _enqueue_ingestion(tenant: TenantContext, document_id: uuid.UUID, task
         pool = get_arq_pool()
         await pool.enqueue_job(task, tenant.slug, str(document_id))
     except Exception as exc:
-        logger.error("ingestion_enqueue_failed", tenant=tenant.slug, document_id=str(document_id), error_type=type(exc).__name__)
+        logger.error(
+            "ingestion_enqueue_failed",
+            tenant=tenant.slug,
+            document_id=str(document_id),
+            error_type=type(exc).__name__,
+        )
         async with tenant.db_session() as session:
             await session.execute(
                 update(KBDocument)
                 .where(KBDocument.id == document_id, KBDocument.status == KBDocumentStatus.pending)
-                .values(status=KBDocumentStatus.error, error_message="Impossible de placer le document en file de traitement. Réessayez.")
+                .values(
+                    status=KBDocumentStatus.error,
+                    error_message="Impossible de placer le document en file de traitement. Réessayez.",
+                )
             )
-        raise HTTPException(status_code=503, detail="Service d’indexation indisponible. Réessayez.") from exc
+        raise HTTPException(
+            status_code=503, detail="Service d’indexation indisponible. Réessayez."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

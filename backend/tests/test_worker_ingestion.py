@@ -74,8 +74,18 @@ class TestIngestDocumentTask:
         redis = MagicMock()
         redis.enqueue_job = AsyncMock(return_value=object())
         with patch.object(TenantContext, "db_session", return_value=session):
-            assert await _recover_tenant_documents({"redis": redis}, TEST_TENANT, updated_at + timedelta(hours=1)) == 1
-            assert await _recover_tenant_documents({"redis": redis}, TEST_TENANT, updated_at + timedelta(hours=1)) == 1
+            assert (
+                await _recover_tenant_documents(
+                    {"redis": redis}, TEST_TENANT, updated_at + timedelta(hours=1)
+                )
+                == 1
+            )
+            assert (
+                await _recover_tenant_documents(
+                    {"redis": redis}, TEST_TENANT, updated_at + timedelta(hours=1)
+                )
+                == 1
+            )
         first, second = redis.enqueue_job.await_args_list
         assert first.kwargs["_job_id"] == second.kwargs["_job_id"]
         assert first.args == ("ingest_document_task", TEST_TENANT.slug, str(doc_id))
@@ -185,7 +195,11 @@ class TestReindexDocumentTask:
         document = _make_doc_orm(doc_id, status=KBDocumentStatus.rejected)
         session = _mock_tenant_session(document)
         with (
-            patch("app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=TEST_TENANT),
+            patch(
+                "app.core.tenant.TenantResolver.from_slug",
+                new_callable=AsyncMock,
+                return_value=TEST_TENANT,
+            ),
             patch.object(TenantContext, "db_session", return_value=session),
         ):
             await _mark_document_error("rabat", doc_id)
@@ -202,11 +216,19 @@ class TestReindexDocumentTask:
         service = MagicMock()
         service.reindex_document = AsyncMock()
         with (
-            patch("app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=TEST_TENANT),
+            patch(
+                "app.core.tenant.TenantResolver.from_slug",
+                new_callable=AsyncMock,
+                return_value=TEST_TENANT,
+            ),
             patch.object(TenantContext, "db_session", return_value=session),
-            patch("app.core.minio.get_object_bytes", new_callable=AsyncMock, return_value=b"invalid"),
+            patch(
+                "app.core.minio.get_object_bytes", new_callable=AsyncMock, return_value=b"invalid"
+            ),
             patch("app.services.rag.ingestion.get_ingestion_service", return_value=service),
-            patch("app.workers.ingestion.extract_text", side_effect=IngestionError("sensitive detail")),
+            patch(
+                "app.workers.ingestion.extract_text", side_effect=IngestionError("sensitive detail")
+            ),
             pytest.raises(IngestionError),
         ):
             await reindex_document_task({}, "rabat", str(doc_id))

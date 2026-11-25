@@ -149,9 +149,7 @@ async def _purge_tenant_conversations(
                 delete(Contact)
                 .where(Contact.source == ContactSource.web)
                 .where(
-                    ~select(Conversation.id)
-                    .where(Conversation.contact_id == Contact.id)
-                    .exists()
+                    ~select(Conversation.id).where(Conversation.contact_id == Contact.id).exists()
                 )
             )
             await session.execute(orphaned_web_contacts)

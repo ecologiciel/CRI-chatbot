@@ -80,11 +80,13 @@ class RetrievalService:
                 .where(
                     KBChunk.index_version == KBDocument.active_index_version,
                     KBChunk.qdrant_point_id.is_not(None),
-                    KBDocument.status.not_in([
-                        KBDocumentStatus.pending_validation,
-                        KBDocumentStatus.rejected,
-                        KBDocumentStatus.expired,
-                    ]),
+                    KBDocument.status.not_in(
+                        [
+                            KBDocumentStatus.pending_validation,
+                            KBDocumentStatus.rejected,
+                            KBDocumentStatus.expired,
+                        ]
+                    ),
                     or_(KBDocument.expires_at.is_(None), KBDocument.expires_at >= date.today()),
                 )
             )
@@ -95,8 +97,11 @@ class RetrievalService:
         """Constrain Qdrant before ranking so staged points cannot displace results."""
         conditions = list(filter_.must or []) if filter_ else []
         conditions.append(HasIdCondition(has_id=point_ids))
-        return Filter(must=conditions, should=filter_.should if filter_ else None,
-                      must_not=filter_.must_not if filter_ else None)
+        return Filter(
+            must=conditions,
+            should=filter_.should if filter_ else None,
+            must_not=filter_.must_not if filter_ else None,
+        )
 
     async def retrieve(
         self,

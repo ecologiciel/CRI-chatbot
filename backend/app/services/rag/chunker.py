@@ -140,7 +140,7 @@ class ChunkingService:
                 low, high = 1, length - start
                 while low < high:
                     mid = (low + high + 1) // 2
-                    if self.count_tokens(text[start:start + mid]) <= target:
+                    if self.count_tokens(text[start : start + mid]) <= target:
                         low = mid
                     else:
                         high = mid - 1
@@ -164,7 +164,9 @@ class ChunkingService:
                 end = next_heading
             section = next((p for pos, p in reversed(headings) if pos <= start), ())
             content = text[start:end]
-            chunks.append(ChunkResult(content, len(chunks), self.count_tokens(content), start, end, section))
+            chunks.append(
+                ChunkResult(content, len(chunks), self.count_tokens(content), start, end, section)
+            )
             if end == length:
                 break
             next_start = end
@@ -205,10 +207,15 @@ class ChunkingService:
                 # Accumulate sentences up to max_chunk_size
                 buffer: list[str] = []
                 buffer_tokens = 0
-                expanded = [part for sentence in sentences for part in self._split_to_limit(sentence)]
+                expanded = [
+                    part for sentence in sentences for part in self._split_to_limit(sentence)
+                ]
                 for sentence in expanded:
                     stokens = self.count_tokens(sentence)
-                    if buffer and self.count_tokens(" ".join(buffer + [sentence])) > self._max_chunk_size:
+                    if (
+                        buffer
+                        and self.count_tokens(" ".join(buffer + [sentence])) > self._max_chunk_size
+                    ):
                         segments.append(" ".join(buffer))
                         buffer = [sentence]
                         buffer_tokens = stokens
@@ -259,7 +266,9 @@ class ChunkingService:
 
             # If adding this segment would exceed target and we have content,
             # finalize the current chunk
-            if current_segments and self.count_tokens("\n\n".join(current_segments + [segment])) > min(target, self._max_chunk_size):
+            if current_segments and self.count_tokens(
+                "\n\n".join(current_segments + [segment])
+            ) > min(target, self._max_chunk_size):
                 chunk_content = "\n\n".join(current_segments)
                 chunk = self._make_chunk_result(
                     content=chunk_content,
@@ -271,9 +280,11 @@ class ChunkingService:
                 # Build overlap: take trailing segments from current chunk
                 overlap_segments = self._get_overlap_segments(current_segments)
 
-                while overlap_segments and self.count_tokens(
-                    "\n\n".join(overlap_segments + [segment])
-                ) > self._max_chunk_size:
+                while (
+                    overlap_segments
+                    and self.count_tokens("\n\n".join(overlap_segments + [segment]))
+                    > self._max_chunk_size
+                ):
                     overlap_segments.pop(0)
 
                 # Start new chunk with overlap

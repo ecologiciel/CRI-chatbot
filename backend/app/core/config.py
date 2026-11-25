@@ -129,8 +129,7 @@ class Settings(BaseSettings):
         from urllib.parse import quote_plus
 
         return (
-            f"redis://:{quote_plus(self.redis_password)}@"
-            f"{self.redis_host}:{self.redis_port}/0"
+            f"redis://:{quote_plus(self.redis_password)}@" f"{self.redis_host}:{self.redis_port}/0"
         )
 
     @property

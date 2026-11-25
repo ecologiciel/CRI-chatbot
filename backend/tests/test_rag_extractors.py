@@ -106,7 +106,11 @@ class TestExtractDocx:
         doc.save(buffer)
         result = extract_text(buffer.getvalue(), "test.docx")
         assert "Produit: Tomate | Condition: Contrôle requis" in result
-        assert result.index("Avant le tableau") < result.index("Produit: Tomate") < result.index("Après le tableau")
+        assert (
+            result.index("Avant le tableau")
+            < result.index("Produit: Tomate")
+            < result.index("Après le tableau")
+        )
 
     """Test DOCX extraction."""
 

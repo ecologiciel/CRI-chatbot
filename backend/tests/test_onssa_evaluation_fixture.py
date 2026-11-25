@@ -6,7 +6,9 @@ from pathlib import Path
 
 def test_pilot_questions_are_traceable_to_source_passages():
     corpus_root = Path(__file__).resolve().parents[2] / "docs" / "demos" / "onssa"
-    cases = json.loads((corpus_root / "evaluation-pilote.json").read_text(encoding="utf-8"))["cases"]
+    cases = json.loads((corpus_root / "evaluation-pilote.json").read_text(encoding="utf-8"))[
+        "cases"
+    ]
     assert len(cases) >= 5
     assert len({case["id"] for case in cases}) == len(cases)
     assert any(not case["answerable"] for case in cases)

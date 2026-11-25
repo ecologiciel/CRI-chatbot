@@ -132,10 +132,7 @@ async def main() -> int:
             headers=headers,
             params={"tenant_id": onssa["id"], "page_size": 100},
         )
-        if not any(
-            item["email"] == tenant_admin_email
-            for item in tenant_admins.json()["items"]
-        ):
+        if not any(item["email"] == tenant_admin_email for item in tenant_admins.json()["items"]):
             await _request(
                 client,
                 "POST",
@@ -165,9 +162,7 @@ async def main() -> int:
             headers=tenant_headers,
             params={"page_size": 100},
         )
-        existing_documents = {
-            item["title"]: item for item in existing_docs.json()["items"]
-        }
+        existing_documents = {item["title"]: item for item in existing_docs.json()["items"]}
 
         for source in manifest["sources"]:
             existing = existing_documents.get(source["title"])

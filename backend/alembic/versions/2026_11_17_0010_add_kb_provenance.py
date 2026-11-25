@@ -22,7 +22,9 @@ TENANT_SCHEMA = "tenant_template"
 def upgrade() -> None:
     bind = op.get_bind()
     for value in ("pending_validation", "rejected", "expired"):
-        bind.execute(sa.text(f"ALTER TYPE public.kbdocumentstatus ADD VALUE IF NOT EXISTS '{value}'"))
+        bind.execute(
+            sa.text(f"ALTER TYPE public.kbdocumentstatus ADD VALUE IF NOT EXISTS '{value}'")
+        )
 
     with op.batch_alter_table("kb_documents", schema=TENANT_SCHEMA) as batch:
         batch.add_column(sa.Column("source_authority", sa.String(length=300), nullable=True))
@@ -37,5 +39,14 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table("kb_documents", schema=TENANT_SCHEMA) as batch:
-        for column in ("validated_at", "validated_by", "expires_at", "verified_at", "published_at", "source_version", "source_reference", "source_authority"):
+        for column in (
+            "validated_at",
+            "validated_by",
+            "expires_at",
+            "verified_at",
+            "published_at",
+            "source_version",
+            "source_reference",
+            "source_authority",
+        ):
             batch.drop_column(column)

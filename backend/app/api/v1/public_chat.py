@@ -93,7 +93,9 @@ async def send_message(
     """Persist one browser turn and execute the tenant-scoped RAG graph."""
     tenant, tenant_record = await _resolve_public_tenant(slug)
     if not demo_chat_session:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session de démonstration requise")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session de démonstration requise"
+        )
 
     redis = get_redis()
     session_raw = await redis.get(f"{tenant.redis_prefix}:web_session:{demo_chat_session}")
@@ -102,7 +104,9 @@ async def send_message(
     try:
         session_data = json.loads(session_raw)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session invalide") from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session invalide"
+        ) from exc
     if session_data.get("tenant") != tenant.slug:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Session non autorisée")
 
@@ -126,9 +130,16 @@ async def send_message(
         conversation_id=str(conversation.id),
     )
 
-    answer = result.get("response") or "Je ne dispose pas d’une information fiable pour répondre à cette question."
+    answer = (
+        result.get("response")
+        or "Je ne dispose pas d’une information fiable pour répondre à cette question."
+    )
     raw_sources = result.get("sources", [])
-    sources = [PublicSource.model_validate(source) for source in raw_sources[:3] if isinstance(source, dict)]
+    sources = [
+        PublicSource.model_validate(source)
+        for source in raw_sources[:3]
+        if isinstance(source, dict)
+    ]
     await conversations.add_message(
         tenant,
         conversation.id,

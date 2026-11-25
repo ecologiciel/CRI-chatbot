@@ -39,10 +39,21 @@ def _schemas() -> list[str]:
 
 def upgrade() -> None:
     for schema in _schemas():
-        op.add_column("kb_documents", sa.Column("active_index_version", sa.Integer(), nullable=True), schema=schema)
-        op.add_column("kb_chunks", sa.Column("index_version", sa.Integer(), nullable=False, server_default="1"), schema=schema)
+        op.add_column(
+            "kb_documents",
+            sa.Column("active_index_version", sa.Integer(), nullable=True),
+            schema=schema,
+        )
+        op.add_column(
+            "kb_chunks",
+            sa.Column("index_version", sa.Integer(), nullable=False, server_default="1"),
+            schema=schema,
+        )
         # LIKE INCLUDING ALL can give cloned constraints different names.
-        matches = op.get_bind().execute(sa.text("""
+        matches = (
+            op.get_bind()
+            .execute(
+                sa.text("""
             SELECT c.conname
             FROM pg_constraint c
             JOIN pg_class t ON t.oid = c.conrelid
@@ -52,15 +63,29 @@ def upgrade() -> None:
                    FROM unnest(c.conkey) WITH ORDINALITY k(attnum, ordinality)
                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum)
                   = ARRAY['document_id', 'chunk_index']::name[]
-        """), {"schema": schema}).scalars().all()
+        """),
+                {"schema": schema},
+            )
+            .scalars()
+            .all()
+        )
         if len(matches) != 1:
             raise RuntimeError(f"Expected one legacy chunk uniqueness constraint in {schema}")
         op.drop_constraint(matches[0], "kb_chunks", schema=schema, type_="unique")
-        op.create_unique_constraint("uq_kb_chunks_doc_version_index", "kb_chunks", ["document_id", "index_version", "chunk_index"], schema=schema)
+        op.create_unique_constraint(
+            "uq_kb_chunks_doc_version_index",
+            "kb_chunks",
+            ["document_id", "index_version", "chunk_index"],
+            schema=schema,
+        )
         # Set the legacy active generation based on actual chunk rows, even if
         # a prior interrupted operation left the document status as pending.
         quoted = op.get_bind().dialect.identifier_preparer.quote_schema(schema)
-        op.execute(sa.text(f"UPDATE {quoted}.kb_documents d SET active_index_version = 1 WHERE EXISTS (SELECT 1 FROM {quoted}.kb_chunks c WHERE c.document_id = d.id)"))
+        op.execute(
+            sa.text(
+                f"UPDATE {quoted}.kb_documents d SET active_index_version = 1 WHERE EXISTS (SELECT 1 FROM {quoted}.kb_chunks c WHERE c.document_id = d.id)"
+            )
+        )
 
 
 def downgrade() -> None:

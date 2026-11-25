@@ -350,7 +350,13 @@ class MessageHandler:
     def _is_source_command(content: str | None) -> bool:
         if not content:
             return False
-        normalized = unicodedata.normalize("NFKD", content).encode("ascii", "ignore").decode().strip().lower()
+        normalized = (
+            unicodedata.normalize("NFKD", content)
+            .encode("ascii", "ignore")
+            .decode()
+            .strip()
+            .lower()
+        )
         return normalized == "source"
 
     async def _handle_source_command(
@@ -363,7 +369,11 @@ class MessageHandler:
     ) -> None:
         """Persist a `Source` request and answer from local message metadata only."""
         await self._conversation_service.add_message(
-            tenant, conversation_id, MessageDirection.inbound, MessageType.text, content,
+            tenant,
+            conversation_id,
+            MessageDirection.inbound,
+            MessageType.text,
+            content,
             whatsapp_message_id=wamid,
         )
         sources = await self._conversation_service.get_latest_sources(tenant, conversation_id)

@@ -27,21 +27,45 @@ async def test_reindex_failure_preserves_published_search():
     qdrant = AsyncQdrantClient(":memory:")
     try:
         async with engine.begin() as conn:
-            assert (await conn.execute(text("SELECT current_database()"))).scalar_one() in {"rag_pipeline_test", "rag_pipeline_test_2", "rag_pipeline_test_3", "rag_pipeline_test_4", "rag_pipeline_test_5"}
-            assert (await conn.execute(text("SELECT to_regnamespace('tenant_onssa') IS NULL"))).scalar_one()
+            assert (await conn.execute(text("SELECT current_database()"))).scalar_one() in {
+                "rag_pipeline_test",
+                "rag_pipeline_test_2",
+                "rag_pipeline_test_3",
+                "rag_pipeline_test_4",
+                "rag_pipeline_test_5",
+            }
+            assert (
+                await conn.execute(text("SELECT to_regnamespace('tenant_onssa') IS NULL"))
+            ).scalar_one()
             await conn.execute(text("CREATE SCHEMA tenant_onssa"))
             await conn.execute(text("SET search_path TO tenant_onssa, public"))
             await conn.run_sync(lambda c: KBDocument.__table__.create(c, checkfirst=True))
             await conn.run_sync(lambda c: KBChunk.__table__.create(c, checkfirst=True))
         factory = async_sessionmaker(engine, expire_on_commit=False)
-        tenant = TenantContext(id=uuid.uuid4(), slug="onssa", name="ONSSA", status="active", whatsapp_config=None)
+        tenant = TenantContext(
+            id=uuid.uuid4(), slug="onssa", name="ONSSA", status="active", whatsapp_config=None
+        )
         document_id = uuid.uuid4()
         with patch("app.core.tenant.get_session_factory", return_value=factory):
             async with tenant.db_session() as session:
-                session.add(KBDocument(id=document_id, title="Guide", language="fr", status=KBDocumentStatus.pending,
-                    source_authority="ONSSA", source_reference="Guide", source_version="v1", published_at=date.today(),
-                    validated_at=datetime.now(UTC), validated_by=uuid.uuid4()))
-            await qdrant.create_collection("kb_onssa", vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE))
+                session.add(
+                    KBDocument(
+                        id=document_id,
+                        title="Guide",
+                        language="fr",
+                        status=KBDocumentStatus.pending,
+                        source_authority="ONSSA",
+                        source_reference="Guide",
+                        source_version="v1",
+                        published_at=date.today(),
+                        validated_at=datetime.now(UTC),
+                        validated_by=uuid.uuid4(),
+                    )
+                )
+            await qdrant.create_collection(
+                "kb_onssa",
+                vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE),
+            )
             embedding = AsyncMock()
             embedding.embed_batch.return_value = [[0.1] * 768]
             embedding.embed_single.return_value = [0.1] * 768
@@ -54,30 +78,48 @@ async def test_reindex_failure_preserves_published_search():
             ):
                 service = IngestionService()
                 service._enrich_metadata = AsyncMock(return_value=[{}])
-                await service.ingest_document(tenant, document_id, "Première version du guide sanitaire.", "Guide")
+                await service.ingest_document(
+                    tenant, document_id, "Première version du guide sanitaire.", "Guide"
+                )
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
                 assert "Première version" in result.chunks[0].content
-                await service.reindex_document(tenant, document_id, "Deuxième version du guide sanitaire.", "Guide")
+                await service.reindex_document(
+                    tenant, document_id, "Deuxième version du guide sanitaire.", "Guide"
+                )
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
                 assert "Deuxième version" in result.chunks[0].content
                 embedding.embed_batch.side_effect = RuntimeError("provider unavailable")
                 with pytest.raises(Exception, match="provider unavailable"):
-                    await service.reindex_document(tenant, document_id, "Nouvelle version.", "Guide")
+                    await service.reindex_document(
+                        tenant, document_id, "Nouvelle version.", "Guide"
+                    )
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
                 assert "Deuxième version" in result.chunks[0].content
                 async with tenant.db_session() as session:
-                    document = (await session.execute(select(KBDocument).where(KBDocument.id == document_id))).scalar_one()
+                    document = (
+                        await session.execute(
+                            select(KBDocument).where(KBDocument.id == document_id)
+                        )
+                    ).scalar_one()
                     assert document.active_index_version == 2
                 embedding.embed_batch.side_effect = None
                 await asyncio.gather(
-                    service.reindex_document(tenant, document_id, "Version concurrente A.", "Guide"),
-                    service.reindex_document(tenant, document_id, "Version concurrente B.", "Guide"),
+                    service.reindex_document(
+                        tenant, document_id, "Version concurrente A.", "Guide"
+                    ),
+                    service.reindex_document(
+                        tenant, document_id, "Version concurrente B.", "Guide"
+                    ),
                 )
                 async with tenant.db_session() as session:
-                    document = (await session.execute(select(KBDocument).where(KBDocument.id == document_id))).scalar_one()
+                    document = (
+                        await session.execute(
+                            select(KBDocument).where(KBDocument.id == document_id)
+                        )
+                    ).scalar_one()
                     assert document.active_index_version == 4
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
@@ -92,26 +134,41 @@ async def test_reindex_failure_preserves_published_search():
 
                 with patch.object(qdrant, "upsert", side_effect=fail_after_write):
                     with pytest.raises(Exception, match="interrupted after vector write"):
-                        await service.reindex_document(tenant, document_id, "Version interrompue.", "Guide")
+                        await service.reindex_document(
+                            tenant, document_id, "Version interrompue.", "Guide"
+                        )
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
                 assert result.chunks[0].content == published_content
                 async with tenant.db_session() as session:
-                    document = (await session.execute(select(KBDocument).where(KBDocument.id == document_id))).scalar_one()
+                    document = (
+                        await session.execute(
+                            select(KBDocument).where(KBDocument.id == document_id)
+                        )
+                    ).scalar_one()
                     document.expires_at = date.today() - timedelta(days=1)
                 assert (await RetrievalService().retrieve(tenant, "guide")).chunks == []
                 async with tenant.db_session() as session:
-                    document = (await session.execute(select(KBDocument).where(KBDocument.id == document_id))).scalar_one()
+                    document = (
+                        await session.execute(
+                            select(KBDocument).where(KBDocument.id == document_id)
+                        )
+                    ).scalar_one()
                     document.expires_at = None
                     document.status = KBDocumentStatus.rejected
                 assert (await RetrievalService().retrieve(tenant, "guide")).chunks == []
                 with pytest.raises(Exception, match="non autorisé"):
                     await service.reindex_document(tenant, document_id, "Document rejeté.", "Guide")
                 async with tenant.db_session() as session:
-                    document = (await session.execute(select(KBDocument).where(KBDocument.id == document_id))).scalar_one()
+                    document = (
+                        await session.execute(
+                            select(KBDocument).where(KBDocument.id == document_id)
+                        )
+                    ).scalar_one()
                     assert document.status == KBDocumentStatus.rejected
                     assert document.active_index_version == 4
                 from app.workers.ingestion import _recover_tenant_documents
+
                 now = datetime.now(UTC)
                 old = now - timedelta(hours=2)
                 approved_id, unapproved_id, recent_id, expired_id = (uuid.uuid4() for _ in range(4))
@@ -122,15 +179,27 @@ async def test_reindex_failure_preserves_published_search():
                         (recent_id, True, now, None),
                         (expired_id, True, old, date.today() - timedelta(days=1)),
                     ]:
-                        session.add(KBDocument(
-                            id=doc_id, title="Recovery", language="fr", status=KBDocumentStatus.pending,
-                            file_path=f"kb/{doc_id}/source.md", updated_at=updated_at,
-                            validated_at=old if approved else None, validated_by=uuid.uuid4() if approved else None,
-                            expires_at=expires_at,
-                        ))
+                        session.add(
+                            KBDocument(
+                                id=doc_id,
+                                title="Recovery",
+                                language="fr",
+                                status=KBDocumentStatus.pending,
+                                file_path=f"kb/{doc_id}/source.md",
+                                updated_at=updated_at,
+                                validated_at=old if approved else None,
+                                validated_by=uuid.uuid4() if approved else None,
+                                expires_at=expires_at,
+                            )
+                        )
                 queue = AsyncMock()
                 queue.enqueue_job.return_value = object()
-                assert await _recover_tenant_documents({"redis": queue}, tenant, now - timedelta(minutes=30)) == 1
+                assert (
+                    await _recover_tenant_documents(
+                        {"redis": queue}, tenant, now - timedelta(minutes=30)
+                    )
+                    == 1
+                )
                 assert queue.enqueue_job.await_args.args[2] == str(approved_id)
     finally:
         await qdrant.close()

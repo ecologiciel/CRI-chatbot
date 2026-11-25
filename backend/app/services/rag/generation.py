@@ -54,6 +54,7 @@ GENERATION_CONFIDENCE = Histogram(
     buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
 )
 
+
 class GenerationService:
     """Full RAG generation: retrieve → anonymize → prompt → Gemini → response.
 
@@ -170,9 +171,9 @@ class GenerationService:
             anonymized_chunks = self._anonymize_chunks(chunks)
 
             # 6. Build prompt
-            history_turns = self._anonymize_history(self._truncate_history(
-                request.conversation_history, request.max_history_turns
-            ))
+            history_turns = self._anonymize_history(
+                self._truncate_history(request.conversation_history, request.max_history_turns)
+            )
             context_prompt = PromptTemplates.build_context(
                 chunks=anonymized_chunks,
                 history=history_turns,

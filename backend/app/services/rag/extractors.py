@@ -109,10 +109,12 @@ def _extract_docx(data: bytes) -> str:
                 if any(row):
                     # Repeat the column names so a row remains intelligible if
                     # the chunker splits it from the original header.
-                    paragraphs.append(" | ".join(
-                        f"{header[i]}: {value}" if i < len(header) and header[i] else value
-                        for i, value in enumerate(row)
-                    ))
+                    paragraphs.append(
+                        " | ".join(
+                            f"{header[i]}: {value}" if i < len(header) and header[i] else value
+                            for i, value in enumerate(row)
+                        )
+                    )
 
     return "\n\n".join(paragraphs)
 

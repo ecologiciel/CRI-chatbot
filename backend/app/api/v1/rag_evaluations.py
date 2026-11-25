@@ -45,7 +45,9 @@ async def list_cases(
     admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> list[RAGEvaluationCase]:
     async with tenant.db_session() as session:
-        result = await session.execute(select(RAGEvaluationCase).order_by(RAGEvaluationCase.created_at.desc()))
+        result = await session.execute(
+            select(RAGEvaluationCase).order_by(RAGEvaluationCase.created_at.desc())
+        )
         return list(result.scalars())
 
 
@@ -63,5 +65,7 @@ async def list_runs(
     admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
 ) -> list[RAGEvaluationRun]:
     async with tenant.db_session() as session:
-        result = await session.execute(select(RAGEvaluationRun).order_by(RAGEvaluationRun.created_at.desc()).limit(50))
+        result = await session.execute(
+            select(RAGEvaluationRun).order_by(RAGEvaluationRun.created_at.desc()).limit(50)
+        )
         return list(result.scalars())

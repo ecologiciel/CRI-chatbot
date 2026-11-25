@@ -17,7 +17,9 @@ def test_published_filter_is_applied_alongside_existing_conditions():
     from qdrant_client.models import FieldCondition, Filter, HasIdCondition, MatchValue
 
     original = Filter(must=[FieldCondition(key="language", match=MatchValue(value="fr"))])
-    result = RetrievalService._restrict_to_published(original, ["00000000-0000-0000-0000-000000000001"])
+    result = RetrievalService._restrict_to_published(
+        original, ["00000000-0000-0000-0000-000000000001"]
+    )
     assert len(result.must) == 2
     assert isinstance(result.must[-1], HasIdCondition)
     assert result.must[-1].has_id == ["00000000-0000-0000-0000-000000000001"]
@@ -41,7 +43,9 @@ async def test_published_point_query_uses_tenant_scoped_session(tenant_context):
 
     service, _, _ = _make_service()
     with patch.object(TenantContext, "db_session", tenant_session):
-        assert await RetrievalService._published_point_ids(service, tenant_context) == ["published-point"]
+        assert await RetrievalService._published_point_ids(service, tenant_context) == [
+            "published-point"
+        ]
     statement = str(session.execute.await_args.args[0])
     assert "active_index_version" in statement and "index_version" in statement
 
@@ -84,7 +88,9 @@ def _make_service(qdrant_results=None, embed_error=False):
         patch(_QDRANT_PATCH, return_value=mock_qdrant),
     ):
         service = RetrievalService()
-        service._published_point_ids = AsyncMock(return_value=["00000000-0000-0000-0000-000000000001"])
+        service._published_point_ids = AsyncMock(
+            return_value=["00000000-0000-0000-0000-000000000001"]
+        )
         return service, mock_embedder, mock_qdrant
 
 

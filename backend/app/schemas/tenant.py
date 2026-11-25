@@ -50,7 +50,9 @@ class TenantCreate(BaseModel):
     logo_url: str | None = Field(default=None, description="URL logo")
     accent_color: str | None = Field(default=None, description="CSS HSL color")
     whatsapp_config: WhatsAppConfig | None = Field(default=None, description="Config WhatsApp")
-    public_config: dict = Field(default_factory=dict, description="Configuration publique sans secrets")
+    public_config: dict = Field(
+        default_factory=dict, description="Configuration publique sans secrets"
+    )
     is_demo: bool = Field(default=False, description="Active la rétention courte de démonstration")
     conversation_retention_days: int = Field(default=90, ge=1, le=3650)
     max_contacts: int = Field(default=20_000, ge=100, le=1_000_000)

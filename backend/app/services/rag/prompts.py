@@ -96,10 +96,7 @@ class PromptTemplates:
                 "⚠️ Cette réponse est basée sur des informations partielles. "
                 "Je vous recommande de vérifier auprès de l'institution pour confirmation."
             ),
-            "ar": (
-                "⚠️ هذه الإجابة مبنية على معلومات جزئية. "
-                "ننصحكم بالتحقق لدى المؤسسة."
-            ),
+            "ar": ("⚠️ هذه الإجابة مبنية على معلومات جزئية. " "ننصحكم بالتحقق لدى المؤسسة."),
             "en": (
                 "⚠️ This answer is based on partial information. "
                 "I recommend verifying with the institution for confirmation."
@@ -110,9 +107,7 @@ class PromptTemplates:
                 "Cette question ne relève pas de mon domaine de compétence. "
                 "Je peux répondre aux questions couvertes par les documents disponibles."
             ),
-            "ar": (
-                "هذا السؤال خارج نطاق اختصاصي. يمكنني الإجابة استناداً إلى الوثائق المتاحة."
-            ),
+            "ar": ("هذا السؤال خارج نطاق اختصاصي. يمكنني الإجابة استناداً إلى الوثائق المتاحة."),
             "en": (
                 "This question is outside my area of expertise. "
                 "I can answer questions covered by the available documents."
@@ -247,7 +242,11 @@ class PromptTemplates:
                 "en": "No verifiable source is available for the last answer. Please contact the institution.",
             }.get(language, "Je ne dispose pas de source vérifiable pour la dernière réponse.")
 
-        lines = {"fr": ["Sources de la dernière réponse :"], "ar": ["مصادر الإجابة الأخيرة:"], "en": ["Sources for the last answer:"]}.get(language, ["Sources :"])
+        lines = {
+            "fr": ["Sources de la dernière réponse :"],
+            "ar": ["مصادر الإجابة الأخيرة:"],
+            "en": ["Sources for the last answer:"],
+        }.get(language, ["Sources :"])
         for index, source in enumerate(sources[:3], start=1):
             details = [source.get("title") or "Document"]
             if source.get("version"):

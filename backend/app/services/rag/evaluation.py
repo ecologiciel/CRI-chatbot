@@ -33,7 +33,8 @@ class RAGEvaluationService:
             if expected_document_ids and expected_document_ids.intersection(actual_document_ids):
                 recall_hits += 1
             citations = [
-                chunk for chunk in retrieval.chunks
+                chunk
+                for chunk in retrieval.chunks
                 if chunk.metadata.get("title")
                 and chunk.metadata.get("source_reference")
                 and chunk.metadata.get("source_version")
@@ -44,14 +45,18 @@ class RAGEvaluationService:
             predicted_abstention = not retrieval.is_confident
             if predicted_abstention == case.expects_abstention:
                 abstention_hits += 1
-            latencies.append(0.0)  # Retrieval metrics remain in Prometheus; run stores aggregate outcomes.
+            latencies.append(
+                0.0
+            )  # Retrieval metrics remain in Prometheus; run stores aggregate outcomes.
 
         total = len(cases)
         metrics = {
             "source_recall_at_3": round(recall_hits / total, 4) if total else 0.0,
             "citation_coverage": round(citation_hits / total, 4) if total else 0.0,
             "abstention_accuracy": round(abstention_hits / total, 4) if total else 0.0,
-            "human_faithfulness_reviewed": sum(case.human_faithfulness is not None for case in cases),
+            "human_faithfulness_reviewed": sum(
+                case.human_faithfulness is not None for case in cases
+            ),
             "mode": "monitoring_non_blocking",
             "completed_at": datetime.now(UTC).isoformat(),
         }

@@ -146,13 +146,17 @@ class IngestionService:
                 )
 
             async with tenant.db_session() as session:
-                document = (await session.execute(
-                    select(KBDocument).where(KBDocument.id == document_id)
-                )).scalar_one()
+                document = (
+                    await session.execute(select(KBDocument).where(KBDocument.id == document_id))
+                ).scalar_one()
                 active_version = document.active_index_version
-                max_version = (await session.execute(
-                    select(func.max(KBChunk.index_version)).where(KBChunk.document_id == document_id)
-                )).scalar_one()
+                max_version = (
+                    await session.execute(
+                        select(func.max(KBChunk.index_version)).where(
+                            KBChunk.document_id == document_id
+                        )
+                    )
+                ).scalar_one()
                 candidate_version = max(active_version or 0, max_version or 0) + 1
 
             # 4. Chunk the content
@@ -337,11 +341,15 @@ class IngestionService:
         async with tenant.db_session() as session:
             statement = update(KBDocument).where(KBDocument.id == document_id)
             if status in {KBDocumentStatus.indexing, KBDocumentStatus.error}:
-                statement = statement.where(KBDocument.status.not_in([
-                    KBDocumentStatus.pending_validation,
-                    KBDocumentStatus.rejected,
-                    KBDocumentStatus.expired,
-                ]))
+                statement = statement.where(
+                    KBDocument.status.not_in(
+                        [
+                            KBDocumentStatus.pending_validation,
+                            KBDocumentStatus.rejected,
+                            KBDocumentStatus.expired,
+                        ]
+                    )
+                )
             result = await session.execute(statement.values(**values))
             if status == KBDocumentStatus.indexing and result.rowcount == 0:
                 raise IngestionError("Document absent ou non autorisé pour l’indexation")
@@ -491,7 +499,8 @@ class IngestionService:
         for i, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=True)):
             point_id = (
                 str(uuid.uuid5(document_id, f"index:{index_version}:chunk:{chunk.chunk_index}"))
-                if index_version is not None else str(uuid.uuid4())
+                if index_version is not None
+                else str(uuid.uuid4())
             )
             point_ids.append(point_id)
 
@@ -557,7 +566,7 @@ class IngestionService:
             raise ValueError("Candidate point IDs are empty or duplicated")
         found: set[str] = set()
         for start in range(0, len(point_ids), 100):
-            batch = point_ids[start:start + 100]
+            batch = point_ids[start : start + 100]
             records = await self._qdrant.retrieve(
                 collection_name=tenant.qdrant_collection,
                 ids=batch,
@@ -610,11 +619,15 @@ class IngestionService:
                 raise ValueError("Active generation changed concurrently")
             result = await session.execute(
                 select(KBChunk.chunk_index, KBChunk.qdrant_point_id)
-                .where(KBChunk.document_id == document_id, KBChunk.index_version == candidate_version)
+                .where(
+                    KBChunk.document_id == document_id, KBChunk.index_version == candidate_version
+                )
                 .order_by(KBChunk.chunk_index)
             )
             rows = result.all()
-            if len(rows) != expected_count or [row[0] for row in rows] != list(range(expected_count)):
+            if len(rows) != expected_count or [row[0] for row in rows] != list(
+                range(expected_count)
+            ):
                 raise ValueError("Candidate chunks are incomplete")
             point_ids = [row[1] for row in rows]
             if any(point_id is None for point_id in point_ids):

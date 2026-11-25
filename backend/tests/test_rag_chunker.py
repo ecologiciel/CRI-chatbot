@@ -78,8 +78,11 @@ class TestChunkLongText:
         chunks = service.chunk_text(text)
         assert chunks[0].start_char == 0
         assert chunks[-1].end_char == len(text)
-        assert all(text[c.start_char:c.end_char] == c.content for c in chunks)
-        assert all(a.end_char >= b.start_char and a.start_char < b.start_char for a, b in zip(chunks, chunks[1:], strict=False))
+        assert all(text[c.start_char : c.end_char] == c.content for c in chunks)
+        assert all(
+            a.end_char >= b.start_char and a.start_char < b.start_char
+            for a, b in zip(chunks, chunks[1:], strict=False)
+        )
 
     def test_single_long_unicode_sentence_respects_hard_limit(self):
         service = ChunkingService(chunk_size=64, overlap=16, max_chunk_size=96)
@@ -118,9 +121,13 @@ class TestChunkPreservesParagraphs:
     def test_markdown_heading_paths_and_fenced_code(self):
         text = "# Guide\nIntroduction\n\n## Import\nTexte import.\n\n```\n# pas un titre\n```\n\n## Export\nTexte export."
         chunks = ChunkingService().chunk_text(text)
-        assert any(c.section_path == ("Guide", "Import") and "pas un titre" in c.content for c in chunks)
-        assert any(c.section_path == ("Guide", "Export") and "Texte export" in c.content for c in chunks)
-        assert all(text[c.start_char:c.end_char] == c.content for c in chunks)
+        assert any(
+            c.section_path == ("Guide", "Import") and "pas un titre" in c.content for c in chunks
+        )
+        assert any(
+            c.section_path == ("Guide", "Export") and "Texte export" in c.content for c in chunks
+        )
+        assert all(text[c.start_char : c.end_char] == c.content for c in chunks)
 
     def test_paragraphs_not_split_mid_text(self):
         """Paragraphs that fit within max_chunk_size are not split mid-paragraph."""

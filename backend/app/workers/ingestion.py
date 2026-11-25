@@ -44,7 +44,9 @@ async def _mark_document_error(tenant_slug: str, doc_uuid: uuid.UUID) -> None:
                 KBDocumentStatus.pending_validation,
             }:
                 document.status = KBDocumentStatus.error
-                document.error_message = "Le traitement a échoué. Consultez les journaux du service."
+                document.error_message = (
+                    "Le traitement a échoué. Consultez les journaux du service."
+                )
     except Exception:
         logger.warning("failed_to_set_error_status", tenant=tenant_slug, document_id=str(doc_uuid))
 
@@ -233,7 +235,9 @@ async def _recover_tenant_documents(ctx: dict, tenant, cutoff: datetime) -> int:
     for document_id, updated_at in candidates:
         stamp = int(updated_at.timestamp() * 1_000_000)
         job = await ctx["redis"].enqueue_job(
-            "ingest_document_task", tenant.slug, str(document_id),
+            "ingest_document_task",
+            tenant.slug,
+            str(document_id),
             _job_id=f"kb-recovery:{tenant.slug}:{document_id}:{stamp}",
         )
         queued += int(job is not None)
@@ -248,7 +252,9 @@ async def recover_stale_ingestions(ctx: dict) -> int:
     from app.models.tenant import Tenant
 
     async with get_session_factory()() as session:
-        result = await session.execute(select(Tenant.slug).where(Tenant.status == TenantStatus.active))
+        result = await session.execute(
+            select(Tenant.slug).where(Tenant.status == TenantStatus.active)
+        )
         slugs = result.scalars().all()
     cutoff = datetime.now(UTC) - timedelta(minutes=30)
     queued = 0
@@ -257,7 +263,9 @@ async def recover_stale_ingestions(ctx: dict) -> int:
             tenant = await TenantResolver.from_slug(slug)
             queued += await _recover_tenant_documents(ctx, tenant, cutoff)
         except Exception as exc:
-            logger.warning("ingestion_recovery_tenant_failed", tenant=slug, error_type=type(exc).__name__)
+            logger.warning(
+                "ingestion_recovery_tenant_failed", tenant=slug, error_type=type(exc).__name__
+            )
     logger.info("ingestion_recovery_complete", queued=queued)
     return queued
 

@@ -97,6 +97,7 @@ def _mock_db_session():
     mock_result = MagicMock()
     mock_result.first.return_value = None
     mock_result.fetchall.return_value = []
+
     def execute_result(statement, *args, **kwargs):
         sql = str(statement)
         if "max(kb_chunks.index_version)" in sql:
@@ -108,6 +109,7 @@ def _mock_db_session():
             result.scalar_one.return_value = MagicMock(active_index_version=None)
             return result
         return mock_result
+
     mock_session.execute = AsyncMock(side_effect=execute_result)
     mock_session.commit = AsyncMock()
     mock_session.add = MagicMock()

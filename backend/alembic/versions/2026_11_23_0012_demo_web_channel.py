@@ -23,13 +23,23 @@ def upgrade() -> None:
     bind.execute(sa.text("ALTER TYPE public.contactsource ADD VALUE IF NOT EXISTS 'web'"))
     with op.batch_alter_table("tenants", schema="public") as batch:
         batch.add_column(
-            sa.Column("public_config", postgresql.JSONB(), nullable=False,
-                      server_default=sa.text("'{}'::jsonb"))
+            sa.Column(
+                "public_config",
+                postgresql.JSONB(),
+                nullable=False,
+                server_default=sa.text("'{}'::jsonb"),
+            )
         )
-        batch.add_column(sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("false")))
         batch.add_column(
-            sa.Column("conversation_retention_days", sa.Integer(), nullable=False,
-                      server_default=sa.text("90"))
+            sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("false"))
+        )
+        batch.add_column(
+            sa.Column(
+                "conversation_retention_days",
+                sa.Integer(),
+                nullable=False,
+                server_default=sa.text("90"),
+            )
         )
 
 

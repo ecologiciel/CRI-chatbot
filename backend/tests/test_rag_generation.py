@@ -39,7 +39,10 @@ def test_public_source_preserves_section_path():
     from app.services.rag.generation import GenerationService
 
     chunk = RetrievedChunk(
-        chunk_id="point", document_id="document", content="texte", score=0.9,
+        chunk_id="point",
+        document_id="document",
+        content="texte",
+        score=0.9,
         metadata={"title": "Guide", "section_path": ["Guide", "Export"]},
     )
     source = PublicSource.model_validate(GenerationService._build_sources([chunk])[0])

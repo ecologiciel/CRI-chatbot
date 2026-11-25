@@ -55,6 +55,7 @@ def _make_session(is_duplicate=False, point_ids=None):
     mock_result = MagicMock()
     mock_result.first.return_value = MagicMock() if is_duplicate else None
     mock_result.fetchall.return_value = [(pid,) for pid in point_ids] if point_ids else []
+
     def result_for_statement(statement, *args, **kwargs):
         sql = str(statement)
         if "max(kb_chunks.index_version)" in sql:
@@ -66,6 +67,7 @@ def _make_session(is_duplicate=False, point_ids=None):
             result.scalar_one.return_value = MagicMock(active_index_version=None)
             return result
         return mock_result
+
     session.execute = AsyncMock(side_effect=result_for_statement)
     return session
 
@@ -150,7 +152,10 @@ class TestQdrantFailure:
         session = _make_session()
         session.execute = AsyncMock(return_value=result)
         with (
-            patch(_CHUNKER_PATCH), patch(_EMBED_PATCH), patch(_GEMINI_PATCH), patch(_QDRANT_PATCH),
+            patch(_CHUNKER_PATCH),
+            patch(_EMBED_PATCH),
+            patch(_GEMINI_PATCH),
+            patch(_QDRANT_PATCH),
             _make_db_session_patch(session),
         ):
             service = IngestionService()
@@ -162,14 +167,19 @@ class TestQdrantFailure:
 
     @pytest.mark.asyncio
     async def test_candidate_publication_requires_complete_verified_vectors(self, tenant_context):
-        document = MagicMock(active_index_version=1, chunk_count=1, expires_at=None, status=KBDocumentStatus.indexing)
+        document = MagicMock(
+            active_index_version=1, chunk_count=1, expires_at=None, status=KBDocumentStatus.indexing
+        )
         first, second = MagicMock(), MagicMock()
         first.scalar_one_or_none.return_value = document
         second.all.return_value = [(0, "candidate")]
         session = _make_session()
         session.execute.side_effect = [first, second, first, second]
         with (
-            patch(_CHUNKER_PATCH), patch(_EMBED_PATCH), patch(_GEMINI_PATCH), patch(_QDRANT_PATCH),
+            patch(_CHUNKER_PATCH),
+            patch(_EMBED_PATCH),
+            patch(_GEMINI_PATCH),
+            patch(_QDRANT_PATCH),
             _make_db_session_patch(session),
         ):
             service = IngestionService()
@@ -183,10 +193,14 @@ class TestQdrantFailure:
         assert document.status.value == "indexed"
 
     @pytest.mark.asyncio
-    async def test_candidate_verification_rejects_missing_and_wrong_generation(self, tenant_context):
+    async def test_candidate_verification_rejects_missing_and_wrong_generation(
+        self, tenant_context
+    ):
         qdrant = AsyncMock()
         with (
-            patch(_CHUNKER_PATCH), patch(_EMBED_PATCH), patch(_GEMINI_PATCH),
+            patch(_CHUNKER_PATCH),
+            patch(_EMBED_PATCH),
+            patch(_GEMINI_PATCH),
             patch(_QDRANT_PATCH, return_value=qdrant),
         ):
             service = IngestionService()
@@ -205,11 +219,21 @@ class TestQdrantFailure:
     async def test_candidate_point_ids_are_stable_and_version_specific(self, tenant_context):
         qdrant = AsyncMock()
         with (
-            patch(_CHUNKER_PATCH), patch(_EMBED_PATCH), patch(_GEMINI_PATCH),
+            patch(_CHUNKER_PATCH),
+            patch(_EMBED_PATCH),
+            patch(_GEMINI_PATCH),
             patch(_QDRANT_PATCH, return_value=qdrant),
         ):
             service = IngestionService()
-            args = (tenant_context, _make_chunks(1), [[0.1] * DIMENSION], [{}], DOC_ID, "Document", {})
+            args = (
+                tenant_context,
+                _make_chunks(1),
+                [[0.1] * DIMENSION],
+                [{}],
+                DOC_ID,
+                "Document",
+                {},
+            )
             first = await service._index_qdrant(*args, index_version=2)
             second = await service._index_qdrant(*args, index_version=2)
             third = await service._index_qdrant(*args, index_version=3)
@@ -222,13 +246,21 @@ class TestQdrantFailure:
     async def test_invalid_vector_rejected_before_upsert(self, tenant_context, vector):
         qdrant = AsyncMock()
         with (
-            patch(_CHUNKER_PATCH), patch(_EMBED_PATCH), patch(_GEMINI_PATCH),
+            patch(_CHUNKER_PATCH),
+            patch(_EMBED_PATCH),
+            patch(_GEMINI_PATCH),
             patch(_QDRANT_PATCH, return_value=qdrant),
         ):
             service = IngestionService()
             with pytest.raises(ValueError, match="Invalid embedding"):
                 await service._index_qdrant(
-                    tenant_context, _make_chunks(1), [vector], [{}], DOC_ID, "Document", {},
+                    tenant_context,
+                    _make_chunks(1),
+                    [vector],
+                    [{}],
+                    DOC_ID,
+                    "Document",
+                    {},
                 )
         qdrant.upsert.assert_not_awaited()
 
@@ -236,28 +268,45 @@ class TestQdrantFailure:
     async def test_missing_embedding_rejected_before_upsert(self, tenant_context):
         qdrant = AsyncMock()
         with (
-            patch(_CHUNKER_PATCH), patch(_EMBED_PATCH), patch(_GEMINI_PATCH),
+            patch(_CHUNKER_PATCH),
+            patch(_EMBED_PATCH),
+            patch(_GEMINI_PATCH),
             patch(_QDRANT_PATCH, return_value=qdrant),
         ):
             service = IngestionService()
             with pytest.raises(ValueError, match="Embedding count mismatch"):
                 await service._index_qdrant(
-                    tenant_context, _make_chunks(2), [[0.1] * DIMENSION], [],
-                    DOC_ID, "Document", {},
+                    tenant_context,
+                    _make_chunks(2),
+                    [[0.1] * DIMENSION],
+                    [],
+                    DOC_ID,
+                    "Document",
+                    {},
                 )
         qdrant.upsert.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_full_chunk_content_is_stored(self, tenant_context):
         qdrant = AsyncMock()
-        chunk = ChunkResult(content="a" * 3000, chunk_index=0, token_count=750, start_char=0, end_char=3000)
+        chunk = ChunkResult(
+            content="a" * 3000, chunk_index=0, token_count=750, start_char=0, end_char=3000
+        )
         with (
-            patch(_CHUNKER_PATCH), patch(_EMBED_PATCH), patch(_GEMINI_PATCH),
+            patch(_CHUNKER_PATCH),
+            patch(_EMBED_PATCH),
+            patch(_GEMINI_PATCH),
             patch(_QDRANT_PATCH, return_value=qdrant),
         ):
             service = IngestionService()
             await service._index_qdrant(
-                tenant_context, [chunk], [[0.1] * DIMENSION], [{}], DOC_ID, "Document", {},
+                tenant_context,
+                [chunk],
+                [[0.1] * DIMENSION],
+                [{}],
+                DOC_ID,
+                "Document",
+                {},
             )
         assert qdrant.upsert.await_args.kwargs["points"][0].payload["content"] == chunk.content
         assert qdrant.upsert.await_args.kwargs["points"][0].payload["start_char"] == 0

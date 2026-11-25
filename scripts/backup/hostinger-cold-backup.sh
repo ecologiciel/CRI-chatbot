@@ -112,8 +112,12 @@ done
     printf 'created_utc=%s\n' "$(date -u +%FT%TZ)"
     printf 'git_commit=%s\n' "$(git -C "$DEPLOY_DIR" rev-parse HEAD)"
     printf 'postgres_image=%s\n' "$(docker inspect -f '{{.Config.Image}}' "$("${COMPOSE[@]}" ps -q postgres)")"
+    printf 'postgres_image_id=%s\n' "$(docker inspect -f '{{.Image}}' "$("${COMPOSE[@]}" ps -q postgres)")"
     printf 'minio_image=%s\n' "$(docker inspect -f '{{.Config.Image}}' "$("${COMPOSE[@]}" ps -q minio)")"
+    printf 'minio_image_id=%s\n' "$(docker inspect -f '{{.Image}}' "$("${COMPOSE[@]}" ps -q minio)")"
     printf 'qdrant_image=%s\n' "$(docker inspect -f '{{.Config.Image}}' "$("${COMPOSE[@]}" ps -q qdrant)")"
+    printf 'qdrant_image_id=%s\n' "$(docker inspect -f '{{.Image}}' "$("${COMPOSE[@]}" ps -q qdrant)")"
+    printf 'backend_image_id=%s\n' "$(docker inspect -f '{{.Image}}' "$("${COMPOSE[@]}" ps -q backend)")"
     printf '%s\n' 'redis_excluded=queues and sessions must not be replayed automatically'
 } > "$workdir/metadata/manifest.txt"
 

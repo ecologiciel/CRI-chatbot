@@ -230,6 +230,43 @@ class TestDeprovisionTenant:
     """Test tenant deprovisioning."""
 
     @pytest.mark.asyncio
+    async def test_empty_minio_page_does_not_prevent_bucket_removal(self):
+        async def objects():
+            yield None  # miniopy_async emits this for an empty page
+
+        minio = AsyncMock()
+        minio.bucket_exists.return_value = True
+        minio.list_objects = MagicMock(return_value=objects())
+        with patch("app.services.tenant.provisioning.get_minio", return_value=minio):
+            await TenantProvisioningService()._empty_and_remove_bucket("temporary")
+        minio.remove_object.assert_not_awaited()
+        minio.remove_bucket.assert_awaited_once_with("cri-temporary")
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_keeps_tenant_record_and_reports_error(self):
+        tenant = _make_tenant_orm(status=TenantStatus.active, whatsapp_config=None)
+        session = AsyncMock()
+        session.__aenter__.return_value = session
+        session.execute.return_value = MagicMock(scalar_one_or_none=lambda: tenant)
+        service = TenantProvisioningService()
+        with (
+            patch(
+                "app.services.tenant.provisioning.get_session_factory", return_value=lambda: session
+            ),
+            patch("app.services.tenant.provisioning.get_redis", return_value=AsyncMock()),
+            patch.object(service, "_empty_and_remove_bucket", side_effect=RuntimeError("storage")),
+            patch.object(service, "_delete_qdrant_collection", new_callable=AsyncMock),
+            patch.object(service, "_drop_schema", new_callable=AsyncMock),
+            patch("app.services.tenant.provisioning.get_settings") as settings,
+        ):
+            settings.return_value.kms_master_key = ""
+            with pytest.raises(TenantProvisioningError, match="minio"):
+                await service.deprovision_tenant("rabat")
+        assert not any(
+            "DELETE FROM" in str(call.args[0]) for call in session.execute.await_args_list
+        )
+
+    @pytest.mark.asyncio
     async def test_deprovision_tenant(self):
         """Deprovisioning should clean up all resources."""
         tenant_orm = _make_tenant_orm(

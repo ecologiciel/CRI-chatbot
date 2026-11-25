@@ -191,6 +191,8 @@ class TenantProvisioningService:
             slug: Tenant slug to deprovision.
         """
         log = self.logger.bind(slug=slug, action="deprovision")
+        failures: list[str] = []
+        tenant = None
 
         # 1. Set status to inactive
         try:
@@ -204,6 +206,7 @@ class TenantProvisioningService:
                     log.info("step_completed", step="deactivated")
         except Exception as exc:
             log.error("deprovision_step_failed", step="deactivate", error=str(exc))
+            failures.append("deactivate")
 
         # 2. Delete MinIO bucket (must empty first)
         try:
@@ -211,6 +214,7 @@ class TenantProvisioningService:
             log.info("step_completed", step="minio_removed")
         except Exception as exc:
             log.error("deprovision_step_failed", step="minio", error=str(exc))
+            failures.append("minio")
 
         # 3. Delete Redis mappings
         try:
@@ -225,6 +229,7 @@ class TenantProvisioningService:
             log.info("step_completed", step="redis_cleaned")
         except Exception as exc:
             log.error("deprovision_step_failed", step="redis", error=str(exc))
+            failures.append("redis")
 
         # 4. Delete KMS encryption keys
         try:
@@ -239,6 +244,7 @@ class TenantProvisioningService:
                 log.info("step_completed", step="kms_key_deleted")
         except Exception as exc:
             log.error("deprovision_step_failed", step="kms", error=str(exc))
+            failures.append("kms")
 
         # 5. Delete Qdrant collection
         try:
@@ -246,6 +252,7 @@ class TenantProvisioningService:
             log.info("step_completed", step="qdrant_removed")
         except Exception as exc:
             log.error("deprovision_step_failed", step="qdrant", error=str(exc))
+            failures.append("qdrant")
 
         # 6. Drop PostgreSQL schema
         try:
@@ -253,6 +260,14 @@ class TenantProvisioningService:
             log.info("step_completed", step="schema_dropped")
         except Exception as exc:
             log.error("deprovision_step_failed", step="pg_schema", error=str(exc))
+            failures.append("pg_schema")
+
+        if failures:
+            # Keep the inactive record so an operator can identify and retry
+            # incomplete cleanup. Never report a partial deletion as success.
+            raise TenantProvisioningError(
+                f"Tenant cleanup incomplete for {slug}: {', '.join(failures)}"
+            )
 
         # 7. Delete tenant record
         try:
@@ -263,6 +278,7 @@ class TenantProvisioningService:
             log.info("step_completed", step="record_deleted")
         except Exception as exc:
             log.error("deprovision_step_failed", step="db_record", error=str(exc))
+            raise TenantProvisioningError(f"Tenant record cleanup failed for {slug}") from exc
 
         log.info("tenant_deprovisioned")
 
@@ -456,6 +472,8 @@ class TenantProvisioningService:
         # (not a coroutine), so no await on the call itself.
         objects = minio.list_objects(bucket_name, recursive=True)
         async for obj in objects:
-            await minio.remove_object(bucket_name, obj.object_name)
+            # miniopy_async yields None for an empty page.
+            if obj is not None:
+                await minio.remove_object(bucket_name, obj.object_name)
 
         await minio.remove_bucket(bucket_name)

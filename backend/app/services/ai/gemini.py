@@ -233,7 +233,9 @@ class GeminiService:
         """
         system = (
             "Tu es un classificateur d'intention. Réponds UNIQUEMENT par un mot parmi: "
-            "faq, incitations, suivi_dossier, interne, escalade, hors_perimetre, salutation"
+            "faq, incitations, suivi_dossier, interne, escalade, hors_perimetre, salutation. "
+            "Choisis suivi_dossier uniquement pour consulter l'état d'un dossier existant. "
+            "Une question générale sur la constitution ou le dépôt d'un dossier relève de faq."
         )
         request = GeminiRequest(
             contents=text,

@@ -363,6 +363,12 @@ class TestQuickIntentDetect:
 
         assert quick_intent_detect("Quels sont les documents nécessaires ?") is None
 
+    def test_document_preparation_is_not_tracking(self):
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect("Comment constituer un dossier de certification ?") is None
+        assert quick_intent_detect("كيف أعد ملف طلب الشهادة؟") is None
+
     def test_greeting_returns_none(self):
         from app.services.orchestrator.intent import quick_intent_detect
 

@@ -7,12 +7,18 @@ authentifie chaque enveloppe avant toute modification, verrouille la table et
 annule la transaction en cas d'erreur. Les tests incluent une base PostgreSQL
 isolée et une enveloppe corrompue.
 
-**Ce module ne constitue pas une procédure de rotation opérationnelle.** Il ne
-met pas à jour le fichier de configuration, ne coupe pas les services, ne
-coordonne pas le basculement entre la base et le fichier, et ne gère pas une
-interruption du processus pendant ce basculement. Ne pas l'exécuter seul sur
-une installation réelle. Une procédure avec journal de récupération, arrêt des
-écritures, retour arrière et tests d'interruption reste à mettre en place.
+Le coordinateur `master_key_coordinator.py` ajoute un journal privé persistant,
+un remplacement atomique du fichier de configuration et un retour arrière qui
+identifie la clé utilisée par la base. Des tests ont arrêté réellement un
+processus après la transaction et après le remplacement du fichier, puis vérifié
+le retour arrière sur une base isolée.
+
+**Ces modules ne constituent pas encore une procédure de rotation
+opérationnelle.** Ils n'arrêtent pas les services et ne vérifient pas que tous
+les utilisateurs de clés sont à l'arrêt. Ils ne garantissent pas encore le
+maintien en sécurité du démarrage automatique des services après une panne du
+VPS. Ne pas les exécuter seuls sur une installation réelle. Une orchestration,
+une protection au démarrage et un essai de reprise complet restent nécessaires.
 
 Le réemballage conserve les mêmes clés de données : il ne révoque donc pas une
 clé de données déjà compromise et ne rechiffre pas les données existantes.

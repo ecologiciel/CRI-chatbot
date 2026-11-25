@@ -1,8 +1,11 @@
 """Rewrapping preserves data keys and fails closed on any damaged envelope."""
 
+import asyncio
 import os
 import secrets
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -48,13 +51,22 @@ def test_rewrap_rejects_invalid_inputs(reason):
 
 
 @pytest.mark.asyncio
-async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damage():
+async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damage(tmp_path):
     from sqlalchemy import select, text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     import app.models  # noqa: F401 — register relationships for ORM configuration
     from app.models.tenant import Tenant
     from app.models.tenant_key import TenantKey
+    from app.services.crypto.master_key_coordinator import (
+        _env_key,
+        _journal_key,
+        apply_rotation,
+        finalize_rollback,
+        finalize_rotation,
+        prepare_rotation,
+        rollback_rotation,
+    )
     from app.services.crypto.master_key_rotation import rewrap_tenant_keys
 
     dsn = os.getenv("KMS_ROTATION_TEST_DSN")
@@ -113,6 +125,84 @@ async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damag
                 (await session.execute(select(TenantKey).order_by(TenantKey.key_version))).scalars()
             )
             assert [bytes(row.encrypted_key) for row in rows] == before
+
+        env_path = tmp_path / ".env.demo"
+        env_path.write_bytes(b"OTHER=unchanged\nKMS_MASTER_KEY=" + new.hex().encode() + b"\n")
+        journal = tmp_path / "rotation-active"
+
+        # Interrupted after the durable journal, before the database transaction.
+        prepare_rotation(env_path, journal)
+        await rollback_rotation(factory, env_path, journal)
+        await finalize_rollback(factory, env_path, journal)
+        assert _env_key(env_path) == new and not journal.exists()
+
+        async def crash_after(code: str, expected: int) -> None:
+            # Exit without Python cleanup to emulate a process disappearing after
+            # a durable boundary. Only the disposable database and tmp_path are used.
+            child_env = dict(os.environ)
+            child_env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                code,
+                str(env_path),
+                str(journal),
+                env=child_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, errors = await asyncio.wait_for(process.communicate(), timeout=30)
+            assert process.returncode == expected, errors.decode(errors="replace")
+
+        # Process disappears after committing the DB but before changing the file.
+        prepare_rotation(env_path, journal)
+        await crash_after(
+            "import asyncio,os,sys; from pathlib import Path; import app.models; "
+            "from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker; "
+            "from app.services.crypto.master_key_coordinator import _journal_key; "
+            "from app.services.crypto.master_key_rotation import rewrap_tenant_keys; "
+            "j=Path(sys.argv[2]); f=async_sessionmaker(create_async_engine(os.environ['KMS_ROTATION_TEST_DSN'])); "
+            "asyncio.run(rewrap_tenant_keys(f,_journal_key(j,'old.key'),_journal_key(j,'new.key'))); os._exit(71)",
+            71,
+        )
+        # A process can also disappear after writing the next environment
+        # file but before its atomic rename. Recovery owns this exact path.
+        (journal / "env.next").write_bytes(b"incomplete temporary configuration")
+        await rollback_rotation(factory, env_path, journal)
+        await finalize_rollback(factory, env_path, journal)
+        assert _env_key(env_path) == new and not journal.exists()
+
+        # Process disappears after the file switch; rollback remains idempotent.
+        prepare_rotation(env_path, journal)
+        await crash_after(
+            "import asyncio,os,sys; from pathlib import Path; import app.models; "
+            "from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker; "
+            "from app.services.crypto.master_key_coordinator import apply_rotation; "
+            "f=async_sessionmaker(create_async_engine(os.environ['KMS_ROTATION_TEST_DSN'])); "
+            "asyncio.run(apply_rotation(f,Path(sys.argv[1]),Path(sys.argv[2]))); os._exit(72)",
+            72,
+        )
+        await rollback_rotation(factory, env_path, journal)
+        await rollback_rotation(factory, env_path, journal)
+        await finalize_rollback(factory, env_path, journal)
+        assert _env_key(env_path) == new and not journal.exists()
+
+        # Successful switch followed by interrupted journal cleanup.
+        prepare_rotation(env_path, journal)
+        candidate = _journal_key(journal, "new.key")
+        assert await apply_rotation(factory, env_path, journal) == 2
+        (journal / "COMMITTED").write_text("1\n", encoding="ascii")
+        (journal / "old.key").unlink()
+        await finalize_rotation(factory, env_path, journal)
+        assert _env_key(env_path) == candidate and not journal.exists()
+        assert env_path.read_bytes().startswith(b"OTHER=unchanged\n")
+        new = candidate
+        async with factory() as session:
+            rows = list(
+                (await session.execute(select(TenantKey).order_by(TenantKey.key_version))).scalars()
+            )
+            assert [_unwrap(new, row.encrypted_key) for row in rows] == [historical, active]
+            before = [bytes(row.encrypted_key) for row in rows]
         async with factory.begin() as session:
             rows = list(
                 (await session.execute(select(TenantKey).order_by(TenantKey.key_version))).scalars()

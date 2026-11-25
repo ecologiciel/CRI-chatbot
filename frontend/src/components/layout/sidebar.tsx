@@ -59,7 +59,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <Building2 className="h-7 w-7 shrink-0 text-primary" />
         {!collapsed && (
           <span className="text-lg font-bold font-heading text-white truncate">
-            CRI Platform
+            Plateforme chatbots
           </span>
         )}
       </div>
@@ -150,7 +150,7 @@ export function SidebarMobile({ onClose }: { onClose: () => void }) {
       {/* Logo */}
       <div className="flex h-14 items-center gap-3 px-4">
         <Building2 className="h-7 w-7 shrink-0 text-primary" />
-        <span className="text-lg font-bold font-heading text-white">CRI Platform</span>
+        <span className="text-lg font-bold font-heading text-white">Plateforme chatbots</span>
       </div>
 
       <div className="mx-3">

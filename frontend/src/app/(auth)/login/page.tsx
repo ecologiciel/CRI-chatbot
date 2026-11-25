@@ -22,7 +22,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { login, admin, isAuthenticated, isLoading: authLoading } = useAuth();
 
   const {
     register,
@@ -36,14 +36,14 @@ export default function LoginPage() {
   // If already authenticated, redirect to dashboard
   React.useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace(admin?.role === "super_admin" ? "/sa/tenants" : "/dashboard");
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, admin, router]);
 
   async function onSubmit(data: LoginFormValues) {
     try {
-      await login(data);
-      router.push("/dashboard");
+      const profile = await login(data);
+      router.push(profile.role === "super_admin" ? "/sa/tenants" : "/dashboard");
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 429) {
@@ -84,7 +84,7 @@ export default function LoginPage() {
           <Building2 className="h-12 w-12 text-primary" strokeWidth={1.5} />
         </div>
         <div className="text-center space-y-1">
-          <h1 className="text-2xl font-bold font-heading">CRI Platform</h1>
+          <h1 className="text-2xl font-bold font-heading">Plateforme chatbots</h1>
           <p className="text-sm text-muted-foreground">
             Plateforme de gestion des chatbots
           </p>
@@ -138,7 +138,7 @@ export default function LoginPage() {
 
       <CardFooter className="justify-center">
         <p className="text-xs text-muted-foreground">
-          &copy; 2026 CRI Rabat-Salé-Kénitra
+          &copy; 2026 Plateforme chatbots
         </p>
       </CardFooter>
     </Card>

@@ -25,6 +25,29 @@ export function extractTenantIdFromJWT(token: string): string | null {
   return typeof payload.tenant_id === "string" ? payload.tenant_id : null;
 }
 
+const SELECTED_TENANT_ID = "cri_selected_tenant_id";
+const SELECTED_TENANT_NAME = "cri_selected_tenant_name";
+
+export function selectTenant(id: string, name: string): void {
+  sessionStorage.setItem(SELECTED_TENANT_ID, id);
+  sessionStorage.setItem(SELECTED_TENANT_NAME, name);
+}
+
+export function clearSelectedTenant(): void {
+  if (typeof window !== "undefined") {
+    sessionStorage.removeItem(SELECTED_TENANT_ID);
+    sessionStorage.removeItem(SELECTED_TENANT_NAME);
+  }
+}
+
+function requestTenantId(token: string): string | null {
+  const payload = decodeJwtPayload(token);
+  if (payload.role === "super_admin" && typeof window !== "undefined") {
+    return sessionStorage.getItem(SELECTED_TENANT_ID) || extractTenantIdFromJWT(token);
+  }
+  return extractTenantIdFromJWT(token);
+}
+
 // ---------------------------------------------------------------------------
 // API Error
 // ---------------------------------------------------------------------------
@@ -78,7 +101,7 @@ export class ApiClient {
       const token = this.config.getAccessToken();
       if (token) {
         headers.set("Authorization", `Bearer ${token}`);
-        const tenantId = extractTenantIdFromJWT(token);
+        const tenantId = requestTenantId(token);
         if (tenantId) {
           headers.set("X-Tenant-ID", tenantId);
         }
@@ -100,7 +123,7 @@ export class ApiClient {
         const newToken = this.config.getAccessToken();
         if (newToken) {
           retryHeaders.set("Authorization", `Bearer ${newToken}`);
-          const tenantId = extractTenantIdFromJWT(newToken);
+          const tenantId = requestTenantId(newToken);
           if (tenantId) {
             retryHeaders.set("X-Tenant-ID", tenantId);
           }
@@ -255,7 +278,7 @@ export class ApiClient {
     const token = this.config.getAccessToken();
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
-      const tenantId = extractTenantIdFromJWT(token);
+      const tenantId = requestTenantId(token);
       if (tenantId) headers["X-Tenant-ID"] = tenantId;
     }
     const response = await fetch(url, { headers });

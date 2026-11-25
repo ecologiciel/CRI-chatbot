@@ -19,18 +19,24 @@ export interface TenantSummary {
   created_at: string;
 }
 
-export interface TenantCreateData {
-  // Step 1 — Informations
+export interface TenantRecord {
+  id: string;
   name: string;
   slug: string;
   region: string;
-  // Step 2 — WhatsApp
-  whatsapp_phone_number_id: string;
-  whatsapp_access_token: string;
-  whatsapp_app_secret: string;
-  // Step 3 — Personnalisation
-  logo_file?: File;
-  accent_color: string;
+  status: TenantStatus;
+  public_config: Record<string, unknown>;
+  is_demo: boolean;
+  conversation_retention_days: number;
+}
+
+export interface TenantCreateData {
+  name: string;
+  slug: string;
+  region: string;
+  is_demo: boolean;
+  conversation_retention_days: number;
+  public_config: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

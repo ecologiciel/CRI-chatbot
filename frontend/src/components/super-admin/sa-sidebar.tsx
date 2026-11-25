@@ -54,7 +54,7 @@ export function SASidebar({ collapsed, onToggle }: SASidebarProps) {
         {!collapsed && (
           <div className="flex flex-col min-w-0">
             <span className="text-sm font-bold font-heading text-white truncate">
-              CRI Platform
+              Plateforme chatbots
             </span>
             <span className="text-[11px] text-white/50">Administration</span>
           </div>
@@ -144,7 +144,7 @@ export function SASidebarMobile({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex flex-col min-w-0">
           <span className="text-sm font-bold font-heading text-white">
-            CRI Platform
+            Plateforme chatbots
           </span>
           <span className="text-[11px] text-white/50">Administration</span>
         </div>

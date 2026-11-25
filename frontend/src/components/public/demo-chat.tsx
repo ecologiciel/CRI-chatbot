@@ -7,7 +7,7 @@ type ChatMessage = { role: "user" | "assistant"; content: string; sources?: Sour
 
 const INTRO: ChatMessage = {
   role: "assistant",
-  content: "Bonjour. Je suis l’assistant documentaire ONSSA. Posez-moi une question sur les informations disponibles dans la base de connaissances.",
+  content: "Bonjour. Je suis un assistant documentaire de démonstration. Posez-moi une question sur les informations disponibles dans la base de connaissances.",
 };
 
 export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
@@ -16,14 +16,17 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
   const [ready, setReady] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [institution, setInstitution] = useState<string | null>(null);
   const started = useRef(false);
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     fetch(`/api/v1/public/${tenantSlug}/session`, { method: "POST", credentials: "same-origin" })
-      .then((response) => {
+      .then(async (response) => {
         if (!response.ok) throw new Error("Impossible de démarrer la démonstration.");
+        const body = await response.json() as { tenant_name?: string };
+        setInstitution(body.tenant_name || null);
         setReady(true);
       })
       .catch((reason: Error) => setError(reason.message));
@@ -62,8 +65,8 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
     <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6">
       <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50">
         <header className="border-b border-slate-200 bg-emerald-800 px-6 py-5 text-white">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">ONSSA</p>
-          <h1 className="mt-1 text-2xl font-semibold">Assistant documentaire ONSSA</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">Démonstration non officielle</p>
+          <h1 className="mt-1 text-2xl font-semibold">Assistant documentaire{institution ? ` — ${institution}` : ""}</h1>
           <p className="mt-2 text-sm text-emerald-100">Réponses fondées sur les sources validées de la base de connaissances.</p>
         </header>
 

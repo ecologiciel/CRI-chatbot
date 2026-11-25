@@ -2,6 +2,8 @@ import type { ApiClient } from "@/lib/api-client";
 import type { PaginatedResponse } from "@/types/api";
 import type {
   TenantSummary,
+  TenantRecord,
+  TenantCreateData,
   MonitoringTenantHealth,
   AuditLogEntry,
   AuditLogFilters,
@@ -14,20 +16,28 @@ import type {
 export const superAdminApi = {
   // ── Tenants ───────────────────────────────────────────────────────────────
 
-  listTenants: (api: ApiClient) =>
-    api.get<TenantSummary[]>("/tenants"),
+  listTenants: async (api: ApiClient) => {
+    const tenants: TenantRecord[] = [];
+    let page = 1;
+    while (true) {
+      const result = await api.get<PaginatedResponse<TenantRecord>>("/tenants/", { page, page_size: 100 });
+      tenants.push(...result.items);
+      if (result.items.length === 0 || tenants.length >= result.total) return tenants;
+      page += 1;
+    }
+  },
 
   getTenant: (api: ApiClient, slug: string) =>
     api.get<TenantSummary>(`/tenants/${slug}`),
 
-  createTenant: (api: ApiClient, formData: FormData) =>
-    api.upload<TenantSummary>("/tenants/provision", formData),
+  createTenant: (api: ApiClient, data: TenantCreateData) =>
+    api.post<TenantRecord>("/tenants/", data),
 
   updateTenant: (api: ApiClient, slug: string, data: Record<string, unknown>) =>
     api.patch<TenantSummary>(`/tenants/${slug}`, data),
 
-  toggleTenant: (api: ApiClient, slug: string, active: boolean) =>
-    api.patch<TenantSummary>(`/tenants/${slug}`, {
+  toggleTenant: (api: ApiClient, id: string, active: boolean) =>
+    api.patch<TenantRecord>(`/tenants/${id}`, {
       status: active ? "active" : "inactive",
     }),
 

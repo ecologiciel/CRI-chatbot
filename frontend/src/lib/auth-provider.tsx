@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import type { Admin } from "@/types";
 import type { LoginCredentials } from "@/types/auth";
-import { ApiClient, initApiClient, ApiError } from "@/lib/api-client";
+import { ApiClient, initApiClient, ApiError, clearSelectedTenant } from "@/lib/api-client";
 
 // ---------------------------------------------------------------------------
 // Context types
@@ -15,7 +14,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   apiClient: ApiClient;
-  login: (credentials: LoginCredentials) => Promise<void>;
+  login: (credentials: LoginCredentials) => Promise<Admin>;
   logout: () => Promise<void>;
 }
 
@@ -34,8 +33,6 @@ const API_BASE_URL =
 // ---------------------------------------------------------------------------
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-
   // Access token lives in a ref (memory only — never localStorage)
   const accessTokenRef = React.useRef<string | null>(null);
 
@@ -66,13 +63,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       localStorage.removeItem(REFRESH_TOKEN_KEY);
     }
+    clearSelectedTenant();
     setAdmin(null);
   }, []);
 
   const onAuthFailure = React.useCallback(() => {
     clearTokens();
-    router.replace("/login");
-  }, [clearTokens, router]);
+    // Clear in-memory query data before another account signs in.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/login`);
+  }, [clearTokens]);
 
   // ── Initialize ApiClient singleton ──────────────────────────────────────
 
@@ -135,10 +135,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = React.useCallback(
     async (credentials: LoginCredentials) => {
       const tokens = await apiClient.login(credentials);
+      clearSelectedTenant();
       setTokens(tokens.access_token, tokens.refresh_token);
 
       const profile = await apiClient.getMe();
       setAdmin(profile);
+      return profile;
     },
     [apiClient, setTokens],
   );
@@ -155,8 +157,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Ignore logout API errors — we clear tokens regardless
     }
     clearTokens();
-    router.replace("/login");
-  }, [apiClient, getRefreshToken, clearTokens, router]);
+    // Clear in-memory query data before another account signs in.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/login`);
+  }, [apiClient, getRefreshToken, clearTokens]);
 
   // ── Context value ───────────────────────────────────────────────────────
 

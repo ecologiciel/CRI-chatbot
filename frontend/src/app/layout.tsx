@@ -31,8 +31,8 @@ const notoSansArabic = Noto_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "CRI Platform — Back-Office",
-  description: "Plateforme de gestion des chatbots CRI — Back-Office d'administration",
+  title: "Plateforme de chatbots — Administration",
+  description: "Plateforme de gestion des chatbots institutionnels",
 };
 
 export default function RootLayout({

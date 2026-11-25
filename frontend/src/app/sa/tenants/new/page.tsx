@@ -13,9 +13,9 @@ export default function NewTenantPage() {
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl font-bold font-heading">Créer un tenant</h1>
+          <h1 className="text-2xl font-bold font-heading">Créer une démonstration</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Provisionnez un nouveau Centre Régional d&apos;Investissement.
+            Préparez un espace pour une institution.
           </p>
         </div>
       </div>

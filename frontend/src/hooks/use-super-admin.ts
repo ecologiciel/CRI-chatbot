@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/hooks/use-auth";
 import { superAdminApi } from "@/lib/api/super-admin";
-import type { AuditLogFilters } from "@/types/super-admin";
+import type { AuditLogFilters, TenantCreateData } from "@/types/super-admin";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -40,8 +40,8 @@ export function useCreateTenant() {
   const api = useApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (formData: FormData) =>
-      superAdminApi.createTenant(api, formData),
+    mutationFn: (data: TenantCreateData) =>
+      superAdminApi.createTenant(api, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sa-tenants"] });
       qc.invalidateQueries({ queryKey: ["sa-tenants-health"] });
@@ -53,8 +53,8 @@ export function useToggleTenant() {
   const api = useApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ slug, active }: { slug: string; active: boolean }) =>
-      superAdminApi.toggleTenant(api, slug, active),
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      superAdminApi.toggleTenant(api, id, active),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sa-tenants"] });
       qc.invalidateQueries({ queryKey: ["sa-tenants-health"] });

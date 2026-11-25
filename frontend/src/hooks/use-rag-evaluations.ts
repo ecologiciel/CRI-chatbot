@@ -20,6 +20,15 @@ export function useCreateRAGEvaluationCase() {
   });
 }
 
+export function useDeleteRAGEvaluationCase() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.del(`/kb/evaluations/cases/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rag-evaluation-cases"] }),
+  });
+}
+
 export function useRAGEvaluationRuns() {
   const api = useApiClient();
   return useQuery({

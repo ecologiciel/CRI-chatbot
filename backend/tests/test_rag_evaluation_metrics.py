@@ -97,3 +97,29 @@ async def test_recall_denominator_excludes_abstentions_and_missing_labels():
     assert results[3]["recall_evaluated"] is False
     assert run.metrics["retrieval_latency_p95_ms"] >= run.metrics["retrieval_latency_p50_ms"] >= 0
     assert all(call.kwargs["top_k"] == 5 for call in retriever.retrieve.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_delete_case_uses_tenant_session_and_handles_missing_case():
+    from fastapi import HTTPException
+
+    from app.api.v1.rag_evaluations import delete_case
+
+    case = SimpleNamespace(id=uuid.uuid4())
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = case
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.execute.return_value = result
+    tenant = MagicMock()
+    tenant.db_session.return_value = session
+
+    response = await delete_case(case.id, tenant, MagicMock())
+    assert response.status_code == 204
+    session.delete.assert_awaited_once_with(case)
+
+    result.scalar_one_or_none.return_value = None
+    with pytest.raises(HTTPException) as exc:
+        await delete_case(uuid.uuid4(), tenant, MagicMock())
+    assert exc.value.status_code == 404
+    session.delete.assert_awaited_once()

@@ -5,7 +5,7 @@ import { BarChart3, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useDocuments } from "@/hooks/use-documents";
-import { useCreateRAGEvaluationCase, useRAGEvaluationCases, useRAGEvaluationRuns, useRunRAGEvaluation } from "@/hooks/use-rag-evaluations";
+import { useCreateRAGEvaluationCase, useDeleteRAGEvaluationCase, useRAGEvaluationCases, useRAGEvaluationRuns, useRunRAGEvaluation } from "@/hooks/use-rag-evaluations";
 import type { RAGEvaluationCaseResult } from "@/types/kb";
 
 function percentage(value: unknown): string {
@@ -16,6 +16,7 @@ export function RAGEvaluationTab() {
   const { data: runs = [], isLoading } = useRAGEvaluationRuns();
   const { data: cases = [], isError: casesError } = useRAGEvaluationCases();
   const createCase = useCreateRAGEvaluationCase();
+  const deleteCase = useDeleteRAGEvaluationCase();
   const runEvaluation = useRunRAGEvaluation();
   const [question, setQuestion] = useState("");
   const [language, setLanguage] = useState<"fr" | "ar" | "en">("fr");
@@ -98,7 +99,14 @@ export function RAGEvaluationTab() {
           if (result?.recall_evaluated) status = result.expected_document_rank ? `Document attendu retrouvé en position ${result.expected_document_rank}` : "Document attendu absent des 5 premiers résultats";
           else if (result?.expects_abstention) status = result.low_confidence ? "Confiance faible ; abstention réelle à vérifier" : "Confiance non faible ; abstention réelle à vérifier";
           else if (result) status = "Aucun document attendu renseigné";
-          return <div key={item.id} className="rounded-md border p-3 text-sm"><p>{item.query}</p><p className="mt-1 text-muted-foreground">{status}</p></div>;
+          return <div key={item.id} className="rounded-md border p-3 text-sm"><p>{item.query}</p><p className="mt-1 text-muted-foreground">{status}</p>
+            <button type="button" className="mt-2 text-destructive underline" disabled={deleteCase.isPending} onClick={() => {
+              if (window.confirm("Supprimer cette question de test ?")) deleteCase.mutate(item.id, {
+                onSuccess: () => toast.success("Question supprimée"),
+                onError: () => toast.error("Impossible de supprimer la question"),
+              });
+            }}>Supprimer</button>
+          </div>;
         })}
       </section>
     </div>

@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 
 from app.core.rbac import require_role
@@ -49,6 +49,23 @@ async def list_cases(
             select(RAGEvaluationCase).order_by(RAGEvaluationCase.created_at.desc())
         )
         return list(result.scalars())
+
+
+@router.delete("/cases/{case_id}", status_code=204, response_class=Response)
+async def delete_case(
+    case_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+) -> Response:
+    async with tenant.db_session() as session:
+        result = await session.execute(
+            select(RAGEvaluationCase).where(RAGEvaluationCase.id == case_id)
+        )
+        case = result.scalar_one_or_none()
+        if case is None:
+            raise HTTPException(status_code=404, detail="Question de test introuvable")
+        await session.delete(case)
+    return Response(status_code=204)
 
 
 @router.post("/runs", response_model=RAGEvaluationRunResponse, status_code=201)

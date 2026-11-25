@@ -49,7 +49,7 @@ async def login(data: LoginRequest, request: Request) -> AuthTokenResponse:
 
 
 @router.post("/refresh", response_model=AuthTokenResponse)
-async def refresh_token(data: RefreshTokenRequest) -> AuthTokenResponse:
+async def refresh_token(data: RefreshTokenRequest, request: Request) -> AuthTokenResponse:
     """Rotate refresh token and get new token pair.
 
     Single-use: the old refresh token is invalidated on use.
@@ -58,7 +58,9 @@ async def refresh_token(data: RefreshTokenRequest) -> AuthTokenResponse:
         AuthenticationError (401): Invalid, expired, or already-used token.
     """
     service = AuthService()
-    return await service.refresh_token(data.refresh_token)
+    if not request.client:
+        raise AuthenticationError("Client address unavailable")
+    return await service.refresh_token(data.refresh_token, ip_address=request.client.host)
 
 
 @router.get("/me", response_model=AdminResponse)

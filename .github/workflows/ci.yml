@@ -157,6 +157,7 @@ jobs:
 
       - name: Run Phase 1 tests
         env:
+          RAG_AUTH_TEST_REDIS_URL: redis://localhost:6379/15
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: cri_platform
@@ -404,6 +405,7 @@ jobs:
         run: pip install --require-hashes -r backend/requirements.txt
       - name: Run full suite with coverage
         env:
+          RAG_AUTH_TEST_REDIS_URL: redis://localhost:6379/15
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: cri_platform

@@ -64,7 +64,9 @@ class JWTManager:
         return token, jti
 
     @staticmethod
-    async def create_refresh_token(admin_id: uuid.UUID) -> tuple[str, str]:
+    async def create_refresh_token(
+        admin_id: uuid.UUID, session_id: str | None = None
+    ) -> tuple[str, str]:
         """Create a refresh token and store its jti in Redis.
 
         Args:
@@ -85,6 +87,8 @@ class JWTManager:
             "exp": int((now + timedelta(days=settings.jwt_refresh_token_expire_days)).timestamp()),
             "jti": jti,
         }
+        if session_id:
+            payload["sid"] = session_id
         token = jwt.encode(
             payload,
             settings.jwt_secret_key,

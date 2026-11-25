@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 
 import structlog
 
+from app.core.config import get_settings
 from app.core.metrics import ACTIVE_SESSIONS
 
 logger = structlog.get_logger()
@@ -53,6 +54,7 @@ class SessionManager:
         admin_id: str,
         jti: str,
         ip_address: str,
+        refresh_session_id: str | None = None,
     ) -> dict:
         """Register a new session after successful login.
 
@@ -117,6 +119,17 @@ class SessionManager:
         pipe.setex(key_active, _ACCESS_TOKEN_TTL, jti)
         pipe.setex(key_ip, _ACCESS_TOKEN_TTL, ip_address)
         pipe.setex(key_last, _LAST_LOGIN_TTL, now_ts)
+        if refresh_session_id:
+            refresh_ttl = get_settings().jwt_refresh_token_expire_days * 86400
+            pipe.setex(
+                f"{_SESSION_PREFIX}:{admin_id}:refresh_session", refresh_ttl, refresh_session_id
+            )
+            pipe.setex(f"{_SESSION_PREFIX}:{admin_id}:refresh_ip", refresh_ttl, ip_address)
+        else:
+            pipe.delete(
+                f"{_SESSION_PREFIX}:{admin_id}:refresh_session",
+                f"{_SESSION_PREFIX}:{admin_id}:refresh_ip",
+            )
         await pipe.execute()
 
         # Prometheus: track active sessions (approximate — resets on restart)
@@ -204,7 +217,12 @@ class SessionManager:
                 "revoked",
             )
 
-        await self._redis.delete(key_active, key_ip)
+        await self._redis.delete(
+            key_active,
+            key_ip,
+            f"{_SESSION_PREFIX}:{admin_id}:refresh_session",
+            f"{_SESSION_PREFIX}:{admin_id}:refresh_ip",
+        )
         ACTIVE_SESSIONS.labels(tenant="").dec()
         logger.info("session_invalidated", admin_id=admin_id, reason="explicit")
 

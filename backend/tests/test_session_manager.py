@@ -252,6 +252,8 @@ class TestInvalidateSession:
         redis.delete.assert_called_once_with(
             "auth:session:admin-123:active",
             "auth:session:admin-123:ip",
+            "auth:session:admin-123:refresh_session",
+            "auth:session:admin-123:refresh_ip",
         )
 
     @pytest.mark.asyncio

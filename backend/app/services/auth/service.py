@@ -38,6 +38,18 @@ LOCKOUT_DURATION = 1800  # 30 minutes in seconds
 _ATTEMPTS_KEY = "auth:login_attempts:{email}"
 _LOCKOUT_KEY = "auth:lockout:{email}"
 
+# A refresh must belong to the current login and consume its predecessor
+# atomically. A new login or logout changes/removes the session binding.
+_ROTATE_SESSION = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] or redis.call('GET', KEYS[2]) ~= ARGV[2] then return 0 end
+if redis.call('DEL', KEYS[3]) ~= 1 then return 0 end
+local previous = redis.call('GET', KEYS[4])
+if previous then redis.call('SETEX', 'auth:revoked:' .. previous, ARGV[4], 'revoked') end
+redis.call('SETEX', KEYS[4], ARGV[4], ARGV[3])
+redis.call('SETEX', KEYS[5], ARGV[4], ARGV[2])
+return 1
+"""
+
 
 class AuthService:
     """Authentication service for back-office admins."""
@@ -101,7 +113,10 @@ class AuthService:
             role=admin.role.value,
             tenant_id=admin.tenant_id,
         )
-        refresh_token, _jti = await JWTManager.create_refresh_token(admin_id=admin.id)
+        refresh_session_id = str(uuid.uuid4()) if ip_address else None
+        refresh_token, _jti = await JWTManager.create_refresh_token(
+            admin_id=admin.id, session_id=refresh_session_id
+        )
 
         # 4b. Register advanced session (IP tracking, single session)
         if ip_address:
@@ -112,6 +127,7 @@ class AuthService:
                 admin_id=str(admin.id),
                 jti=access_jti,
                 ip_address=ip_address,
+                refresh_session_id=refresh_session_id,
             )
             if session_result.get("ip_alert"):
                 log.warning("ip_change_alert_on_login", admin_id=str(admin.id))
@@ -135,7 +151,9 @@ class AuthService:
             expires_in=settings.jwt_access_token_expire_minutes * 60,
         )
 
-    async def refresh_token(self, refresh_token_str: str) -> AuthTokenResponse:
+    async def refresh_token(
+        self, refresh_token_str: str, ip_address: str | None = None
+    ) -> AuthTokenResponse:
         """Rotate a refresh token (single-use).
 
         Args:
@@ -168,7 +186,8 @@ class AuthService:
             raise AuthenticationError("Refresh token already used")
 
         # 4. Invalidate old jti (rotation)
-        await JWTManager.invalidate_refresh_token(jti)
+        if not ip_address:
+            await JWTManager.invalidate_refresh_token(jti)
 
         # 5. Fetch current admin state (role/tenant may have changed)
         admin_id = uuid.UUID(payload["sub"])
@@ -183,12 +202,37 @@ class AuthService:
             raise AuthenticationError("Admin account no longer active")
 
         # 6. Issue new token pair
-        access_token, _access_jti = JWTManager.create_access_token(
+        access_token, access_jti = JWTManager.create_access_token(
             admin_id=admin.id,
             role=admin.role.value,
             tenant_id=admin.tenant_id,
         )
-        new_refresh_token, _jti = await JWTManager.create_refresh_token(admin_id=admin.id)
+        session_id = payload.get("sid")
+        if ip_address and not session_id:
+            raise AuthenticationError("Session expired; please log in again")
+        new_refresh_token, new_jti = await JWTManager.create_refresh_token(
+            admin_id=admin.id, session_id=session_id
+        )
+
+        if ip_address:
+            settings = get_settings()
+            prefix = f"auth:session:{admin.id}"
+            rotated = await get_redis().eval(
+                _ROTATE_SESSION,
+                5,
+                f"{prefix}:refresh_session",
+                f"{prefix}:refresh_ip",
+                f"auth:refresh_token:{jti}",
+                f"{prefix}:active",
+                f"{prefix}:ip",
+                session_id,
+                ip_address,
+                access_jti,
+                settings.jwt_access_token_expire_minutes * 60,
+            )
+            if not rotated:
+                await JWTManager.invalidate_refresh_token(new_jti)
+                raise AuthenticationError("Session invalidated; please log in again")
 
         settings = get_settings()
         self.logger.info("token_refreshed", admin_id=str(admin.id))

@@ -36,6 +36,23 @@ archive=""
 stopped=0
 running=()
 
+services_ready() {
+    local service container state attempt
+    for service in "${running[@]}"; do
+        container=$("${COMPOSE[@]}" ps -q "$service") || return 1
+        [[ -n "$container" ]] || return 1
+        for attempt in $(seq 1 60); do
+            state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container") || return 1
+            [[ "$state" == healthy || "$state" == running ]] && break
+            sleep 2
+        done
+        if [[ "$state" != healthy && "$state" != running ]]; then
+            echo "Service did not become ready after backup: $service ($state)" >&2
+            return 1
+        fi
+    done
+}
+
 cleanup() {
     local result=$?
     trap - EXIT
@@ -43,6 +60,9 @@ cleanup() {
         echo "Restarting services that were running before the backup..." >&2
         if ! "${COMPOSE[@]}" start "${running[@]}"; then
             echo "ERROR: automatic restart failed; inspect the Hostinger stack immediately." >&2
+            result=1
+        elif ! services_ready; then
+            echo "ERROR: one or more services did not become ready after the backup." >&2
             result=1
         fi
     fi
@@ -118,6 +138,6 @@ docker run --rm --network none --read-only --entrypoint tar \
 
 test -s "$archive.partial"
 mv -- "$archive.partial" "$archive"
-sha256sum "$archive" > "$archive.sha256"
+(cd "$BACKUP_DIR" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
 echo "Encrypted data archive created: $archive"
 echo "A separate copy and a tested restore are still required."

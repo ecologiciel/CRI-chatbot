@@ -73,7 +73,7 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"
 archive=$(find "$fixture/backups" -maxdepth 1 -name '*.tar.gz.gpg' -type f -print)
 [[ -n "$archive" && $(printf '%s\n' "$archive" | wc -l) -eq 1 ]]
-sha256sum -c "$archive.sha256"
+(cd "$fixture/backups" && sha256sum -c "$(basename "$archive").sha256")
 gpg --batch --pinentry-mode loopback --passphrase '' --decrypt "$archive" | tar -xzf - -C "$fixture/extracted"
 grep -Fxq postgres-fixture "$fixture/extracted/postgres/marker"
 grep -Fxq minio-fixture "$fixture/extracted/minio/marker"

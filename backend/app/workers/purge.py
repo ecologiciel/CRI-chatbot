@@ -262,6 +262,9 @@ async def task_purge_expired_data(ctx: dict) -> dict[str, Any]:
 class WorkerSettings:
     """ARQ worker configuration for CNDP data purge."""
 
+    # A worker consumes every job from its queue, even functions it does not
+    # implement. Keep purge cron jobs away from the default ingestion queue.
+    queue_name = "arq:queue:purge"
     functions: list = []
     cron_jobs = [
         cron(task_purge_expired_data, hour=3, minute=0),  # Daily 03:00 UTC

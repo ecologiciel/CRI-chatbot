@@ -7,6 +7,7 @@ idempotency guards, synthetic document get-or-create, and chunk indexing.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -98,6 +99,90 @@ class TestWorkerImport:
         from app.workers.learning import WorkerSettings, reinject_learning_task
 
         assert reinject_learning_task in WorkerSettings.functions
+
+
+@pytest.mark.asyncio
+async def test_approved_answer_publishes_active_version_with_masked_pii():
+    from app.models.kb import KBDocument
+    from app.workers.learning import reinject_learning_task
+
+    question = _make_question(proposed_answer="Écrivez à secret@example.com")
+    question.question = "Comment contacter secret@example.com ?"
+    document = KBDocument(
+        id=uuid.uuid4(),
+        title="Apprentissage supervisé",
+        status=KBDocumentStatus.indexed,
+        active_index_version=None,
+        chunk_count=0,
+    )
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = question
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.execute.side_effect = [result, MagicMock(), result]
+    session.add = MagicMock()
+    tenant = _make_mock_tenant(session)
+    embedder = MagicMock()
+    embedder.embed_single = AsyncMock(return_value=[0.1] * 768)
+    qdrant = MagicMock()
+    qdrant.upsert = AsyncMock()
+    audit = MagicMock()
+    audit.log_action = AsyncMock()
+
+    with (
+        patch(
+            "app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=tenant
+        ),
+        patch("app.services.ai.embeddings.get_embedding_service", return_value=embedder),
+        patch("app.core.qdrant.get_qdrant", return_value=qdrant),
+        patch("app.services.audit.service.get_audit_service", return_value=audit),
+        patch(
+            "app.workers.learning._get_or_create_learning_document",
+            new_callable=AsyncMock,
+            return_value=document,
+        ),
+        patch("app.workers.learning._next_chunk_index", new_callable=AsyncMock, return_value=0),
+    ):
+        result = await reinject_learning_task({}, tenant.slug, str(question.id))
+
+    assert result["status"] == "ok"
+    chunk = session.add.call_args.args[0]
+    point = qdrant.upsert.await_args.kwargs["points"][0]
+    assert document.active_index_version == chunk.index_version == 1
+    assert question.status == UnansweredStatus.injected
+    assert "secret@example.com" not in chunk.content
+    assert "secret@example.com" not in point.payload["content"]
+
+
+@pytest.mark.asyncio
+async def test_recovery_requeues_reviewed_answers_on_learning_queue():
+    from app.workers.learning import LEARNING_QUEUE, recover_approved_questions
+
+    question_id = uuid.uuid4()
+    updated = datetime.now(UTC) - timedelta(hours=1)
+    global_result = MagicMock()
+    global_result.scalars.return_value.all.return_value = ["rabat"]
+    global_session = AsyncMock()
+    global_session.__aenter__.return_value = global_session
+    global_session.execute.return_value = global_result
+    tenant_result = MagicMock()
+    tenant_result.all.return_value = [(question_id, updated)]
+    tenant_session = AsyncMock()
+    tenant_session.__aenter__.return_value = tenant_session
+    tenant_session.execute.return_value = tenant_result
+    tenant = _make_mock_tenant(tenant_session)
+    redis = MagicMock()
+    redis.enqueue_job = AsyncMock(return_value=object())
+    with (
+        patch("app.core.database.get_session_factory", return_value=lambda: global_session),
+        patch(
+            "app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=tenant
+        ),
+    ):
+        queued = await recover_approved_questions({"redis": redis})
+    assert queued == 1
+    assert redis.enqueue_job.await_args.kwargs["_queue_name"] == LEARNING_QUEUE
+    assert str(question_id) in redis.enqueue_job.await_args.kwargs["_job_id"]
 
     def test_worker_settings_config(self):
         from app.workers.learning import WorkerSettings

@@ -16,7 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
-from app.core.arq import get_arq_pool
+from app.core.arq import LEARNING_QUEUE, get_arq_pool
 from app.core.rbac import require_role
 from app.core.tenant import TenantContext, get_current_tenant
 from app.models.enums import AdminRole, UnansweredStatus
@@ -178,6 +178,7 @@ async def approve_question(
             "reinject_learning_task",
             tenant.slug,
             str(question_id),
+            _queue_name=LEARNING_QUEUE,
         )
     except Exception:
         logger.warning(

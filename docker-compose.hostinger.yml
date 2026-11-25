@@ -144,6 +144,23 @@ services:
     restart: unless-stopped
     mem_limit: 1g
 
+  learning-worker:
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    environment:
+      <<: *backend-environment
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      QDRANT_HOST: qdrant
+    command: arq app.workers.learning.WorkerSettings
+    dns: ["1.1.1.1", "8.8.8.8"]
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [demo-data, demo-edge]
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    mem_limit: 768m
+
   purge-worker:
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:

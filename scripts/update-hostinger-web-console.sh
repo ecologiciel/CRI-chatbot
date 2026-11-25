@@ -21,7 +21,7 @@ echo "PostgreSQL backup catalog verified: $backup_file"
 "${COMPOSE[@]}" build backend frontend-demo frontend-admin
 
 # The old ingestion worker must not publish old-format chunks during migration.
-"${COMPOSE[@]}" stop ingestion-worker purge-worker
+"${COMPOSE[@]}" stop ingestion-worker learning-worker purge-worker
 echo "Applying database migrations..."
 "${COMPOSE[@]}" run --rm --no-deps backend alembic upgrade head
 
@@ -30,7 +30,7 @@ echo "Applying database migrations..."
 echo "Waiting for the API to become healthy..."
 for attempt in $(seq 1 36); do
   if "${COMPOSE[@]}" exec -T backend python -c "import httpx; raise SystemExit(0 if httpx.get('http://localhost:8000/api/v1/health').status_code == 200 else 1)"; then
-    "${COMPOSE[@]}" up -d --no-deps --force-recreate ingestion-worker purge-worker
+    "${COMPOSE[@]}" up -d --no-deps --force-recreate ingestion-worker learning-worker purge-worker
     "${COMPOSE[@]}" ps
     exit 0
   fi

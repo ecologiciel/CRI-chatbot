@@ -16,6 +16,7 @@ from arq.connections import ArqRedis, RedisSettings
 from app.core.config import get_settings
 
 _arq_pool: ArqRedis | None = None
+LEARNING_QUEUE = "arq:queue:learning"
 
 
 def _get_redis_settings() -> RedisSettings:

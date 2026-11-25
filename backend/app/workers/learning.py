@@ -9,12 +9,15 @@ Tasks:
 from __future__ import annotations
 
 import uuid as uuid_lib
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from arq.connections import RedisSettings
+from arq.cron import cron
 from qdrant_client.models import PointStruct
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
+from app.core.arq import LEARNING_QUEUE
 from app.core.config import get_settings
 from app.models.enums import KBDocumentStatus, UnansweredStatus
 from app.models.feedback import UnansweredQuestion
@@ -95,6 +98,7 @@ async def _get_or_create_learning_document(session, tenant_slug: str) -> KBDocum
             category="learning",
             language="fr",
             status=KBDocumentStatus.indexed,
+            active_index_version=1,
             chunk_count=0,
         )
         session.add(doc)
@@ -165,6 +169,7 @@ async def reinject_learning_task(
     from app.core.tenant import TenantResolver
     from app.services.ai.embeddings import get_embedding_service
     from app.services.audit.service import get_audit_service
+    from app.services.guardrails.pii_masker import get_pii_masker
 
     log = logger.bind(
         task="reinject_learning",
@@ -208,6 +213,10 @@ async def reinject_learning_task(
             log.error("no_proposed_answer")
             return {"status": "no_answer"}
 
+        if not question.reviewed_by:
+            log.warning("missing_reviewer")
+            return {"status": "missing_reviewer"}
+
         # Capture values before session closes
         q_text = question.question
         q_answer = question.proposed_answer
@@ -216,7 +225,10 @@ async def reinject_learning_task(
         q_reviewed_by = question.reviewed_by
 
     # 5. Format chunk content
-    chunk_content = f"Question : {q_text}\n\nRéponse : {q_answer}"
+    masker = get_pii_masker()
+    safe_question = masker.mask(q_text).masked_text
+    safe_answer = masker.mask(q_answer).masked_text
+    chunk_content = f"Question : {safe_question}\n\nRéponse : {safe_answer}"
 
     # 6. Generate embedding
     embedding_service = get_embedding_service()
@@ -242,16 +254,45 @@ async def reinject_learning_task(
         "applicable_sectors": [],
         "legal_forms": [],
         "regions": [],
-        "summary": f"Q&A validé: {q_text[:100]}",
+        "summary": f"Q&A validé: {safe_question[:100]}",
     }
 
     # 8. Single DB session for all mutations
     async with tenant.db_session() as session:
+        # Serialize publications for the shared document and recheck the
+        # question after embedding so duplicate jobs cannot publish twice.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+            {"lock_key": f"supervised-learning:{tenant_slug}"},
+        )
+        locked = await session.execute(
+            select(UnansweredQuestion)
+            .where(UnansweredQuestion.id == uuid_lib.UUID(question_id))
+            .with_for_update()
+        )
+        current = locked.scalar_one_or_none()
+        if not current or current.status == UnansweredStatus.injected:
+            return {"status": "already_injected"}
+        if (
+            current.status not in (UnansweredStatus.approved, UnansweredStatus.modified)
+            or current.question != q_text
+            or current.proposed_answer != q_answer
+            or current.reviewed_by != q_reviewed_by
+        ):
+            log.warning("question_changed_before_publication")
+            return {"status": "question_changed"}
         # Get or create synthetic document
         learning_doc = await _get_or_create_learning_document(
             session,
             tenant_slug,
         )
+        if learning_doc.status != KBDocumentStatus.indexed:
+            raise ValueError("Supervised learning document is not publishable")
+        if learning_doc.active_index_version is None:
+            learning_doc.active_index_version = 1
+        if learning_doc.validated_by is None:
+            learning_doc.validated_by = q_reviewed_by
+            learning_doc.validated_at = datetime.now(UTC)
         next_index = await _next_chunk_index(session, learning_doc.id)
 
         # Finalize payload with actual values
@@ -274,24 +315,19 @@ async def reinject_learning_task(
             document_id=learning_doc.id,
             content=chunk_content,
             chunk_index=next_index,
+            index_version=learning_doc.active_index_version,
             qdrant_point_id=qdrant_point_id,
             token_count=len(chunk_content.split()),
             metadata_={
                 "source": "supervised_learning",
                 "question_id": question_id,
-                "original_question": q_text[:500],
+                "original_question": safe_question[:500],
             },
         )
         session.add(chunk)
 
         # Update question status to injected
-        q_result = await session.execute(
-            select(UnansweredQuestion).where(
-                UnansweredQuestion.id == uuid_lib.UUID(question_id),
-            ),
-        )
-        question = q_result.scalar_one()
-        question.status = UnansweredStatus.injected
+        current.status = UnansweredStatus.injected
 
         # Increment synthetic document chunk count
         learning_doc.chunk_count += 1
@@ -329,6 +365,56 @@ async def reinject_learning_task(
     }
 
 
+async def recover_approved_questions(ctx: dict) -> int:
+    """Requeue reviewed answers stranded by an interrupted enqueue or worker."""
+    from app.core.database import get_session_factory
+    from app.core.tenant import TenantResolver
+    from app.models.enums import TenantStatus
+    from app.models.tenant import Tenant
+
+    async with get_session_factory()() as session:
+        result = await session.execute(
+            select(Tenant.slug).where(Tenant.status == TenantStatus.active)
+        )
+        slugs = result.scalars().all()
+    cutoff = datetime.now(UTC) - timedelta(minutes=5)
+    queued = 0
+    for slug in slugs:
+        try:
+            tenant = await TenantResolver.from_slug(slug)
+            async with tenant.db_session() as session:
+                result = await session.execute(
+                    select(UnansweredQuestion.id, UnansweredQuestion.updated_at)
+                    .where(
+                        UnansweredQuestion.status.in_(
+                            [UnansweredStatus.approved, UnansweredStatus.modified]
+                        ),
+                        UnansweredQuestion.reviewed_by.is_not(None),
+                        UnansweredQuestion.proposed_answer.is_not(None),
+                        UnansweredQuestion.updated_at < cutoff,
+                    )
+                    .order_by(UnansweredQuestion.updated_at)
+                    .limit(100)
+                )
+                candidates = result.all()
+            for question_id, updated_at in candidates:
+                stamp = int(updated_at.timestamp() * 1_000_000)
+                job = await ctx["redis"].enqueue_job(
+                    "reinject_learning_task",
+                    slug,
+                    str(question_id),
+                    _queue_name=LEARNING_QUEUE,
+                    _job_id=f"learning-recovery:{slug}:{question_id}:{stamp}",
+                )
+                queued += int(job is not None)
+        except Exception as exc:
+            logger.warning(
+                "learning_recovery_tenant_failed", tenant=slug, error_type=type(exc).__name__
+            )
+    logger.info("learning_recovery_complete", queued=queued)
+    return queued
+
+
 # ---------------------------------------------------------------------------
 # ARQ WorkerSettings — entry point for `arq app.workers.learning.WorkerSettings`
 # ---------------------------------------------------------------------------
@@ -348,6 +434,8 @@ class WorkerSettings:
     """ARQ worker configuration for supervised learning reinjection."""
 
     functions = [reinject_learning_task]
+    queue_name = LEARNING_QUEUE
+    cron_jobs = [cron(recover_approved_questions, minute={0, 10, 20, 30, 40, 50})]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _get_redis_settings()

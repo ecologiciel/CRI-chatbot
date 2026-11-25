@@ -155,7 +155,7 @@ class TestFAQAgent:
 
     @pytest.mark.asyncio
     async def test_faq_agent_error_handling(self):
-        """Retrieval raises exception → error set, 'no_answer' response."""
+        """A retrieval failure is presented as an error, not missing information."""
         mock_retrieval = AsyncMock()
         mock_retrieval.retrieve = AsyncMock(
             side_effect=RuntimeError("Qdrant connection failed"),
@@ -168,7 +168,7 @@ class TestFAQAgent:
         result = await agent.handle(state, TEST_TENANT)
 
         assert result["error"] == "Qdrant connection failed"
-        expected_msg = PromptTemplates.get_message("no_answer", "fr")
+        expected_msg = PromptTemplates.get_message("error_generic", "fr")
         assert result["response"] == expected_msg
         assert result["confidence"] == 0.0
 

@@ -144,7 +144,7 @@ class FAQAgent:
             )
             updates["error"] = str(exc)
             updates["response"] = PromptTemplates.get_message(
-                "no_answer",
+                "error_generic",
                 language,
             )
             updates["confidence"] = 0.0

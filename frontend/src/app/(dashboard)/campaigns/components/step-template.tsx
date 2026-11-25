@@ -114,4 +114,3 @@ export function StepTemplate({ setValue, watch, errors, locked }: StepTemplatePr
     </div>
   );
 }
-

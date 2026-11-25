@@ -7,20 +7,25 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import date
+from typing import Any
 
 import structlog
 from prometheus_client import Counter, Histogram
 from qdrant_client.models import (
+    Condition,
     FieldCondition,
     Filter,
     HasIdCondition,
     MatchAny,
     MatchValue,
+    ScoredPoint,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import func, literal_column, or_, select
 
+from app.core.config import get_settings
 from app.core.exceptions import RetrievalError
 from app.core.qdrant import get_qdrant
 from app.core.tenant import TenantContext
@@ -70,6 +75,7 @@ class RetrievalService:
         self._embedder = get_embedding_service()
         self._qdrant = get_qdrant()
         self._logger = logger.bind(service="retrieval")
+        self._hybrid_enabled = get_settings().rag_hybrid_search_enabled
 
     async def _published_point_ids(self, tenant: TenantContext) -> list[str]:
         """Return only vectors belonging to each document's published version."""
@@ -90,7 +96,7 @@ class RetrievalService:
                     or_(KBDocument.expires_at.is_(None), KBDocument.expires_at >= date.today()),
                 )
             )
-            return list(result.scalars().all())
+            return [value for value in result.scalars().all() if value is not None]
 
     async def _load_published_chunks(
         self, tenant: TenantContext, point_ids: list[str]
@@ -148,11 +154,70 @@ class RetrievalService:
             for row in rows
         }
 
+    async def _lexical_point_ids(
+        self, tenant: TenantContext, query: str, language: str | None, limit: int
+    ) -> list[str]:
+        """Find active chunks using PostgreSQL's indexed full-text search."""
+        config: Any = literal_column("'simple'::regconfig")
+        vector = func.to_tsvector(config, KBChunk.content)
+        search = func.websearch_to_tsquery(config, query)
+        stmt = (
+            select(KBChunk.qdrant_point_id)
+            .join(KBDocument, KBDocument.id == KBChunk.document_id)
+            .where(
+                KBChunk.index_version == KBDocument.active_index_version,
+                KBChunk.qdrant_point_id.is_not(None),
+                KBDocument.status.not_in(
+                    [
+                        KBDocumentStatus.pending_validation,
+                        KBDocumentStatus.rejected,
+                        KBDocumentStatus.expired,
+                    ]
+                ),
+                or_(KBDocument.expires_at.is_(None), KBDocument.expires_at >= date.today()),
+                vector.op("@@")(search),
+            )
+            .order_by(func.ts_rank_cd(vector, search).desc(), KBChunk.id)
+            .limit(limit)
+        )
+        if language:
+            stmt = stmt.where(KBDocument.language == language)
+        async with tenant.db_session() as session:
+            result = await session.execute(stmt)
+            return [str(value) for value in result.scalars().all()]
+
+    @staticmethod
+    def _fuse_rankings(
+        semantic: list[ScoredPoint],
+        lexical_ids: list[str],
+        lexical_points: list[ScoredPoint],
+        limit: int,
+    ) -> list[ScoredPoint]:
+        """Fuse rankings without treating lexical rank as cosine confidence."""
+        scores: dict[str, float] = {}
+        points: dict[str, ScoredPoint] = {}
+        for rank, point in enumerate(semantic, start=1):
+            key = str(point.id)
+            points[key] = point
+            scores[key] = scores.get(key, 0.0) + 1 / (60 + rank)
+        lexical_map = {str(point.id): point for point in lexical_points}
+        for rank, key in enumerate((key for key in lexical_ids if key in lexical_map), start=1):
+            points.setdefault(key, lexical_map[key])
+            scores[key] = scores.get(key, 0.0) + 1 / (60 + rank)
+        ordered = sorted(scores, key=lambda key: (-scores[key], -points[key].score, key))
+        return [points[key] for key in ordered[:limit]]
+
     @staticmethod
     def _restrict_to_published(filter_: Filter | None, point_ids: list[str]) -> Filter:
         """Constrain Qdrant before ranking so staged points cannot displace results."""
-        conditions = list(filter_.must or []) if filter_ else []
-        conditions.append(HasIdCondition(has_id=point_ids))
+        conditions: list[Condition] = []
+        if filter_ and filter_.must:
+            if isinstance(filter_.must, list):
+                conditions.extend(filter_.must)
+            else:
+                conditions.append(filter_.must)
+        ids: list[int | str] = [value for value in point_ids]
+        conditions.append(HasIdCondition(has_id=ids))
         return Filter(
             must=conditions,
             should=filter_.should if filter_ else None,
@@ -217,6 +282,30 @@ class RetrievalService:
                 with_payload=True,
                 score_threshold=0.0,  # Return all, let confidence decide
             )
+
+            if self._hybrid_enabled:
+                try:
+                    async with asyncio.timeout(3):
+                        lexical_ids = await self._lexical_point_ids(
+                            tenant, query, language, max(top_k * 5, top_k)
+                        )
+                        if lexical_ids:
+                            lexical_filter = self._restrict_to_published(qdrant_filter, lexical_ids)
+                            lexical_points = await self._qdrant.search(
+                                collection_name=tenant.qdrant_collection,
+                                query_vector=query_embedding,
+                                limit=len(lexical_ids),
+                                query_filter=lexical_filter,
+                                with_payload=True,
+                                score_threshold=0.0,
+                            )
+                            results = self._fuse_rankings(
+                                results, lexical_ids, lexical_points, top_k
+                            )
+                except Exception as exc:
+                    # A temporary lexical-index failure must not take the
+                    # established semantic search offline.
+                    log.warning("lexical_search_failed", error_type=type(exc).__name__)
 
             # 4. Load full content from the tenant database and recheck its
             # publication state before exposing any Qdrant result.
@@ -308,7 +397,7 @@ class RetrievalService:
             - language: MatchValue (exact match)
             - applicable_sectors, legal_forms, related_laws, regions: MatchAny
         """
-        conditions: list[FieldCondition] = []
+        conditions: list[Condition] = []
 
         # Language filter (exact match)
         if language:

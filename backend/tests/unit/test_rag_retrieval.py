@@ -165,6 +165,42 @@ class TestRetrieveWithFilters:
         assert len(qdrant_filter.must) == 3  # language + sectors + published IDs
 
 
+@pytest.mark.asyncio
+async def test_hybrid_fuses_lexical_results_and_keeps_user_filters(tenant_context):
+    ids = [f"00000000-0000-0000-0000-{n:012d}" for n in (1, 2, 3)]
+    semantic = [_make_qdrant_point(ids[0], 0.9), _make_qdrant_point(ids[1], 0.7)]
+    lexical = [_make_qdrant_point(ids[2], 0.5), _make_qdrant_point(ids[1], 0.7)]
+    service, _, qdrant = _make_service(qdrant_results=semantic)
+    service._hybrid_enabled = True
+    service._published_point_ids.return_value = ids
+    service._lexical_point_ids = AsyncMock(return_value=[ids[2], ids[1]])
+    service._load_published_chunks.return_value = {
+        str(p.id): dict(p.payload) for p in semantic + lexical
+    }
+    qdrant.search.side_effect = [semantic, lexical]
+
+    result = await service.retrieve(tenant_context, "loi 47-18", language="fr", top_k=3)
+
+    assert result.chunks[0].chunk_id == ids[1]  # Present in both rankings.
+    assert {chunk.chunk_id for chunk in result.chunks} == set(ids)
+    lexical_filter = qdrant.search.await_args_list[1].kwargs["query_filter"]
+    assert len(lexical_filter.must) == 3  # Language, publication and lexical IDs.
+    assert result.chunks[0].score == 0.7  # Remains the vector similarity, not RRF.
+
+
+@pytest.mark.asyncio
+async def test_lexical_failure_falls_back_to_semantic_search(tenant_context):
+    point = _make_qdrant_point("p1", 0.9)
+    service, _, qdrant = _make_service(qdrant_results=[point])
+    service._hybrid_enabled = True
+    service._lexical_point_ids = AsyncMock(
+        side_effect=RuntimeError("database temporarily unavailable")
+    )
+    result = await service.retrieve(tenant_context, "test")
+    assert [chunk.chunk_id for chunk in result.chunks] == ["p1"]
+    assert qdrant.search.await_count == 1
+
+
 class TestRetrieveEmpty:
     """Empty results return zero confidence."""
 

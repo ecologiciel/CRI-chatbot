@@ -98,6 +98,38 @@ def test_legacy_tenant_keeps_documents_and_gains_missing_tables():
                 ).scalar_one()
                 == 1
             )
+            index_path = path.with_name("2026_11_25_0015_kb_fulltext_index.py")
+            index_spec = importlib.util.spec_from_file_location("migration_0015", index_path)
+            index_module = importlib.util.module_from_spec(index_spec)
+            index_spec.loader.exec_module(index_module)
+            index_module.op = Operations(MigrationContext.configure(connection))
+            index_module.upgrade()
+            indexes = (
+                connection.execute(
+                    sa.text(
+                        "SELECT schemaname FROM pg_indexes WHERE indexname='ix_kb_chunks_content_fts' "
+                        "AND schemaname IN (:tenant, 'tenant_template')"
+                    ),
+                    {"tenant": schema},
+                )
+                .scalars()
+                .all()
+            )
+            assert set(indexes) == {schema, "tenant_template"}
+            connection.execute(sa.text("SET LOCAL enable_seqscan=off"))
+            quoted = connection.dialect.identifier_preparer.quote(schema)
+            plan = (
+                connection.execute(
+                    sa.text(
+                        f"EXPLAIN SELECT id FROM {quoted}.kb_chunks "
+                        "WHERE to_tsvector('simple'::regconfig, content) "
+                        "@@ websearch_to_tsquery('simple'::regconfig, 'Texte')"
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert any("ix_kb_chunks_content_fts" in line for line in plan)
             connection.rollback()
     finally:
         engine.dispose()

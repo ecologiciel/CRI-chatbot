@@ -95,6 +95,13 @@ async def test_reindex_failure_preserves_published_search():
                 assert "Première version" in restored.chunks[0].content
                 assert restored.chunks[0].metadata["title"] == "Guide"
                 assert restored.chunks[0].document_id == str(document_id)
+                hybrid = RetrievalService()
+                hybrid._hybrid_enabled = True
+                assert await hybrid._lexical_point_ids(tenant, "Première version", "fr", 5) == [
+                    restored.chunks[0].chunk_id
+                ]
+                hybrid_result = await hybrid.retrieve(tenant, "Première version", language="fr")
+                assert hybrid_result.chunks[0].document_id == str(document_id)
                 await service.reindex_document(
                     tenant, document_id, "Deuxième version du guide sanitaire.", "Guide"
                 )
@@ -159,6 +166,7 @@ async def test_reindex_failure_preserves_published_search():
                     ).scalar_one()
                     document.expires_at = date.today() - timedelta(days=1)
                 assert (await RetrievalService().retrieve(tenant, "guide")).chunks == []
+                assert await hybrid._lexical_point_ids(tenant, "guide", "fr", 5) == []
                 async with tenant.db_session() as session:
                     document = (
                         await session.execute(
@@ -168,6 +176,7 @@ async def test_reindex_failure_preserves_published_search():
                     document.expires_at = None
                     document.status = KBDocumentStatus.rejected
                 assert (await RetrievalService().retrieve(tenant, "guide")).chunks == []
+                assert await hybrid._lexical_point_ids(tenant, "guide", "fr", 5) == []
                 with pytest.raises(Exception, match="non autorisé"):
                     await service.reindex_document(tenant, document_id, "Document rejeté.", "Guide")
                 async with tenant.db_session() as session:
@@ -212,6 +221,57 @@ async def test_reindex_failure_preserves_published_search():
                     == 1
                 )
                 assert queue.enqueue_job.await_args.args[2] == str(approved_id)
+
+                # Exact legal references must be recoverable even when their
+                # vector similarity ranks below the semantic top-k.
+                point_ids = [str(uuid.uuid4()) for _ in range(3)]
+                doc_ids = [uuid.uuid4() for _ in range(3)]
+                contents = [
+                    "Document générique sur les procédures sanitaires.",
+                    "Autre document générique sur les contrôles.",
+                    "La loi 47-18 précise la référence réglementaire recherchée.",
+                ]
+                async with tenant.db_session() as session:
+                    for doc_id, point_id, content in zip(doc_ids, point_ids, contents, strict=True):
+                        session.add(
+                            KBDocument(
+                                id=doc_id,
+                                title="Test lexical",
+                                language="fr",
+                                status=KBDocumentStatus.indexed,
+                                active_index_version=1,
+                            )
+                        )
+                        await session.flush()
+                        session.add(
+                            KBChunk(
+                                document_id=doc_id,
+                                content=content,
+                                chunk_index=0,
+                                index_version=1,
+                                qdrant_point_id=point_id,
+                                token_count=10,
+                            )
+                        )
+                await qdrant.upsert(
+                    collection_name="kb_onssa",
+                    points=[
+                        models.PointStruct(
+                            id=point_id,
+                            vector=([0.1] * 768 if index < 2 else [1.0] + [0.0] * 767),
+                            payload={"document_id": str(doc_ids[index]), "language": "fr"},
+                        )
+                        for index, point_id in enumerate(point_ids)
+                    ],
+                )
+                plain = RetrievalService()
+                plain._hybrid_enabled = False
+                baseline = await plain.retrieve(tenant, '"47-18"', top_k=2, language="fr")
+                assert str(doc_ids[2]) not in {chunk.document_id for chunk in baseline.chunks}
+                hybrid = RetrievalService()
+                hybrid._hybrid_enabled = True
+                fused = await hybrid.retrieve(tenant, '"47-18"', top_k=2, language="fr")
+                assert str(doc_ids[2]) in {chunk.document_id for chunk in fused.chunks}
     finally:
         await qdrant.close()
         await engine.dispose()

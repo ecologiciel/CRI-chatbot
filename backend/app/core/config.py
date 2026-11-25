@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     )
     embedding_dimension: int = Field(default=768, description="Embedding vector dimension")
     embedding_batch_size: int = Field(default=100, description="Max texts per batch embed call")
+    rag_hybrid_search_enabled: bool = Field(
+        default=False, description="Combine lexical and semantic retrieval"
+    )
     # TODO Phase 2: embedding_fallback_model for local multilingual-e5-large
 
     # --- WhatsApp ---

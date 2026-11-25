@@ -24,6 +24,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.minio import get_minio
 from app.core.rbac import require_role
 from app.core.tenant import TenantContext, get_current_tenant
+from app.core.uploads import validate_upload_filename
 from app.models.dossier import Dossier
 from app.models.enums import AdminRole, DossierStatut, SyncStatus
 from app.models.sync import SyncConfig, SyncLog
@@ -125,7 +126,8 @@ async def import_dossiers(
     log = logger.bind(tenant=tenant.slug, admin_id=admin.sub, filename=file.filename)
 
     # 1. Validate extension
-    ext = PurePosixPath(file.filename or "").suffix.lower()
+    filename = validate_upload_filename(file.filename)
+    ext = PurePosixPath(filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise ValidationError(
             f"Format non supporté: {ext}. Utilisez .xlsx, .xls ou .csv",
@@ -133,16 +135,16 @@ async def import_dossiers(
         )
 
     # 2. Read and validate size
-    file_bytes = await file.read()
+    file_bytes = await file.read(MAX_IMPORT_SIZE + 1)
     if len(file_bytes) > MAX_IMPORT_SIZE:
         raise ValidationError(
-            f"Fichier trop volumineux: {len(file_bytes)} octets (max 10 MB)",
-            details={"file_size": len(file_bytes), "max_size": MAX_IMPORT_SIZE},
+            "Fichier trop volumineux (max 10 MB)",
+            details={"file_size_at_least": len(file_bytes), "max_size": MAX_IMPORT_SIZE},
         )
 
     # 3. Upload to MinIO
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    safe_name = PurePosixPath(file.filename or "import").name
+    safe_name = filename
     object_path = f"imports/pending/{timestamp}_{safe_name}"
     content_type = CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
 

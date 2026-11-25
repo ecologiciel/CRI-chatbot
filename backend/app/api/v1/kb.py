@@ -23,6 +23,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.minio import get_minio
 from app.core.rbac import require_role
 from app.core.tenant import TenantContext, get_current_tenant
+from app.core.uploads import validate_upload_filename
 from app.models.enums import AdminRole, KBDocumentStatus
 from app.models.kb import KBDocument
 from app.schemas.auth import AdminTokenPayload
@@ -115,7 +116,8 @@ async def upload_document(
     """
     settings = get_settings()
     # 1. Validate extension
-    ext = PurePosixPath(file.filename or "").suffix.lower()
+    filename = validate_upload_filename(file.filename)
+    ext = PurePosixPath(filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise ValidationError(
             f"Unsupported file type: {ext}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
@@ -123,12 +125,12 @@ async def upload_document(
         )
 
     # 2. Read file and validate size
-    file_bytes = await file.read()
+    file_bytes = await file.read(settings.kb_max_file_size_bytes + 1)
     if len(file_bytes) > settings.kb_max_file_size_bytes:
         raise ValidationError(
-            f"File too large: {len(file_bytes)} bytes (max {settings.kb_max_file_size_mb} MB)",
+            f"File too large (max {settings.kb_max_file_size_mb} MB)",
             details={
-                "file_size": len(file_bytes),
+                "file_size_at_least": len(file_bytes),
                 "max_size": settings.kb_max_file_size_bytes,
             },
         )
@@ -136,7 +138,7 @@ async def upload_document(
 
     # 3. Create KBDocument record in tenant DB
     doc_id = uuid.uuid4()
-    file_path = f"kb/{doc_id}/{file.filename}"
+    file_path = f"kb/{doc_id}/{filename}"
 
     async with tenant.db_session() as session:
         doc = KBDocument(

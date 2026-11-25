@@ -282,6 +282,7 @@ jobs:
             tests/test_rag_retrieval.py \
             tests/unit/test_rag_retrieval.py \
             tests/test_rag_evaluation_metrics.py \
+            tests/test_upload_hardening.py \
             tests/test_versioned_pipeline_integration.py \
             tests/test_e2e_phase2.py \
             tests/test_escalation_api.py \

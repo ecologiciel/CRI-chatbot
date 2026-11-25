@@ -3,6 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from google.genai import errors
+from tenacity import wait_none
 
 from app.core.exceptions import GeminiError
 from app.schemas.ai import GeminiRequest, GeminiResponse
@@ -97,6 +99,36 @@ class TestClassifyIntent:
 
 
 class TestRetryExhaustion:
+    @pytest.mark.asyncio
+    async def test_transient_genai_503_is_retried(self, tenant_context, monkeypatch):
+        client = _make_client()
+        client.aio.models.generate_content = AsyncMock(
+            side_effect=[
+                errors.ServerError(503, {"error": {"message": "temporarily unavailable"}}),
+                make_mock_gemini_response(text="Réponse"),
+            ]
+        )
+        monkeypatch.setattr(GeminiService._generate_with_retry.retry, "wait", wait_none())
+        with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=_make_redis()):
+            service = GeminiService(_make_settings())
+            service._client = client
+            result = await service.generate(GeminiRequest(contents="test"), tenant_context)
+        assert result.text == "Réponse"
+        assert client.aio.models.generate_content.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_invalid_genai_request_is_not_retried(self, tenant_context):
+        client = _make_client()
+        client.aio.models.generate_content = AsyncMock(
+            side_effect=errors.ClientError(400, {"error": {"message": "invalid request"}})
+        )
+        with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=_make_redis()):
+            service = GeminiService(_make_settings())
+            service._client = client
+            with pytest.raises(GeminiError):
+                await service.generate(GeminiRequest(contents="test"), tenant_context)
+        assert client.aio.models.generate_content.await_count == 1
+
     @pytest.mark.asyncio
     async def test_retry_exhaustion_raises_gemini_error(self, tenant_context):
         client = _make_client()

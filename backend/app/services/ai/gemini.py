@@ -13,11 +13,12 @@ from datetime import UTC, datetime
 
 import structlog
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from prometheus_client import Counter, Histogram
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -69,8 +70,15 @@ try:
         InternalServerError,
     )
 except ImportError:
-    # Fallback: retry on any Exception (less precise, but safe)
-    _RETRYABLE_EXCEPTIONS = (Exception,)
+    # The GenAI SDK errors are handled separately below.
+    pass
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Retry transient SDK errors, not invalid requests or credentials."""
+    if isinstance(exc, genai_errors.APIError):
+        return exc.code in {408, 429, 500, 502, 503, 504}
+    return isinstance(exc, _RETRYABLE_EXCEPTIONS)
 
 
 def _log_retry(retry_state: object) -> None:
@@ -135,7 +143,7 @@ class GeminiService:
             ) from exc
 
     @retry(
-        retry=retry_if_exception_type(_RETRYABLE_EXCEPTIONS),
+        retry=retry_if_exception(_is_retryable),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
         before_sleep=_log_retry,

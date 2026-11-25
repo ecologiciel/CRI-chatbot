@@ -536,3 +536,17 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 - [Architecture technique](architecture-technique.md) — Stack, reseaux Docker, securite
 - [Reference API](api-reference.md) — Endpoints REST et schemas
 - [Guide d'administration](guide-administration.md) — Utilisation du back-office
+# Recherche hybride sur Hostinger
+
+Le déploiement Hostinger active par défaut `RAG_HYBRID_SEARCH_ENABLED=true`.
+La recherche combine le classement sémantique et une recherche lexicale
+PostgreSQL, limitée aux versions publiées du tenant. La migration `0015`
+crée l'index nécessaire dans le modèle et les espaces existants. En cas
+d'indisponibilité de la recherche lexicale, le service conserve la recherche
+sémantique. Pour désactiver temporairement cette option, définir
+`RAG_HYBRID_SEARCH_ENABLED=false` dans le fichier d'environnement du serveur
+et recréer l'API et les workers concernés.
+
+Le pilote ONSSA contient sept questions et ne constitue pas une validation
+humaine exhaustive. Les mesures de rappel des sources ne prouvent pas la
+justesse des réponses ou des citations.

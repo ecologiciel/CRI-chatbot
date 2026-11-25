@@ -1,6 +1,8 @@
 """Schemas for the anonymous, tenant-scoped web demonstration channel."""
 
-from pydantic import BaseModel, Field
+from urllib.parse import urlsplit
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class PublicSessionResponse(BaseModel):
@@ -21,6 +23,33 @@ class PublicSource(BaseModel):
     section_path: list[str] = Field(default_factory=list)
     page_numbers: list[int] = Field(default_factory=list)
     language: str | None = None
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def safe_public_url(cls, value: object) -> str | None:
+        """Do not render active-content links or credentials from stored metadata."""
+        if value is None:
+            return None
+        if (
+            not isinstance(value, str)
+            or len(value) > 1000
+            or "\\" in value
+            or any(ord(char) <= 32 or ord(char) == 127 for char in value)
+        ):
+            return None
+        try:
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme.lower() not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                return None
+            _ = parsed.port  # Invalid ports raise ValueError.
+        except ValueError:
+            return None
+        return value
 
 
 class PublicChatResponse(BaseModel):

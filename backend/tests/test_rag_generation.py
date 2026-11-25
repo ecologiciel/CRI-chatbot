@@ -423,3 +423,21 @@ class TestGenerationError:
         request = GenerationRequest(query="Test question", language="fr")
         with pytest.raises(GenerationError, match="RAG generation failed"):
             await service.generate(TEST_TENANT, request)
+
+
+def test_public_source_only_renders_safe_web_urls():
+    from app.schemas.public_chat import PublicSource
+
+    good = "https://www.onssa.gov.ma/controle/?lang=fr"
+    assert PublicSource(url=good).url == good
+    for url in (
+        "javascript:alert(1)",
+        "data:text/html,test",
+        "https://user:password@example.com/",
+        "https://example.com:99999/",
+        "https://example.com/\\@evil.example",
+        "https://example.com/\nunsafe",
+        "https:///no-host",
+    ):
+        assert PublicSource(url=url).url is None
+    assert PublicSource(url=None).url is None

@@ -63,6 +63,9 @@ def _make_tenant_orm(**overrides) -> MagicMock:
         "region": "Rabat-Salé-Kénitra",
         "logo_url": None,
         "accent_color": None,
+        "public_config": {},
+        "is_demo": False,
+        "conversation_retention_days": 90,
         "whatsapp_config": {
             "phone_number_id": "123456",
             "access_token": "secret-token",

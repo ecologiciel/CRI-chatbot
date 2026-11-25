@@ -2,7 +2,7 @@
 # python -m piptools compile --generate-hashes --output-file requirements.txt requirements.in
 
 # Core
-fastapi==0.115.6
+fastapi==0.165.0
 uvicorn[standard]==0.34.0
 pydantic[email]==2.10.4
 pydantic-settings==2.7.1
@@ -21,7 +21,7 @@ google-genai>=1.0.0
 google-api-core>=2.0.0
 tenacity>=9.0.0
 tiktoken>=0.7.0
-langgraph==0.2.60
+langgraph==1.2.24
 httpx==0.28.1
 
 # Security, observability, and document ingestion
@@ -31,15 +31,15 @@ PyJWT[crypto]==2.15.1
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.31
 prometheus-client==0.21.1
-prometheus-fastapi-instrumentator==7.0.2
+prometheus-fastapi-instrumentator==8.1.0
 pdfplumber>=0.11.0
 python-docx>=1.1.0
 openpyxl>=3.1.0
 reportlab>=4.1.0
 
 # Test and quality tooling
-pytest==8.3.4
-pytest-asyncio==0.25.0
+pytest==9.0.3
+pytest-asyncio==1.5.0
 pytest-json-report==1.5.0
 pytest-cov==7.1.0
 ruff==0.8.6

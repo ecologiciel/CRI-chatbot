@@ -7,6 +7,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from datetime import UTC, datetime
@@ -101,6 +102,7 @@ class GeminiService:
         self._model = settings.gemini_model
         self._max_output_tokens = settings.gemini_max_output_tokens
         self._temperature = settings.gemini_temperature
+        self._timeout = settings.gemini_timeout
         self._logger = logger.bind(service="gemini")
 
     async def generate(
@@ -124,7 +126,10 @@ class GeminiService:
         start_time = time.monotonic()
 
         try:
-            return await self._generate_with_retry(request, tenant, trace_id, start_time)
+            return await asyncio.wait_for(
+                self._generate_with_retry(request, tenant, trace_id, start_time),
+                timeout=self._timeout,
+            )
         except GeminiError:
             raise
         except Exception as exc:
@@ -137,8 +142,9 @@ class GeminiService:
                 latency_ms=round(latency_ms, 1),
                 tenant=tenant.slug,
             )
+            reason = "request timed out" if isinstance(exc, TimeoutError) else str(exc)
             raise GeminiError(
-                message=f"Gemini generation failed: {exc}",
+                message=f"Gemini generation failed: {reason}",
                 details={"model": self._model, "trace_id": trace_id},
             ) from exc
 

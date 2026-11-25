@@ -59,7 +59,9 @@ class Settings(BaseSettings):
     )
     gemini_max_output_tokens: int = Field(default=2048, description="Max output tokens per request")
     gemini_temperature: float = Field(default=0.3, description="Sampling temperature (0.0-2.0)")
-    gemini_timeout: float = Field(default=30.0, description="Request timeout in seconds")
+    gemini_timeout: float = Field(
+        default=15.0, gt=0, description="Total generation timeout including retries, in seconds"
+    )
     embedding_model: str = Field(
         default="gemini-embedding-001",
         description="Google Gemini embedding model",

@@ -1,5 +1,6 @@
 """Unit tests for GeminiService — generate, classify, cost tracking, retry."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,6 +22,7 @@ def _make_settings():
     s.gemini_model = "gemini-2.5-flash"
     s.gemini_max_output_tokens = 1024
     s.gemini_temperature = 0.3
+    s.gemini_timeout = 15.0
     return s
 
 
@@ -99,6 +101,22 @@ class TestClassifyIntent:
 
 
 class TestRetryExhaustion:
+    @pytest.mark.asyncio
+    async def test_generation_timeout_bounds_all_attempts(self, tenant_context):
+        client = _make_client()
+
+        async def slow_generation(**kwargs):
+            await asyncio.sleep(1)
+
+        client.aio.models.generate_content = AsyncMock(side_effect=slow_generation)
+        settings = _make_settings()
+        settings.gemini_timeout = 0.01
+        with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=_make_redis()):
+            service = GeminiService(settings)
+            service._client = client
+            with pytest.raises(GeminiError, match="request timed out"):
+                await service.generate(GeminiRequest(contents="test"), tenant_context)
+
     @pytest.mark.asyncio
     async def test_transient_genai_503_is_retried(self, tenant_context, monkeypatch):
         client = _make_client()

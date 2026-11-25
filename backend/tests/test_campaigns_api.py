@@ -214,8 +214,7 @@ class TestMainAppRegistration:
     def test_campaigns_router_in_app(self):
         from app.main import app
 
-        route_paths = [route.path for route in app.routes]
-        assert any("/campaigns" in p for p in route_paths)
+        assert "/api/v1/campaigns" in app.openapi()["paths"]
 
 
 # ---------------------------------------------------------------------------

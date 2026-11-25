@@ -228,9 +228,4 @@ class TestRouterRegistration:
     def test_learning_router_in_main_app(self):
         from app.main import app
 
-        paths = []
-        for route in app.routes:
-            if hasattr(route, "path"):
-                paths.append(route.path)
-
-        assert any("/api/v1/learning" in p for p in paths)
+        assert "/api/v1/learning/questions" in app.openapi()["paths"]

@@ -5,8 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.config import get_settings
 from app.core.exceptions import DuplicateTenantError, TenantProvisioningError
 from app.models.enums import TenantStatus
+from app.models.tenant import Tenant
+from app.models.tenant_key import TenantKey
 from app.services.tenant.provisioning import TenantProvisioningService
 
 # --- Factories ---
@@ -115,8 +118,11 @@ class TestProvisionTenantSuccess:
             service = TenantProvisioningService()
             result = await service.provision_tenant(data)
 
-        # Tenant record was added to session
-        mock_session.add.assert_called_once()
+        # Provisioning persists both the tenant and its encryption key.
+        added = [call.args[0] for call in mock_session.add.call_args_list]
+        assert sum(isinstance(item, Tenant) for item in added) == 1
+        expected_keys = int(bool(get_settings().kms_master_key))
+        assert sum(isinstance(item, TenantKey) for item in added) == expected_keys
 
         # Schema was created (at least one execute call with CREATE SCHEMA)
         execute_calls = mock_session.execute.call_args_list

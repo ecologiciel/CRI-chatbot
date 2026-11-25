@@ -198,14 +198,12 @@ class TestMainAppRegistration:
     def test_escalation_router_in_app(self):
         from app.main import app
 
-        route_paths = [route.path for route in app.routes]
-        # Check that /api/v1/escalations is registered
-        assert any("/escalations" in p for p in route_paths)
+        assert "/api/v1/escalations" in app.openapi()["paths"]
 
     def test_ws_route_in_app(self):
         from app.main import app
 
-        route_paths = [route.path for route in app.routes]
+        route_paths = [route.path for route in app.routes if hasattr(route, "path")]
         assert any("/ws/escalations" in p for p in route_paths)
 
 

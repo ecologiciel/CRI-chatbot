@@ -148,5 +148,4 @@ class TestMainAppRegistration:
     def test_whitelist_router_in_app(self):
         from app.main import app
 
-        route_paths = [route.path for route in app.routes]
-        assert any("/whitelist" in p for p in route_paths)
+        assert "/api/v1/whitelist" in app.openapi()["paths"]

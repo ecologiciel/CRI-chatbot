@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-import os
 import secrets
 import uuid
 from typing import Any
@@ -313,11 +312,9 @@ def tenant_b() -> MagicMock:
 
 # ── Excel fixture generators ────────────────────────────────────────
 
-FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
-
 
 @pytest.fixture
-def sample_import_xlsx() -> str:
+def sample_import_xlsx(tmp_path) -> str:
     """Generate a valid 10-row Excel file. Returns file path."""
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -345,17 +342,14 @@ def sample_import_xlsx() -> str:
             ]
         )
 
-    file_path = os.path.join(FIXTURES_DIR, "sample_import.xlsx")
+    file_path = str(tmp_path / "sample_import.xlsx")
     wb.save(file_path)
     wb.close()
     yield file_path
-    # Cleanup
-    if os.path.exists(file_path):
-        os.remove(file_path)
 
 
 @pytest.fixture
-def sample_import_errors_xlsx() -> str:
+def sample_import_errors_xlsx(tmp_path) -> str:
     """Generate an Excel file with deliberate errors. Returns file path."""
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -426,12 +420,10 @@ def sample_import_errors_xlsx() -> str:
         ]
     )
 
-    file_path = os.path.join(FIXTURES_DIR, "sample_import_errors.xlsx")
+    file_path = str(tmp_path / "sample_import_errors.xlsx")
     wb.save(file_path)
     wb.close()
     yield file_path
-    if os.path.exists(file_path):
-        os.remove(file_path)
 
 
 # ── Singleton reset (autouse) ───────────────────────────────────────

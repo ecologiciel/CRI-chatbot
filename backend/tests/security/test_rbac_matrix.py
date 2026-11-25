@@ -5,7 +5,7 @@ endpoints. Each role is tested against each endpoint category.
 """
 
 import uuid
-from datetime import UTC
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -46,6 +46,9 @@ def _make_tenant_orm(**overrides):
         "region": "RSK",
         "logo_url": None,
         "accent_color": None,
+        "public_config": {},
+        "is_demo": False,
+        "conversation_retention_days": 90,
         "whatsapp_config": {
             "phone_number_id": "111",
             "access_token": "test_token",
@@ -71,7 +74,16 @@ def _make_doc_orm():
     mock.id = uuid.uuid4()
     mock.title = "Test"
     mock.source_url = None
+    mock.source_authority = "Institution"
+    mock.source_reference = "Document de test"
+    mock.source_version = "1"
+    mock.published_at = date(2025, 1, 1)
+    mock.expires_at = None
+    mock.verified_at = None
+    mock.validated_at = datetime(2025, 1, 1, tzinfo=UTC)
+    mock.validated_by = uuid.uuid4()
     mock.file_path = "docs/test.pdf"
+    mock.file_size = 100
     mock.category = "general"
     mock.language = "fr"
     mock.content_hash = "abc"

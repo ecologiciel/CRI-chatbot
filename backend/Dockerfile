@@ -2,25 +2,22 @@
 # CRI Chatbot Platform — Backend Dockerfile (multi-stage)
 # =============================================================================
 
-# Apply available distribution security updates to both build and runtime
-# environments. The upstream Python image can lag Debian security releases.
-FROM python:3.12-slim AS base
-RUN apt-get update \
-    && apt-get upgrade -y --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+# Apply available Alpine security updates to both build and runtime.
+FROM python:3.12-alpine AS base
+RUN apk upgrade --no-cache
 
 # Stage 1: Builder — install dependencies
 FROM base AS builder
 
 WORKDIR /build
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: --require-hashes --prefix=/install -r requirements.txt
 
 # Stage 2: Runner — minimal runtime image
 FROM base AS runner
 
 # Security: non-root user
-RUN groupadd -r cri && useradd -r -g cri -d /app -s /sbin/nologin cri
+RUN addgroup -S cri && adduser -S -G cri -h /app cri
 
 WORKDIR /app
 

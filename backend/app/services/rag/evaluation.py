@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+import statistics
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -21,17 +24,32 @@ class RAGEvaluationService:
             )
             cases = list(result.scalars())
 
-        recall_hits = citation_hits = abstention_hits = 0
+        recall_at_3 = recall_at_5 = eligible_recall = citation_hits = abstention_hits = 0
         latencies: list[float] = []
         for case in cases:
             safe_query = get_pii_masker().mask(case.query).masked_text
+            start = time.monotonic()
             retrieval = await get_retrieval_service().retrieve(
-                tenant, safe_query, language=case.language, top_k=3
+                tenant, safe_query, language=case.language, top_k=5
             )
-            actual_document_ids = {chunk.document_id for chunk in retrieval.chunks}
+            latencies.append((time.monotonic() - start) * 1000)
             expected_document_ids = {str(value) for value in (case.expected_document_ids or [])}
-            if expected_document_ids and expected_document_ids.intersection(actual_document_ids):
-                recall_hits += 1
+            if expected_document_ids and not case.expects_abstention:
+                eligible_recall += 1
+                recall_at_3 += int(
+                    bool(
+                        expected_document_ids.intersection(
+                            chunk.document_id for chunk in retrieval.chunks[:3]
+                        )
+                    )
+                )
+                recall_at_5 += int(
+                    bool(
+                        expected_document_ids.intersection(
+                            chunk.document_id for chunk in retrieval.chunks[:5]
+                        )
+                    )
+                )
             citations = [
                 chunk
                 for chunk in retrieval.chunks
@@ -45,15 +63,26 @@ class RAGEvaluationService:
             predicted_abstention = not retrieval.is_confident
             if predicted_abstention == case.expects_abstention:
                 abstention_hits += 1
-            latencies.append(
-                0.0
-            )  # Retrieval metrics remain in Prometheus; run stores aggregate outcomes.
-
         total = len(cases)
+        sorted_latencies = sorted(latencies)
         metrics = {
-            "source_recall_at_3": round(recall_hits / total, 4) if total else 0.0,
-            "citation_coverage": round(citation_hits / total, 4) if total else 0.0,
-            "abstention_accuracy": round(abstention_hits / total, 4) if total else 0.0,
+            "source_recall_at_3": round(recall_at_3 / eligible_recall, 4)
+            if eligible_recall
+            else None,
+            "source_recall_at_5": round(recall_at_5 / eligible_recall, 4)
+            if eligible_recall
+            else None,
+            "recall_evaluated_cases": eligible_recall,
+            "citation_coverage": round(citation_hits / total, 4) if total else None,
+            "abstention_accuracy": round(abstention_hits / total, 4) if total else None,
+            "retrieval_latency_p50_ms": round(statistics.median(latencies), 1)
+            if latencies
+            else None,
+            "retrieval_latency_p95_ms": (
+                round(sorted_latencies[math.ceil(len(sorted_latencies) * 0.95) - 1], 1)
+                if sorted_latencies
+                else None
+            ),
             "human_faithfulness_reviewed": sum(
                 case.human_faithfulness is not None for case in cases
             ),

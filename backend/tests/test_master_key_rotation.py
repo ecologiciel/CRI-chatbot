@@ -68,6 +68,7 @@ async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damag
         rollback_rotation,
     )
     from app.services.crypto.master_key_rotation import rewrap_tenant_keys
+    from app.services.crypto.startup_guard import assert_master_key_consistent
 
     dsn = os.getenv("KMS_ROTATION_TEST_DSN")
     if not dsn:
@@ -111,7 +112,11 @@ async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damag
                     ),
                 ]
             )
+        await assert_master_key_consistent(factory, old)
         assert await rewrap_tenant_keys(factory, old, new) == 2
+        with pytest.raises(RuntimeError, match="Tenant key validation failed"):
+            await assert_master_key_consistent(factory, old)
+        await assert_master_key_consistent(factory, new)
         async with factory() as session:
             rows = list(
                 (await session.execute(select(TenantKey).order_by(TenantKey.key_version))).scalars()
@@ -165,12 +170,15 @@ async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damag
             "asyncio.run(rewrap_tenant_keys(f,_journal_key(j,'old.key'),_journal_key(j,'new.key'))); os._exit(71)",
             71,
         )
+        with pytest.raises(RuntimeError, match="Tenant key validation failed"):
+            await assert_master_key_consistent(factory, new)
         # A process can also disappear after writing the next environment
         # file but before its atomic rename. Recovery owns this exact path.
         (journal / "env.next").write_bytes(b"incomplete temporary configuration")
         await rollback_rotation(factory, env_path, journal)
         await finalize_rollback(factory, env_path, journal)
         assert _env_key(env_path) == new and not journal.exists()
+        await assert_master_key_consistent(factory, new)
 
         # Process disappears after the file switch; rollback remains idempotent.
         prepare_rotation(env_path, journal)
@@ -221,3 +229,72 @@ async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damag
                 await conn.run_sync(TenantKey.__table__.drop)
                 await conn.run_sync(Tenant.__table__.drop)
         await engine.dispose()
+
+
+def test_startup_guard_authenticates_all_envelopes_without_revealing_them():
+    from app.services.crypto.startup_guard import validate_envelopes
+
+    master = secrets.token_bytes(32)
+    valid = _wrap(master, secrets.token_bytes(32))
+    validate_envelopes(master, [])
+    validate_envelopes(master, [(valid, "AES-256-GCM")])
+    for key, rows in [
+        (secrets.token_bytes(32), [(valid, "AES-256-GCM")]),
+        (master, [(valid[:-1], "AES-256-GCM")]),
+        (master, [(valid, "unsupported")]),
+    ]:
+        with pytest.raises(RuntimeError, match="Tenant key validation failed") as error:
+            validate_envelopes(key, rows)
+        assert valid.hex() not in str(error.value)
+    with pytest.raises(RuntimeError, match="Invalid KMS"):
+        validate_envelopes(b"short", [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "worker",
+    ["archive", "campaign", "import_dossier", "ingestion", "learning", "notification", "purge"],
+)
+async def test_workers_stop_before_connecting_when_kms_check_fails(monkeypatch, worker):
+    import importlib
+    from unittest.mock import AsyncMock, Mock
+
+    import app.core.database
+    import app.core.logging
+    import app.core.redis
+    import app.services.crypto.startup_guard
+
+    monkeypatch.setattr(app.core.database, "get_engine", Mock())
+    monkeypatch.setattr(app.core.logging, "setup_logging", Mock())
+    redis = AsyncMock()
+    monkeypatch.setattr(app.core.redis, "init_redis", redis)
+    monkeypatch.setattr(
+        app.services.crypto.startup_guard,
+        "verify_kms_on_startup",
+        AsyncMock(side_effect=RuntimeError("invalid KMS")),
+    )
+    with pytest.raises(RuntimeError, match="invalid KMS"):
+        await importlib.import_module(f"app.workers.{worker}").startup({})
+    redis.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_does_not_start_if_kms_check_fails(monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+
+    import app.main
+    import app.services.crypto.startup_guard
+
+    monkeypatch.setattr(app.main, "get_engine", Mock())
+    monkeypatch.setattr(app.main, "setup_logging", Mock())
+    redis = AsyncMock()
+    monkeypatch.setattr(app.main, "init_redis", redis)
+    monkeypatch.setattr(
+        app.services.crypto.startup_guard,
+        "verify_kms_on_startup",
+        AsyncMock(side_effect=RuntimeError("invalid KMS")),
+    )
+    with pytest.raises(RuntimeError, match="invalid KMS"):
+        async with app.main.lifespan(app.main.app):
+            pytest.fail("the API must not start")
+    redis.assert_not_awaited()

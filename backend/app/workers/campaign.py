@@ -49,9 +49,11 @@ async def startup(ctx: dict) -> None:
     from app.core.database import get_engine
     from app.core.logging import setup_logging
     from app.core.redis import init_redis
+    from app.services.crypto.startup_guard import verify_kms_on_startup
 
     setup_logging()
     get_engine()
+    await verify_kms_on_startup()
     await init_redis()
     logger.info("campaign_worker_started")
 

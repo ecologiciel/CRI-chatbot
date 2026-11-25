@@ -47,9 +47,11 @@ async def startup(ctx: dict) -> None:
     from app.core.logging import setup_logging
     from app.core.minio import init_minio
     from app.core.redis import init_redis
+    from app.services.crypto.startup_guard import verify_kms_on_startup
 
     setup_logging()
     get_engine()
+    await verify_kms_on_startup()
     await init_redis()
     init_minio()
     logger.info("archive_worker_started")

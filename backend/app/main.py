@@ -77,6 +77,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     get_engine()  # SQLAlchemy engine (lazy, but validates URL)
     logger.info("database_engine_created")
 
+    from app.services.crypto.startup_guard import verify_kms_on_startup
+
+    await verify_kms_on_startup()
+
     await init_redis()
     logger.info("redis_connected")
 

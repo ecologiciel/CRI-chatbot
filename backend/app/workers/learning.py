@@ -45,9 +45,11 @@ async def startup(ctx: dict) -> None:
     from app.core.logging import setup_logging
     from app.core.qdrant import init_qdrant
     from app.core.redis import init_redis
+    from app.services.crypto.startup_guard import verify_kms_on_startup
 
     setup_logging()
     get_engine()
+    await verify_kms_on_startup()
     await init_redis()
     await init_qdrant()
     logger.info("learning_worker_started")

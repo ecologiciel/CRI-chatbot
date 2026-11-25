@@ -13,12 +13,17 @@ identifie la clé utilisée par la base. Des tests ont arrêté réellement un
 processus après la transaction et après le remplacement du fichier, puis vérifié
 le retour arrière sur une base isolée.
 
+Un contrôle au démarrage en production authentifie les enveloppes actives et
+historiques avant de démarrer l’API ou les workers. Une incohérence empêche
+leur démarrage. Il ne surveille pas les processus déjà lancés : tous les
+écrivains doivent être arrêtés pendant la rotation.
+
 **Ces modules ne constituent pas encore une procédure de rotation
 opérationnelle.** Ils n'arrêtent pas les services et ne vérifient pas que tous
 les utilisateurs de clés sont à l'arrêt. Ils ne garantissent pas encore le
 maintien en sécurité du démarrage automatique des services après une panne du
 VPS. Ne pas les exécuter seuls sur une installation réelle. Une orchestration,
-une protection au démarrage et un essai de reprise complet restent nécessaires.
+et un essai de reprise complet restent nécessaires.
 
 Le réemballage conserve les mêmes clés de données : il ne révoque donc pas une
 clé de données déjà compromise et ne rechiffre pas les données existantes.

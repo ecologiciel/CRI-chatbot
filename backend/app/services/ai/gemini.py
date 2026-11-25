@@ -187,12 +187,19 @@ class GeminiService:
         model: str,
     ) -> GeminiResponse:
         """Internal method with tenacity retry. Raises raw SDK exceptions."""
+        output_limit = request.max_output_tokens or self._max_output_tokens
+        # Gemini 3 Flash Preview defaults to high thinking, which can consume
+        # a small classification budget without leaving any answer tokens.
+        preview_fallback = model == "gemini-3-flash-preview"
         config = types.GenerateContentConfig(
             system_instruction=request.system_instruction,
             temperature=request.temperature
             if request.temperature is not None
             else self._temperature,
-            max_output_tokens=request.max_output_tokens or self._max_output_tokens,
+            max_output_tokens=max(output_limit, 128) if preview_fallback else output_limit,
+            thinking_config=(
+                types.ThinkingConfig(thinking_level="MINIMAL") if preview_fallback else None
+            ),
         )
 
         response = await self._client.aio.models.generate_content(
@@ -205,9 +212,11 @@ class GeminiService:
 
         # Extract token counts
         usage = response.usage_metadata
-        input_tokens = usage.prompt_token_count if usage else 0
-        output_tokens = usage.candidates_token_count if usage else 0
+        input_tokens = (usage.prompt_token_count or 0) if usage else 0
+        output_tokens = (usage.candidates_token_count or 0) if usage else 0
         content = response.text or ""
+        if not content.strip():
+            raise GeminiError("Gemini generation returned an empty response")
         finish_reason = (
             response.candidates[0].finish_reason.name
             if response.candidates and response.candidates[0].finish_reason

@@ -50,6 +50,26 @@ def _make_client(sdk_response=None):
 
 class TestGenerate:
     @pytest.mark.asyncio
+    async def test_missing_usage_counts_do_not_crash(self, tenant_context):
+        sdk_resp = make_mock_gemini_response(text="Bonjour", input_tokens=None, output_tokens=None)
+        client = _make_client(sdk_response=sdk_resp)
+        with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=_make_redis()):
+            service = GeminiService(_make_settings())
+            service._client = client
+            result = await service.generate(GeminiRequest(contents="Bonjour"), tenant_context)
+        assert result.text == "Bonjour"
+        assert result.input_tokens == result.output_tokens == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_model_response_is_not_reported_as_success(self, tenant_context):
+        client = _make_client(sdk_response=make_mock_gemini_response(text=""))
+        with patch(_GENAI_PATCH), patch(_REDIS_PATCH, return_value=_make_redis()):
+            service = GeminiService(_make_settings())
+            service._client = client
+            with pytest.raises(GeminiError, match="empty response"):
+                await service.generate(GeminiRequest(contents="Bonjour"), tenant_context)
+
+    @pytest.mark.asyncio
     async def test_generate_success(self, tenant_context):
         sdk_resp = make_mock_gemini_response(text="Bonjour", input_tokens=15, output_tokens=8)
         client = _make_client(sdk_response=sdk_resp)
@@ -124,6 +144,9 @@ class TestRetryExhaustion:
         assert result.model == "gemini-3-flash-preview"
         assert result.text == "Réponse du modèle de secours"
         assert client.aio.models.generate_content.await_count == 4
+        config = client.aio.models.generate_content.await_args.kwargs["config"]
+        assert config.thinking_config.thinking_level == "MINIMAL"
+        assert config.max_output_tokens >= 128
 
     @pytest.mark.asyncio
     async def test_generation_timeout_bounds_all_attempts(self, tenant_context):

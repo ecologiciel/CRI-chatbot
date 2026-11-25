@@ -22,7 +22,10 @@ mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 workdir=$(mktemp -d "$BACKUP_DIR/.cold-backup.XXXXXXXX")
 chmod 700 "$workdir"
-mkdir -m 700 "$workdir/gnupg" "$workdir/metadata"
+mkdir -m 700 "$workdir/metadata"
+# Keep GnuPG's Unix socket path short even when the backup path is long.
+keydir=$(mktemp -d /tmp/codex-backup-gpg.XXXXXXXX)
+chmod 700 "$keydir"
 archive=""
 stopped=0
 running=()
@@ -39,13 +42,17 @@ cleanup() {
     fi
     if [[ -n "$archive" && -f "$archive.partial" ]]; then rm -f -- "$archive.partial"; fi
     case "$workdir" in "$BACKUP_DIR"/.cold-backup.*) rm -rf -- "$workdir" ;; esac
+    case "$keydir" in /tmp/codex-backup-gpg.*) rm -rf -- "$keydir" ;; esac
     exit "$result"
 }
 trap cleanup EXIT
 trap 'exit 1' INT TERM
 
-export GNUPGHOME="$workdir/gnupg"
-gpg --batch --import "$RECIPIENT" >/dev/null 2>&1
+export GNUPGHOME="$keydir"
+if ! gpg --batch --import "$RECIPIENT" >/dev/null 2>&1; then
+    echo "Could not import the public backup key." >&2
+    exit 1
+fi
 if gpg --batch --with-colons --list-secret-keys | grep -q '^sec:'; then
     echo "Provide a public key only; private keys must never be copied to the VPS." >&2
     exit 1

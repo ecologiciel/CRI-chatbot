@@ -11,11 +11,83 @@ from __future__ import annotations
 
 import csv
 import io
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from app.core.exceptions import IngestionError
 
 SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".txt", ".md", ".csv"}
+
+
+@dataclass(frozen=True, slots=True)
+class PageSpan:
+    """Physical PDF page and its half-open character span in extracted text."""
+
+    number: int
+    start: int
+    end: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractedDocument:
+    text: str
+    pages: tuple[PageSpan, ...] = ()
+
+
+def extract_document(file_bytes: bytes, filename: str) -> ExtractedDocument:
+    """Extract text plus physical page offsets when the input is a PDF."""
+    if PurePosixPath(filename).suffix.lower() != ".pdf":
+        return ExtractedDocument(text=extract_text(file_bytes, filename))
+
+    import pdfplumber
+
+    try:
+        parts: list[str] = []
+        raw_spans: list[PageSpan] = []
+        offset = 0
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for number, page in enumerate(pdf.pages, start=1):
+                page_text = page.extract_text()
+                if not page_text:
+                    continue
+                if parts:
+                    offset += 2  # The same separator used by _extract_pdf.
+                start = offset
+                parts.append(page_text)
+                offset += len(page_text)
+                if page_text.strip():
+                    raw_spans.append(
+                        PageSpan(
+                            number,
+                            start + len(page_text) - len(page_text.lstrip()),
+                            offset - (len(page_text) - len(page_text.rstrip())),
+                        )
+                    )
+        raw = "\n\n".join(parts)
+        content = raw.strip()
+        if not content:
+            raise IngestionError(
+                f"No text content extracted from {filename}",
+                details={"filename": filename, "extension": ".pdf"},
+            )
+        removed_prefix = len(raw) - len(raw.lstrip())
+        pages = tuple(
+            PageSpan(
+                page.number,
+                max(0, page.start - removed_prefix),
+                min(len(content), page.end - removed_prefix),
+            )
+            for page in raw_spans
+            if page.end > removed_prefix and page.start < removed_prefix + len(content)
+        )
+        return ExtractedDocument(text=content, pages=pages)
+    except IngestionError:
+        raise
+    except Exception as exc:
+        raise IngestionError(
+            f"Text extraction failed for {filename}: {exc}",
+            details={"filename": filename, "extension": ".pdf"},
+        ) from exc
 
 
 def extract_text(file_bytes: bytes, filename: str) -> str:

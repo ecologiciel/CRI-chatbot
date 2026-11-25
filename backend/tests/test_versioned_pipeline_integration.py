@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.tenant import TenantContext
 from app.models.enums import KBDocumentStatus
 from app.models.kb import KBChunk, KBDocument
+from app.services.rag.extractors import PageSpan
 from app.services.rag.ingestion import IngestionService
 from app.services.rag.retrieval import RetrievalService
 
@@ -79,7 +80,11 @@ async def test_reindex_failure_preserves_published_search():
                 service = IngestionService()
                 service._enrich_metadata = AsyncMock(return_value=[{}])
                 await service.ingest_document(
-                    tenant, document_id, "Première version du guide sanitaire.", "Guide"
+                    tenant,
+                    document_id,
+                    "Première version du guide sanitaire.",
+                    "Guide",
+                    pages=(PageSpan(3, 0, len("Première version du guide sanitaire.")),),
                 )
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
@@ -88,12 +93,18 @@ async def test_reindex_failure_preserves_published_search():
                 # document identity or provenance.
                 await qdrant.set_payload(
                     collection_name="kb_onssa",
-                    payload={"content": "tronqué", "title": "faux", "document_id": "faux"},
+                    payload={
+                        "content": "tronqué",
+                        "title": "faux",
+                        "document_id": "faux",
+                        "page_numbers": [999],
+                    },
                     points=[result.chunks[0].chunk_id],
                 )
                 restored = await RetrievalService().retrieve(tenant, "guide")
                 assert "Première version" in restored.chunks[0].content
                 assert restored.chunks[0].metadata["title"] == "Guide"
+                assert restored.chunks[0].metadata["page_numbers"] == [3]
                 assert restored.chunks[0].document_id == str(document_id)
                 hybrid = RetrievalService()
                 hybrid._hybrid_enabled = True
@@ -108,6 +119,7 @@ async def test_reindex_failure_preserves_published_search():
                 result = await RetrievalService().retrieve(tenant, "guide")
                 assert len(result.chunks) == 1
                 assert "Deuxième version" in result.chunks[0].content
+                assert result.chunks[0].metadata["page_numbers"] == []
                 embedding.embed_batch.side_effect = RuntimeError("provider unavailable")
                 with pytest.raises(Exception, match="provider unavailable"):
                     await service.reindex_document(

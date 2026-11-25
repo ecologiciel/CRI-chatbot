@@ -8,7 +8,7 @@ import io
 import pytest
 
 from app.core.exceptions import IngestionError
-from app.services.rag.extractors import SUPPORTED_EXTENSIONS, extract_text
+from app.services.rag.extractors import SUPPORTED_EXTENSIONS, extract_document, extract_text
 
 
 class TestExtractPlainText:
@@ -64,6 +64,33 @@ class TestExtractCSV:
 
 
 class TestExtractPDF:
+    def test_physical_page_offsets_preserve_blank_pages(self, monkeypatch):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        import pdfplumber
+
+        pages = [MagicMock(), MagicMock(), MagicMock()]
+        for page, text in zip(
+            pages, ["  Premiere page agricole ", "", " Troisieme page sanitaire  "], strict=True
+        ):
+            page.extract_text.return_value = text
+        pdf = MagicMock()
+        pdf.__enter__.return_value = SimpleNamespace(pages=pages)
+        monkeypatch.setattr(pdfplumber, "open", lambda _: pdf)
+
+        extracted = extract_document(b"pdf", "fixture.pdf")
+        assert extracted.text == extract_text(b"pdf", "fixture.pdf")
+        assert [page.number for page in extracted.pages] == [1, 3]
+        assert (
+            extracted.text[extracted.pages[0].start : extracted.pages[0].end]
+            == "Premiere page agricole"
+        )
+        assert (
+            extracted.text[extracted.pages[1].start : extracted.pages[1].end]
+            == "Troisieme page sanitaire"
+        )
+
     """Test PDF extraction."""
 
     def test_extract_pdf_basic(self):

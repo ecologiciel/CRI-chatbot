@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-type Source = { title?: string | null; url?: string | null; published_at?: string | null; section_path?: string[] };
+type Source = { title?: string | null; url?: string | null; published_at?: string | null; section_path?: string[]; page_numbers?: number[] };
 type ChatMessage = { role: "user" | "assistant"; content: string; sources?: Source[] };
 
 const INTRO: ChatMessage = {
@@ -85,6 +85,7 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
                         {source.url ? <a className="text-emerald-700 underline" href={source.url} target="_blank" rel="noreferrer">{source.title ?? "Source officielle"}</a> : source.title ?? "Source officielle"}
                         {source.published_at ? ` — ${source.published_at}` : ""}
                         {source.section_path?.length ? ` — ${source.section_path.join(" › ")}` : ""}
+                        {source.page_numbers?.length ? ` — p. ${source.page_numbers.join(", ")}` : ""}
                       </li>
                     ))}
                   </ul>

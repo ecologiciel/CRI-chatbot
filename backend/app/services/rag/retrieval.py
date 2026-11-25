@@ -37,6 +37,13 @@ from app.services.ai.embeddings import get_embedding_service
 
 logger = structlog.get_logger()
 
+
+def _safe_page_numbers(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    return sorted({item for item in value if type(item) is int and item > 0})
+
+
 # ---------------------------------------------------------------------------
 # Prometheus metrics
 # ---------------------------------------------------------------------------
@@ -151,6 +158,9 @@ class RetrievalService:
                 "published_at": row.published_at.isoformat() if row.published_at else None,
                 "source_url": row.source_url,
                 "language": row.language,
+                # Page attribution comes from the active PostgreSQL version,
+                # never from potentially stale or altered Qdrant payloads.
+                "page_numbers": _safe_page_numbers((row.chunk_metadata or {}).get("page_numbers")),
             }
             for row in rows
         }
@@ -347,6 +357,7 @@ class RetrievalService:
                             "start_char": payload.get("start_char"),
                             "end_char": payload.get("end_char"),
                             "section_path": payload.get("section_path", []),
+                            "page_numbers": payload.get("page_numbers", []),
                         },
                     )
                 )

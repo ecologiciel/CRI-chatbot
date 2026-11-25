@@ -21,6 +21,7 @@ class ChunkResult:
     start_char: int
     end_char: int
     section_path: tuple[str, ...] = ()
+    page_numbers: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

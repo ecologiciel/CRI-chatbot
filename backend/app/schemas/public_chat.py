@@ -19,6 +19,7 @@ class PublicSource(BaseModel):
     url: str | None = None
     published_at: str | None = None
     section_path: list[str] = Field(default_factory=list)
+    page_numbers: list[int] = Field(default_factory=list)
 
 
 class PublicChatResponse(BaseModel):

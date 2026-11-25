@@ -14,6 +14,7 @@ import json
 import math
 import time
 import uuid
+from dataclasses import replace
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -30,9 +31,26 @@ from app.services.ai.embeddings import get_embedding_service
 from app.services.ai.gemini import get_gemini_service
 from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.rag.chunker import get_chunking_service
+from app.services.rag.extractors import PageSpan
 from app.services.rag.publication_policy import ensure_validated
 
 logger = structlog.get_logger()
+
+
+def _attach_pages(chunks: list[ChunkResult], pages: tuple[PageSpan, ...]) -> list[ChunkResult]:
+    """Associate chunks with physical PDF pages they actually overlap."""
+    return [
+        replace(
+            chunk,
+            page_numbers=tuple(
+                page.number
+                for page in pages
+                if page.start < chunk.end_char and chunk.start_char < page.end
+            ),
+        )
+        for chunk in chunks
+    ]
+
 
 # ---------------------------------------------------------------------------
 # Prometheus metrics
@@ -89,6 +107,7 @@ class IngestionService:
         document_id: uuid.UUID,
         content: str,
         title: str,
+        pages: tuple[PageSpan, ...] = (),
     ) -> int:
         """Serialize ingestion per tenant/document across worker processes."""
         async with tenant.db_session() as lock_session:
@@ -96,7 +115,7 @@ class IngestionService:
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
                 {"lock_key": f"kb:{tenant.id}:{document_id}"},
             )
-            return await self._ingest_locked(tenant, document_id, content, title)
+            return await self._ingest_locked(tenant, document_id, content, title, pages)
 
     async def _ingest_locked(
         self,
@@ -104,6 +123,7 @@ class IngestionService:
         document_id: uuid.UUID,
         content: str,
         title: str,
+        pages: tuple[PageSpan, ...] = (),
     ) -> int:
         """Ingest a document: chunk, enrich, embed, index.
 
@@ -161,6 +181,8 @@ class IngestionService:
 
             # 4. Chunk the content
             chunk_results = self._chunker.chunk_text(content)
+            if pages:
+                chunk_results = _attach_pages(chunk_results, pages)
             log.info("chunks_created", count=len(chunk_results))
 
             # 5. Enrich metadata via Gemini (best-effort)
@@ -302,6 +324,7 @@ class IngestionService:
         document_id: uuid.UUID,
         content: str,
         title: str,
+        pages: tuple[PageSpan, ...] = (),
     ) -> int:
         """Delete existing chunks and re-ingest the document.
 
@@ -314,7 +337,7 @@ class IngestionService:
         Returns:
             Number of new chunks created.
         """
-        return await self.ingest_document(tenant, document_id, content, title)
+        return await self.ingest_document(tenant, document_id, content, title, pages)
 
     # -----------------------------------------------------------------------
     # Private helpers
@@ -513,6 +536,7 @@ class IngestionService:
                 "start_char": chunk.start_char,
                 "end_char": chunk.end_char,
                 "section_path": list(chunk.section_path),
+                "page_numbers": list(chunk.page_numbers),
                 "content": chunk.content,
                 "title": title,
                 "source_authority": provenance.get("source_authority"),
@@ -676,6 +700,7 @@ class IngestionService:
                     "start_char": chunk.start_char,
                     "end_char": chunk.end_char,
                     "section_path": list(chunk.section_path),
+                    "page_numbers": list(chunk.page_numbers),
                 }
                 db_chunk = KBChunk(
                     document_id=document_id,

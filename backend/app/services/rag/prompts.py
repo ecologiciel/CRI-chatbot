@@ -211,7 +211,11 @@ class PromptTemplates:
         chunk_parts: list[str] = []
         for chunk in chunks:
             title = chunk.metadata.get("title", "Document")
-            chunk_parts.append(f"[Source: {title} | score: {chunk.score:.2f}]\n{chunk.content}")
+            pages = chunk.metadata.get("page_numbers") or []
+            page_label = f" | pages: {', '.join(str(page) for page in pages)}" if pages else ""
+            chunk_parts.append(
+                f"[Source: {title}{page_label} | score: {chunk.score:.2f}]\n{chunk.content}"
+            )
         chunks_text = (
             "\n\n---\n\n".join(chunk_parts) if chunk_parts else "Aucun contexte disponible."
         )
@@ -255,6 +259,8 @@ class PromptTemplates:
                 details.append(str(source["published_at"]))
             if source.get("authority"):
                 details.append(str(source["authority"]))
+            if source.get("page_numbers"):
+                details.append("p. " + ", ".join(str(page) for page in source["page_numbers"]))
             reference = source.get("url") or source.get("reference")
             line = f"{index}. " + " — ".join(details)
             if reference:

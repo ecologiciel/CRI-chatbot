@@ -49,6 +49,34 @@ def test_public_source_preserves_section_path():
     assert source.section_path == ["Guide", "Export"]
 
 
+def test_source_merges_verified_pages_for_the_same_document():
+    from app.schemas.public_chat import PublicSource
+    from app.services.rag.generation import GenerationService
+
+    chunks = [
+        RetrievedChunk(
+            chunk_id=str(i),
+            document_id=doc,
+            content="texte",
+            score=0.9,
+            metadata={"title": doc, "page_numbers": pages},
+        )
+        for i, (doc, pages) in enumerate(
+            [
+                ("guide", [3]),
+                ("autre", []),
+                ("guide", [1, 3, -1, True]),
+                ("troisieme", [2]),
+                ("quatrieme", [4]),
+            ]
+        )
+    ]
+    sources = [PublicSource.model_validate(s) for s in GenerationService._build_sources(chunks)]
+    assert len(sources) == 3
+    assert sources[0].page_numbers == [1, 3]
+    assert sources[1].page_numbers == []
+
+
 def _make_chunks(n: int = 3, score: float = 0.9) -> list[RetrievedChunk]:
     """Create sample RetrievedChunk instances."""
     return [

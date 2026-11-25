@@ -21,7 +21,7 @@ from sqlalchemy import or_, select
 from app.core.config import get_settings
 from app.models.enums import KBDocumentStatus
 from app.models.kb import KBDocument
-from app.services.rag.extractors import extract_text
+from app.services.rag.extractors import extract_document
 
 logger = structlog.get_logger()
 
@@ -134,11 +134,13 @@ async def ingest_document_task(
 
         # 4. Extract text
         filename = doc.file_path.rsplit("/", 1)[-1] if "/" in doc.file_path else doc.file_path
-        content = extract_text(file_bytes, filename)
+        extracted = extract_document(file_bytes, filename)
 
         # 5. Run ingestion pipeline
         service = get_ingestion_service()
-        chunk_count = await service.ingest_document(tenant, doc_uuid, content, doc.title)
+        chunk_count = await service.ingest_document(
+            tenant, doc_uuid, extracted.text, doc.title, pages=extracted.pages
+        )
 
         duration = round(time.monotonic() - start, 1)
         log.info("ingestion_complete", chunk_count=chunk_count, duration_s=duration)
@@ -197,11 +199,13 @@ async def reindex_document_task(
 
         # Extract text
         filename = doc.file_path.rsplit("/", 1)[-1] if "/" in doc.file_path else doc.file_path
-        content = extract_text(file_bytes, filename)
+        extracted = extract_document(file_bytes, filename)
 
         # Reindex (delete old chunks + re-ingest)
         service = get_ingestion_service()
-        chunk_count = await service.reindex_document(tenant, doc_uuid, content, doc.title)
+        chunk_count = await service.reindex_document(
+            tenant, doc_uuid, extracted.text, doc.title, pages=extracted.pages
+        )
 
         duration = round(time.monotonic() - start, 1)
         log.info("reindex_complete", chunk_count=chunk_count, duration_s=duration)

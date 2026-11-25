@@ -283,26 +283,34 @@ class GenerationService:
     def _build_sources(chunks: list[RetrievedChunk]) -> list[dict]:
         """Create up to three stable, document-level citations for the user."""
         sources: list[dict] = []
-        seen_documents: set[str] = set()
+        by_document: dict[str, dict] = {}
         for chunk in chunks:
-            if chunk.document_id in seen_documents:
-                continue
-            seen_documents.add(chunk.document_id)
             metadata = chunk.metadata
-            sources.append(
-                {
-                    "document_id": chunk.document_id,
-                    "title": metadata.get("title", "Document"),
-                    "authority": metadata.get("source_authority"),
-                    "reference": metadata.get("source_reference"),
-                    "version": metadata.get("source_version"),
-                    "published_at": metadata.get("published_at"),
-                    "url": metadata.get("source_url"),
-                    "section_path": metadata.get("section_path") or [],
-                }
+            pages = metadata.get("page_numbers")
+            pages = (
+                sorted({page for page in pages if type(page) is int and page > 0})
+                if isinstance(pages, list)
+                else []
             )
+            if chunk.document_id in by_document:
+                source = by_document[chunk.document_id]
+                source["page_numbers"] = sorted(set(source["page_numbers"]) | set(pages))
+                continue
             if len(sources) == 3:
-                break
+                continue
+            source = {
+                "document_id": chunk.document_id,
+                "title": metadata.get("title", "Document"),
+                "authority": metadata.get("source_authority"),
+                "reference": metadata.get("source_reference"),
+                "version": metadata.get("source_version"),
+                "published_at": metadata.get("published_at"),
+                "url": metadata.get("source_url"),
+                "section_path": metadata.get("section_path") or [],
+                "page_numbers": pages,
+            }
+            sources.append(source)
+            by_document[chunk.document_id] = source
         return sources
 
     @staticmethod

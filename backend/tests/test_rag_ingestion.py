@@ -14,6 +14,21 @@ os.environ.setdefault("REDIS_PASSWORD", "test")
 from app.core.exceptions import IngestionError
 from app.core.tenant import TenantContext
 from app.schemas.rag import ChunkResult
+from app.services.rag.extractors import PageSpan
+from app.services.rag.ingestion import _attach_pages
+
+
+def test_chunks_receive_only_physically_overlapping_pages():
+    chunks = [
+        ChunkResult("abc", 0, 1, 0, 3),
+        ChunkResult("c\n\ndef", 1, 2, 2, 8),
+        ChunkResult("def", 2, 1, 5, 8),
+    ]
+    pages = (PageSpan(1, 0, 3), PageSpan(3, 5, 8))
+    annotated = _attach_pages(chunks, pages)
+    assert [chunk.page_numbers for chunk in annotated] == [(1,), (1, 3), (3,)]
+    assert chunks[0].page_numbers == ()
+
 
 # ---------------------------------------------------------------------------
 # Fixtures

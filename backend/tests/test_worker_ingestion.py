@@ -11,6 +11,7 @@ import pytest
 from app.core.exceptions import IngestionError
 from app.core.tenant import TenantContext
 from app.models.enums import KBDocumentStatus
+from app.services.rag.extractors import ExtractedDocument, PageSpan
 
 TEST_TENANT = TenantContext(
     id=uuid.uuid4(),
@@ -118,8 +119,8 @@ class TestIngestDocumentTask:
                 return_value=mock_service,
             ),
             patch(
-                "app.workers.ingestion.extract_text",
-                return_value="Extracted text content",
+                "app.workers.ingestion.extract_document",
+                return_value=ExtractedDocument("Extracted text content", (PageSpan(2, 0, 22),)),
             ),
         ):
             result = await ingest_document_task({}, "rabat", str(doc_id))
@@ -127,6 +128,7 @@ class TestIngestDocumentTask:
         assert result["status"] == "ok"
         assert result["chunk_count"] == 8
         mock_service.ingest_document.assert_called_once()
+        assert mock_service.ingest_document.await_args.kwargs["pages"] == (PageSpan(2, 0, 22),)
 
     @pytest.mark.asyncio
     async def test_ingest_document_not_found(self):
@@ -178,7 +180,7 @@ class TestIngestDocumentTask:
             ),
             patch("app.core.minio.get_minio", return_value=mock_minio),
             patch(
-                "app.workers.ingestion.extract_text",
+                "app.workers.ingestion.extract_document",
                 side_effect=IngestionError("Extraction failed"),
             ),
             pytest.raises(IngestionError),
@@ -227,7 +229,8 @@ class TestReindexDocumentTask:
             ),
             patch("app.services.rag.ingestion.get_ingestion_service", return_value=service),
             patch(
-                "app.workers.ingestion.extract_text", side_effect=IngestionError("sensitive detail")
+                "app.workers.ingestion.extract_document",
+                side_effect=IngestionError("sensitive detail"),
             ),
             pytest.raises(IngestionError),
         ):
@@ -263,8 +266,8 @@ class TestReindexDocumentTask:
                 return_value=mock_service,
             ),
             patch(
-                "app.workers.ingestion.extract_text",
-                return_value="Reindexed text",
+                "app.workers.ingestion.extract_document",
+                return_value=ExtractedDocument("Reindexed text", (PageSpan(3, 0, 14),)),
             ),
         ):
             result = await reindex_document_task({}, "rabat", str(doc_id))
@@ -272,3 +275,4 @@ class TestReindexDocumentTask:
         assert result["status"] == "ok"
         assert result["chunk_count"] == 12
         mock_service.reindex_document.assert_called_once()
+        assert mock_service.reindex_document.await_args.kwargs["pages"] == (PageSpan(3, 0, 14),)

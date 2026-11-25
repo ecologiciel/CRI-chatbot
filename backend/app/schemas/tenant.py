@@ -19,6 +19,7 @@ _RESERVED_SLUGS = frozenset(
         "public",
         "system",
         "tenant",
+        "template",
         "test",
     }
 )
@@ -43,8 +44,8 @@ class TenantCreate(BaseModel):
         ...,
         min_length=2,
         max_length=50,
-        pattern=r"^[a-z][a-z0-9-]*$",
-        description="Identifiant unique (lowercase, alphanumeric, hyphens)",
+        pattern=r"^[a-z][a-z0-9]*$",
+        description="Identifiant unique en minuscules et chiffres, commençant par une lettre",
     )
     region: str = Field(..., min_length=2, max_length=255, description="Region couverte")
     logo_url: str | None = Field(default=None, description="URL logo")

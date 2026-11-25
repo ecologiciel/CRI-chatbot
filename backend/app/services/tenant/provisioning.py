@@ -47,6 +47,16 @@ _TEMPLATE_TABLES = [
     "incentive_items",
     "feedback",
     "unanswered_questions",
+    "campaigns",
+    "campaign_recipients",
+    "escalations",
+    "internal_whitelist",
+    "dossiers",
+    "sync_configs",
+    "sync_logs",
+    "dossier_history",
+    "rag_evaluation_cases",
+    "rag_evaluation_runs",
 ]
 
 # Cross-table FK constraints to re-create after cloning.
@@ -56,6 +66,12 @@ _FK_CONSTRAINTS: list[tuple[str, str, str, str, str, str]] = [
     ("messages", "fk_msg_conversation", "conversation_id", "conversations", "id", "CASCADE"),
     ("kb_chunks", "fk_chunk_document", "document_id", "kb_documents", "id", "CASCADE"),
     ("feedback", "fk_feedback_message", "message_id", "messages", "id", "CASCADE"),
+    ("campaign_recipients", "fk_recip_campaign", "campaign_id", "campaigns", "id", "CASCADE"),
+    ("campaign_recipients", "fk_recip_contact", "contact_id", "contacts", "id", "NO ACTION"),
+    ("escalations", "fk_escalation_conv", "conversation_id", "conversations", "id", "CASCADE"),
+    ("dossiers", "fk_dossier_contact", "contact_id", "contacts", "id", "NO ACTION"),
+    ("dossier_history", "fk_history_dossier", "dossier_id", "dossiers", "id", "CASCADE"),
+    ("dossier_history", "fk_history_sync", "sync_log_id", "sync_logs", "id", "SET NULL"),
     (
         "incentive_categories",
         "fk_category_parent",
@@ -68,14 +84,13 @@ _FK_CONSTRAINTS: list[tuple[str, str, str, str, str, str]] = [
 ]
 
 # Cross-schema FK (references public.admins)
-_CROSS_SCHEMA_FK = (
-    "unanswered_questions",
-    "fk_uq_reviewer",
-    "reviewed_by",
-    "public.admins",
-    "id",
-    "SET NULL",
-)
+_CROSS_SCHEMA_FKS = [
+    ("unanswered_questions", "fk_uq_reviewer", "reviewed_by", "public.admins", "id", "SET NULL"),
+    ("campaigns", "fk_campaign_creator", "created_by", "public.admins", "id", "NO ACTION"),
+    ("escalations", "fk_escalation_assignee", "assigned_to", "public.admins", "id", "SET NULL"),
+    ("internal_whitelist", "fk_whitelist_creator", "added_by", "public.admins", "id", "SET NULL"),
+    ("sync_logs", "fk_sync_trigger", "triggered_by", "public.admins", "id", "SET NULL"),
+]
 
 
 class TenantProvisioningService:
@@ -326,17 +341,17 @@ class TenantProvisioningService:
                     )
                 )
 
-            # Cross-schema FK: unanswered_questions.reviewed_by → public.admins.id
-            tbl, constraint, col, ref_tbl, ref_col, on_del = _CROSS_SCHEMA_FK
-            await session.execute(
-                text(
-                    f"ALTER TABLE {schema}.{tbl} "
-                    f"ADD CONSTRAINT {constraint} "
-                    f"FOREIGN KEY ({col}) "
-                    f"REFERENCES {ref_tbl}({ref_col}) "
-                    f"ON DELETE {on_del}"
+            # Cross-schema references to shared administrators.
+            for tbl, constraint, col, ref_tbl, ref_col, on_del in _CROSS_SCHEMA_FKS:
+                await session.execute(
+                    text(
+                        f"ALTER TABLE {schema}.{tbl} "
+                        f"ADD CONSTRAINT {constraint} "
+                        f"FOREIGN KEY ({col}) "
+                        f"REFERENCES {ref_tbl}({ref_col}) "
+                        f"ON DELETE {on_del}"
+                    )
                 )
-            )
 
             await session.commit()
 

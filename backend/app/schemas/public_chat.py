@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 class PublicSessionResponse(BaseModel):
     tenant_slug: str
+    tenant_name: str
     expires_in_seconds: int
 
 

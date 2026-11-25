@@ -81,7 +81,9 @@ async def create_session(slug: str, response: Response) -> PublicSessionResponse
         samesite="strict",
         path=f"/api/v1/public/{slug}",
     )
-    return PublicSessionResponse(tenant_slug=slug, expires_in_seconds=SESSION_TTL_SECONDS)
+    return PublicSessionResponse(
+        tenant_slug=slug, tenant_name=tenant.name, expires_in_seconds=SESSION_TTL_SECONDS
+    )
 
 
 @router.post("/{slug}/messages", response_model=PublicChatResponse)

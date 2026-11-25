@@ -193,3 +193,31 @@ class TestChunkEmptyText:
         service = ChunkingService()
         with pytest.raises(ChunkingError, match="Cannot chunk empty text"):
             service.chunk_text("   \n\n  \t  ")
+
+
+def test_numbered_legal_articles_remain_whole_when_they_fit():
+    text = (
+        "# Loi\nPréambule.\n\nARTICLE 1\nPremier paragraphe.\n\n"
+        "Second paragraphe.\n\nARTICLE 2\nDispositions finales.\n"
+    )
+    chunks = ChunkingService(chunk_size=30, overlap=4, max_chunk_size=30).chunk_text(text)
+    article = "ARTICLE 1\nPremier paragraphe.\n\nSecond paragraphe.\n\n"
+    assert any(article in c.content and c.section_path == ("Loi", "ARTICLE 1") for c in chunks)
+    assert any(c.section_path == ("Loi", "ARTICLE 2") for c in chunks)
+    assert all(c.token_count <= 30 and text[c.start_char : c.end_char] == c.content for c in chunks)
+
+
+def test_legal_heading_detection_excludes_prose_and_code():
+    text = "# Guide\nArticle 2 précise la règle.\n```\nARTICLE 42\n```\nالمادة ٣\nنص تجريبي.\n"
+    chunks = ChunkingService().chunk_text(text)
+    assert any("ARTICLE 42" in c.content and c.section_path == ("Guide",) for c in chunks)
+    assert any(c.section_path == ("Guide", "المادة ٣") for c in chunks)
+
+
+def test_oversized_legal_article_still_respects_token_limit():
+    text = "ARTICLE 1\n" + "disposition légale longue. " * 120 + "\nARTICLE 2\nFin.\n"
+    chunks = ChunkingService(chunk_size=40, overlap=8, max_chunk_size=40).chunk_text(text)
+    assert len([c for c in chunks if c.section_path == ("ARTICLE 1",)]) > 1
+    assert all(c.token_count <= 40 for c in chunks)
+    assert all(text[c.start_char : c.end_char] == c.content for c in chunks)
+    assert any(c.section_path == ("ARTICLE 2",) for c in chunks)

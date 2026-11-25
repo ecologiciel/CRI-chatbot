@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -93,6 +94,13 @@ def compare_pdf(path: Path) -> dict:
 
     data = path.read_bytes()
     extracted = extract_document(data, path.name)
+    # Only standalone French article headings; this does not assess legal meaning.
+    article_headings = list(
+        re.finditer(r"(?im)^[ \t]*article[ \t]+[0-9]+[ \t]*[.:-]?[ \t]*\r?$", extracted.text)
+    )
+    articles = [
+        (a.start(), b.start()) for a, b in zip(article_headings, article_headings[1:], strict=False)
+    ]
     rows = []
     for target in (256, 512, 768):
         for percent in (0, 10, 20):
@@ -101,6 +109,14 @@ def compare_pdf(path: Path) -> dict:
             chunks = _attach_pages(chunker.chunk_text(extracted.text), extracted.pages)
             duration = time.perf_counter() - started
             validate_chunks(extracted.text, chunks, target)
+            fit_articles = [
+                (a, b) for a, b in articles if chunker.count_tokens(extracted.text[a:b]) <= target
+            ]
+            split_articles = [
+                (a, b)
+                for a, b in fit_articles
+                if not any(chunk.start_char <= a and b <= chunk.end_char for chunk in chunks)
+            ]
             rows.append(
                 {
                     "target_tokens": target,
@@ -109,6 +125,8 @@ def compare_pdf(path: Path) -> dict:
                     "indexed_tokens": sum(c.token_count for c in chunks),
                     "max_chunk_tokens": max(c.token_count for c in chunks),
                     "chunks_with_pages": sum(bool(c.page_numbers) for c in chunks),
+                    "articles_fit": len(fit_articles),
+                    "articles_split_despite_fit": len(split_articles),
                     "elapsed_seconds_single_run": round(duration, 3),
                 }
             )
@@ -116,6 +134,7 @@ def compare_pdf(path: Path) -> dict:
         "sha256": hashlib.sha256(data).hexdigest(),
         "pages_with_extracted_text": len(extracted.pages),
         "extracted_characters": len(extracted.text),
+        "standalone_article_headings": len(article_headings),
         "results": rows,
         "limitations": "One PDF, one timing per configuration; no OCR or semantic accuracy assessment.",
     }

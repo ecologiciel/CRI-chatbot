@@ -128,6 +128,16 @@ class ChunkingService:
                     level = len(heading.group(1))
                     path = path[: level - 1] + [heading.group(2)]
                     headings.append((offset, tuple(path)))
+                else:
+                    # Legal provisions often use unadorned numbered headings in PDFs.
+                    # Require a standalone heading so prose references remain prose.
+                    article = re.match(
+                        r"^[ \t]*(?:article|art\.|المادة)[ \t]+[0-9٠-٩]+[ \t]*[.:-]?[ \t]*(?:\r?\n)?$",
+                        line,
+                        re.IGNORECASE,
+                    )
+                    if article:
+                        headings.append((offset, (*path, line.strip())))
             offset += len(line)
         start = 0
         length = len(text)
@@ -150,18 +160,20 @@ class ChunkingService:
                     end -= 1
                 if end == start:
                     raise ChunkingError(message="Cannot split text within token limit")
+
+            # If the whole section fits, preserve it before considering a
+            # paragraph or sentence boundary inside the section.
+            next_heading = next((pos for pos, _ in headings if start < pos <= end), None)
+            if next_heading is not None:
+                end = next_heading
+            elif end < length:
                 prefix = text[start:end]
                 paragraphs = list(re.finditer(r"\n\s*\n", prefix))
                 sentences = list(re.finditer(r"(?<=[.!?؟])\s+", prefix))
-                # Avoid selecting a boundary so early it yields tiny chunks.
                 for candidates in (paragraphs, sentences):
                     if candidates and candidates[-1].end() >= len(prefix) // 2:
                         end = start + candidates[-1].end()
                         break
-
-            next_heading = next((pos for pos, _ in headings if start < pos < end), None)
-            if next_heading is not None:
-                end = next_heading
             section = next((p for pos, p in reversed(headings) if pos <= start), ())
             content = text[start:end]
             chunks.append(

@@ -107,8 +107,8 @@ Connexion admin avec email et mot de passe.
 
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "access_token": "<jeton-acces>",
+  "refresh_token": "<jeton-actualisation>",
   "token_type": "bearer",
   "expires_in": 1800
 }
@@ -130,7 +130,7 @@ Renouveler le couple access/refresh token. Le refresh token est a usage unique.
 
 ```json
 {
-  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+  "refresh_token": "<jeton-actualisation>"
 }
 ```
 
@@ -174,7 +174,7 @@ Invalider un refresh token.
 
 ```json
 {
-  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+  "refresh_token": "<jeton-actualisation>"
 }
 ```
 

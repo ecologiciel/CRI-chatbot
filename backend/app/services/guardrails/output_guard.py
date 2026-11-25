@@ -64,15 +64,15 @@ _INFORMAL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 _DISCLAIMERS = {
     "fr": (
         "\n\n_Cette information est fournie à titre indicatif. Pour des "
-        "renseignements officiels, veuillez contacter votre CRI directement._"
+        "renseignements officiels, veuillez contacter l'institution par ses canaux officiels._"
     ),
     "ar": (
         "\n\n_هذه المعلومات إرشادية فقط. للحصول على معلومات رسمية، يرجى "
-        "الاتصال بمركز الاستثمار الجهوي الخاص بكم._"
+        "الاتصال بالمؤسسة عبر قنواتها الرسمية._"
     ),
     "en": (
         "\n\n_This information is provided for guidance only. For official "
-        "information, please contact your CRI directly._"
+        "information, please contact the institution through its official channels._"
     ),
 }
 

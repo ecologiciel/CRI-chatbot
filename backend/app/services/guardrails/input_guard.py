@@ -133,10 +133,9 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 # Topic classification prompt — minimal tokens
 _TOPIC_SYSTEM_PROMPT = (
-    "Tu es un classificateur de pertinence. Le contexte est un Centre Régional "
-    "d'Investissement (CRI) au Maroc. Réponds UNIQUEMENT par 'oui' ou 'non'. "
-    "La question concerne-t-elle l'investissement, la création d'entreprise, "
-    "les procédures administratives CRI, les incitations fiscales, ou le suivi de dossier?"
+    "Tu es un classificateur de pertinence pour une institution nommée {institution}. "
+    "La question peut-elle concerner ses missions, produits, services ou procédures ? "
+    "En cas de doute, réponds oui. Réponds UNIQUEMENT par 'oui' ou 'non'."
 )
 
 
@@ -257,7 +256,7 @@ class InputGuardService:
         tenant: TenantContext,
         language: str,
     ) -> InputGuardResult | None:
-        """Ask Gemini if the topic is CRI-related (~20 tokens).
+        """Ask Gemini if the topic might relate to the tenant institution.
 
         Returns warn result for off-topic, None for on-topic.
         Fail-open: on Gemini failure, returns None (input allowed through).
@@ -273,7 +272,7 @@ class InputGuardService:
         try:
             request = GeminiRequest(
                 contents=text,
-                system_instruction=_TOPIC_SYSTEM_PROMPT,
+                system_instruction=_TOPIC_SYSTEM_PROMPT.format(institution=tenant.name),
                 max_output_tokens=10,
                 temperature=0.0,
             )
@@ -284,7 +283,7 @@ class InputGuardService:
                 return InputGuardResult(
                     is_safe=False,
                     action="warn",
-                    reason="Message appears to be off-topic for CRI services",
+                    reason="Message appears to be outside the institution's scope",
                     category="off_topic",
                 )
             # "oui" or anything else → on-topic

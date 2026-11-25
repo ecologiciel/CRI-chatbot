@@ -24,8 +24,8 @@ from sqlalchemy import or_, select
 from app.core.exceptions import RetrievalError
 from app.core.qdrant import get_qdrant
 from app.core.tenant import TenantContext
-from app.models.kb import KBChunk, KBDocument
 from app.models.enums import KBDocumentStatus
+from app.models.kb import KBChunk, KBDocument
 from app.schemas.rag import RetrievalResult, RetrievedChunk
 from app.services.ai.embeddings import get_embedding_service
 

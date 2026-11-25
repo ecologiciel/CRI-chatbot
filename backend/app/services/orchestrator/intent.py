@@ -19,6 +19,7 @@ from app.services.guardrails.input_guard import (
     get_input_guard_service,
 )
 from app.services.orchestrator.state import ConversationState, IntentType
+from app.services.rag.prompts import PromptTemplates
 
 logger = structlog.get_logger()
 
@@ -119,7 +120,10 @@ class IntentDetector:
 
         if not guard_result.is_safe:
             updates["is_safe"] = False
-            updates["guard_message"] = guard_result.reason
+            updates["guard_message"] = PromptTemplates.get_message(
+                "out_of_scope" if guard_result.category == "off_topic" else "error_generic",
+                lang_result.language.value,
+            )
             updates["intent"] = IntentType.HORS_PERIMETRE
             self._logger.warning(
                 "intent_blocked_by_guard",

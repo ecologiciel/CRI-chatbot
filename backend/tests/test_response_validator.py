@@ -116,7 +116,7 @@ class TestResponseValidator:
         """Low confidence → disclaimer appended to response."""
         disclaimer_text = (
             "\n\n_Cette information est fournie à titre indicatif. Pour des "
-            "renseignements officiels, veuillez contacter votre CRI directement._"
+            "renseignements officiels, veuillez contacter l'institution par ses canaux officiels._"
         )
         mock_guard = AsyncMock()
         mock_guard.check = AsyncMock(

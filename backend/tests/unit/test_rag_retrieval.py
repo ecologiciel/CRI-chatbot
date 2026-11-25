@@ -27,6 +27,7 @@ def test_published_filter_is_applied_alongside_existing_conditions():
 @pytest.mark.asyncio
 async def test_published_point_query_uses_tenant_scoped_session(tenant_context):
     from contextlib import asynccontextmanager
+
     from app.core.tenant import TenantContext
 
     session = AsyncMock()

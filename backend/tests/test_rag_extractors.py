@@ -91,6 +91,7 @@ class TestExtractPDF:
 class TestExtractDocx:
     def test_docx_table_keeps_headings_and_document_order(self):
         import io
+
         from docx import Document
 
         doc = Document()

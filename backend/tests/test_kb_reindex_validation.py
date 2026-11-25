@@ -1,18 +1,17 @@
 """Reindex must preserve the knowledge-base approval boundary."""
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 
-from app.api.v1.kb import _ensure_reindexable
-from app.api.v1.kb import _enqueue_ingestion
+from app.api.v1.kb import _enqueue_ingestion, _ensure_reindexable
 from app.core.exceptions import ValidationError
 from app.core.tenant import TenantContext
-from fastapi import HTTPException
 from app.models.enums import KBDocumentStatus
 
 

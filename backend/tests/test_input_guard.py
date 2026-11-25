@@ -119,6 +119,21 @@ class TestInputGuardTopic:
     """Tests for Gemini-based topic classification."""
 
     @pytest.mark.asyncio
+    async def test_topic_classifier_uses_current_institution(self):
+        tenant = TenantContext(
+            id=uuid.uuid4(), slug="onssa", name="ONSSA", status="active", whatsapp_config=None
+        )
+        gemini = _make_mock_gemini("oui")
+        with patch("app.services.guardrails.input_guard.get_gemini_service", return_value=gemini):
+            result = await InputGuardService().check(
+                "Quel est le tarif de certification phytosanitaire ?", tenant=tenant
+            )
+        prompt = gemini.generate.await_args.args[0].system_instruction
+        assert result.is_safe is True
+        assert "ONSSA" in prompt
+        assert "CRI" not in prompt
+
+    @pytest.mark.asyncio
     async def test_off_topic_warned(self):
         """Off-topic message (Gemini returns 'non') gets warn action."""
         with patch(

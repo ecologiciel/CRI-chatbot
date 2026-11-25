@@ -58,9 +58,11 @@ async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damag
     import app.models  # noqa: F401 — register relationships for ORM configuration
     from app.models.tenant import Tenant
     from app.models.tenant_key import TenantKey
+    from app.scripts.kms_rotation import perform_action
     from app.services.crypto.master_key_coordinator import (
         _env_key,
         _journal_key,
+        abort_incomplete_preparation,
         apply_rotation,
         finalize_rollback,
         finalize_rotation,
@@ -135,10 +137,79 @@ async def test_postgres_transaction_rewraps_all_versions_and_rolls_back_on_damag
         env_path.write_bytes(b"OTHER=unchanged\nKMS_MASTER_KEY=" + new.hex().encode() + b"\n")
         journal = tmp_path / "rotation-active"
 
+        # A process can stop while initially writing journal files, before READY.
+        journal.mkdir()
+        (journal / "old.key").write_bytes(new.hex().encode("ascii"))
+        (journal / "new.key").write_bytes(b"partial")
+        (journal / "unexpected").write_bytes(b"preserve")
+        with pytest.raises(ValueError, match="not an incomplete preparation"):
+            await abort_incomplete_preparation(factory, env_path, journal)
+        (journal / "unexpected").unlink()
+        env_path.write_bytes(b"KMS_MASTER_KEY=" + secrets.token_hex(32).encode() + b"\n")
+        with pytest.raises(ValueError, match="Journal key and environment do not match"):
+            await abort_incomplete_preparation(factory, env_path, journal)
+        assert journal.exists()
+        (journal / "old.key").write_bytes(b"partial")
+        with pytest.raises(ValueError, match="Database does not match environment"):
+            await abort_incomplete_preparation(factory, env_path, journal)
+        assert journal.exists()
+        env_path.write_bytes(b"OTHER=unchanged\nKMS_MASTER_KEY=" + new.hex().encode() + b"\n")
+        await abort_incomplete_preparation(factory, env_path, journal)
+        assert not journal.exists()
+        await assert_master_key_consistent(factory, new)
+
         # Interrupted after the durable journal, before the database transaction.
-        prepare_rotation(env_path, journal)
-        await rollback_rotation(factory, env_path, journal)
-        await finalize_rollback(factory, env_path, journal)
+        await perform_action("prepare", factory, env_path, journal)
+        await perform_action("rollback", factory, env_path, journal)
+        await perform_action("finalize-rollback", factory, env_path, journal)
+        assert _env_key(env_path) == new and not journal.exists()
+        with pytest.raises(ValueError, match="Unknown KMS rotation action"):
+            await perform_action("unknown", factory, env_path, journal)
+
+        # Exercise the actual command entry point against this disposable database.
+        from sqlalchemy.engine import make_url
+
+        parsed = make_url(dsn)
+        cli_env = dict(os.environ)
+        cli_env.update(
+            {
+                "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+                "ENVIRONMENT": "development",
+                "POSTGRES_HOST": parsed.host or "localhost",
+                "POSTGRES_PORT": str(parsed.port or 5432),
+                "POSTGRES_USER": parsed.username or "postgres",
+                "POSTGRES_PASSWORD": parsed.password or "test",
+                "POSTGRES_DB": parsed.database or "kms_rotation_test",
+                "REDIS_PASSWORD": "test",
+                "MINIO_ROOT_PASSWORD": "test",
+                "KMS_MASTER_KEY": new.hex(),
+            }
+        )
+
+        async def run_cli(action: str) -> None:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "app.scripts.kms_rotation",
+                action,
+                "--env-path",
+                str(env_path),
+                "--journal",
+                str(journal),
+                env=cli_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            output, errors = await asyncio.wait_for(process.communicate(), timeout=30)
+            assert process.returncode == 0, errors.decode(errors="replace")
+            assert b"KMS action" in output
+            assert new.hex().encode() not in output
+
+        await run_cli("prepare")
+        await run_cli("apply")
+        await assert_master_key_consistent(factory, _env_key(env_path))
+        await run_cli("rollback")
+        await run_cli("finalize-rollback")
         assert _env_key(env_path) == new and not journal.exists()
 
         async def crash_after(code: str, expected: int) -> None:

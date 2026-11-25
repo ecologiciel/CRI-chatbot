@@ -119,6 +119,41 @@ async def _database_uses_key(factory: async_sessionmaker[AsyncSession], key: byt
         return True
 
 
+async def abort_incomplete_preparation(
+    factory: async_sessionmaker[AsyncSession], env_path: Path, journal: Path
+) -> None:
+    """Remove a partial pre-READY journal only after authenticating the database.
+
+    All other rotation processes and application writers must be stopped. The
+    coordinator never changes keys before READY exists. Do not remove an
+    unexpected file or a journal already entering an apply/finalize operation.
+    """
+    if journal.is_symlink() or not journal.is_dir():
+        raise ValueError("Rotation journal must be a real directory")
+    if any(
+        child.name not in {"old.key", "new.key"} or not child.is_file() or child.is_symlink()
+        for child in journal.iterdir()
+    ):
+        raise ValueError("Journal is not an incomplete preparation")
+    current_key = _env_key(env_path)
+    old_file = journal / "old.key"
+    if old_file.exists():
+        try:
+            old_key = _journal_key(journal, "old.key")
+        except ValueError:
+            # The process may have stopped while writing this journal file.
+            old_key = None
+        if old_key is not None and old_key != current_key:
+            raise ValueError("Journal key and environment do not match")
+    if not await _database_uses_key(factory, current_key):
+        raise ValueError("Database does not match environment; journal preserved")
+    for name in ("old.key", "new.key"):
+        (journal / name).unlink(missing_ok=True)
+    _sync_dir(journal)
+    journal.rmdir()
+    _sync_dir(journal.parent)
+
+
 async def apply_rotation(
     factory: async_sessionmaker[AsyncSession], env_path: Path, journal: Path
 ) -> int:

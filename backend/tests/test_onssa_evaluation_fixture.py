@@ -74,3 +74,34 @@ async def test_seed_adds_only_missing_case_and_keeps_human_review_unset():
     assert len(added) == 1
     assert added[0].expected_document_ids == [str(document.id)]
     assert added[0].human_faithfulness is None
+
+
+def test_chunking_comparison_covers_candidates_and_rejects_missing_passages(tmp_path):
+    from app.scripts.compare_onssa_chunking import compare
+
+    (tmp_path / "corpus").mkdir()
+    (tmp_path / "corpus" / "sample.md").write_text("# Titre\n\nTexte exact.", encoding="utf-8")
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"sources": [{"slug": "sample"}]}), encoding="utf-8"
+    )
+    fixture = {
+        "cases": [
+            {
+                "id": "ok",
+                "answerable": True,
+                "expected_document": "sample.md",
+                "expected_passage": "Texte exact.",
+            },
+            {"id": "negative", "answerable": False},
+        ]
+    }
+    case_path = tmp_path / "evaluation-candidats.json"
+    case_path.write_text(json.dumps(fixture), encoding="utf-8")
+    report = compare(tmp_path)
+    assert len(report["results"]) == 9
+    assert report["negative_cases_excluded"] == 1
+    assert all(row["candidate_spans_contained"] == 1 for row in report["results"])
+    fixture["cases"][0]["expected_passage"] = "absent"
+    case_path.write_text(json.dumps(fixture), encoding="utf-8")
+    with pytest.raises(ValueError, match="Candidate passage is absent"):
+        compare(tmp_path)

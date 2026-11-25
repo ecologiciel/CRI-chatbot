@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from datetime import date
 from typing import Any
@@ -161,6 +162,11 @@ class RetrievalService:
         config: Any = literal_column("'simple'::regconfig")
         vector = func.to_tsvector(config, KBChunk.content)
         search = func.websearch_to_tsquery(config, query)
+        # A natural question may contain words absent from the source even
+        # when its legal reference is exact. Add bounded reference clauses.
+        references = re.findall(r"\b\d{1,6}(?:[-/]\d{1,6}){1,3}\b", query)[:5]
+        for reference in references:
+            search = search.op("||")(func.websearch_to_tsquery(config, f'"{reference}"'))
         stmt = (
             select(KBChunk.qdrant_point_id)
             .join(KBDocument, KBDocument.id == KBChunk.document_id)

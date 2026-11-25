@@ -272,6 +272,10 @@ async def test_reindex_failure_preserves_published_search():
                 hybrid._hybrid_enabled = True
                 fused = await hybrid.retrieve(tenant, '"47-18"', top_k=2, language="fr")
                 assert str(doc_ids[2]) in {chunk.document_id for chunk in fused.chunks}
+                natural = await hybrid.retrieve(
+                    tenant, "Quelle loi 47-18 protège les plantes ?", top_k=2, language="fr"
+                )
+                assert str(doc_ids[2]) in {chunk.document_id for chunk in natural.chunks}
     finally:
         await qdrant.close()
         await engine.dispose()

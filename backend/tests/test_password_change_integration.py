@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.exceptions import AuthenticationError, ValidationError
 from app.models.admin import Admin
 from app.models.enums import AdminRole
-from app.models.tenant import Tenant  # noqa: F401 — registers the referenced table
+from app.models.tenant import Tenant
 from app.services.auth.jwt import JWTManager
 from app.services.auth.service import AuthService
 from app.services.auth.session_manager import SessionManager
@@ -52,11 +52,7 @@ async def test_password_change_revokes_sessions_and_serializes_with_login():
                 await connection.execute(text("SELECT current_database()"))
             ).scalar_one() == "auth_password_test"
             safe_database = True
-            # Only the referenced tenant primary key is needed by this isolated
-            # authentication test; no tenant records or provisioning occur.
-            await connection.execute(
-                text("CREATE TABLE IF NOT EXISTS public.tenants (id uuid PRIMARY KEY)")
-            )
+            await connection.run_sync(lambda conn: Tenant.__table__.create(conn, checkfirst=True))
             await connection.run_sync(lambda conn: Admin.__table__.create(conn, checkfirst=True))
         async with factory() as session:
             session.add(

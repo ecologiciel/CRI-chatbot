@@ -8,7 +8,7 @@ The slug is the routing key used everywhere:
   - MinIO bucket: cri-{slug}
 """
 
-from sqlalchemy import Boolean, Enum, Index, Integer, String, Text
+from sqlalchemy import Boolean, Enum, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,7 +46,7 @@ class Tenant(UUIDMixin, TimestampMixin, Base):
         JSONB,
         nullable=False,
         default=dict,
-        server_default="'{}'::jsonb",
+        server_default=text("'{}'::jsonb"),
         comment="Configuration publique du chatbot web, sans secrets",
     )
     is_demo: Mapped[bool] = mapped_column(

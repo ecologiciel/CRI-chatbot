@@ -297,6 +297,7 @@ jobs:
           pytest \
             tests/test_auth_refresh_session.py \
             tests/test_password_change_integration.py \
+            tests/test_model_json_defaults.py \
             tests/test_worker_queue_isolation.py \
             tests/unit/test_gemini_service.py \
             tests/test_rag_retrieval.py \

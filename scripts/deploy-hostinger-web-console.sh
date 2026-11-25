@@ -13,7 +13,7 @@ test -f .env.demo
 
 echo "Waiting for the API to become healthy..."
 for attempt in $(seq 1 36); do
-  if "${COMPOSE[@]}" exec -T backend python -c "import httpx; raise SystemExit(0 if httpx.get('http://localhost:8000/api/v1/health').status_code == 200 else 1)"; then
+  if "${COMPOSE[@]}" exec -T backend python -m app.scripts.healthcheck; then
     "${COMPOSE[@]}" ps
     exit 0
   fi

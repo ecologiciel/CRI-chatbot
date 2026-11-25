@@ -48,6 +48,6 @@ USER cri
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-    CMD python -c "import httpx; r = httpx.get('http://localhost:8000/api/v1/health'); exit(0 if r.status_code == 200 else 1)"
+    CMD ["python", "-m", "app.scripts.healthcheck"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

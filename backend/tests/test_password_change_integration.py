@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.exceptions import AuthenticationError, ValidationError
 from app.models.admin import Admin
 from app.models.enums import AdminRole
-from app.models.tenant import Tenant
+from app.models.tenant import Tenant  # noqa: F401 — registers the referenced table
 from app.services.auth.jwt import JWTManager
 from app.services.auth.service import AuthService
 from app.services.auth.session_manager import SessionManager
@@ -23,10 +23,15 @@ from app.services.auth.session_manager import SessionManager
 async def test_password_change_revokes_sessions_and_serializes_with_login():
     dsn = os.getenv("AUTH_PASSWORD_TEST_DSN")
     redis_url = os.getenv("RAG_AUTH_TEST_REDIS_URL")
-    if not dsn or not redis_url:
-        pytest.skip("Requires isolated auth_password_test PostgreSQL and test Redis")
+    if not dsn:
+        pytest.skip("Requires an isolated auth_password_test PostgreSQL database")
     engine = create_async_engine(dsn)
-    redis = from_url(redis_url, decode_responses=True)
+    if redis_url:
+        redis = from_url(redis_url, decode_responses=True)
+    else:
+        fakeredis = pytest.importorskip("fakeredis.aioredis")
+        pytest.importorskip("lupa")
+        redis = fakeredis.FakeRedis(decode_responses=True)
     manager = SessionManager(redis)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     admin_id = uuid.uuid4()
@@ -40,13 +45,18 @@ async def test_password_change_revokes_sessions_and_serializes_with_login():
     )
     known_jtis = []
     safe_database = False
+    admin_created = False
     try:
         async with engine.begin() as connection:
             assert (
                 await connection.execute(text("SELECT current_database()"))
             ).scalar_one() == "auth_password_test"
             safe_database = True
-            await connection.run_sync(lambda conn: Tenant.__table__.create(conn, checkfirst=True))
+            # Only the referenced tenant primary key is needed by this isolated
+            # authentication test; no tenant records or provisioning occur.
+            await connection.execute(
+                text("CREATE TABLE IF NOT EXISTS public.tenants (id uuid PRIMARY KEY)")
+            )
             await connection.run_sync(lambda conn: Admin.__table__.create(conn, checkfirst=True))
         async with factory() as session:
             session.add(
@@ -59,6 +69,7 @@ async def test_password_change_revokes_sessions_and_serializes_with_login():
                 )
             )
             await session.commit()
+            admin_created = True
 
         with (
             patch("app.services.auth.service.get_session_factory", return_value=factory),
@@ -162,7 +173,7 @@ async def test_password_change_revokes_sessions_and_serializes_with_login():
                 with pytest.raises(AuthenticationError):
                     await asyncio.wait_for(login_task, timeout=15)
     finally:
-        if safe_database:
+        if safe_database and admin_created:
             async with factory() as session:
                 await session.execute(delete(Admin).where(Admin.id == admin_id))
                 await session.commit()

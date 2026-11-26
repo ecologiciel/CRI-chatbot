@@ -274,6 +274,21 @@ def test_faq_detection_ignores_fenced_code_and_unanswered_questions():
     assert ChunkingService._labelled_faq_pairs(text) == []
 
 
+def test_faq_answer_on_following_line_stays_with_question():
+    first = "Question : Quel document ?\nRéponse :\nUn formulaire signé.\n\n"
+    second = "Q: Où déposer ?\nR:\nAu service compétent.\n"
+    text = "Préface.\n\n" + first + second
+    chunks = ChunkingService(chunk_size=35, overlap=4, max_chunk_size=35).chunk_text(text)
+    assert any(first in c.content for c in chunks)
+    assert any(second in c.content for c in chunks)
+    assert all(text[c.start_char : c.end_char] == c.content for c in chunks)
+
+
+def test_empty_faq_answer_is_not_recognized():
+    text = "Q: Exemple ?\nR:\n\nQ: Autre question ?\nR:\n# Suite\n"
+    assert ChunkingService._labelled_faq_pairs(text) == []
+
+
 def test_oversized_faq_still_respects_hard_limit():
     text = "Q: Question longue ?\nR: " + "réponse détaillée. " * 150
     service = ChunkingService(chunk_size=35, overlap=4, max_chunk_size=35)

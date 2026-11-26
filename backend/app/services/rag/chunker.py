@@ -153,12 +153,13 @@ class ChunkingService:
         """
         question = re.compile(r"^[ \t]*(?:question|q|سؤال|سوال)[ \t]*[:：][ \t]*\S", re.I)
         answer = re.compile(
-            r"^[ \t]*(?:réponse|reponse|answer|r|a|جواب|إجابة)[ \t]*[:：][ \t]*\S", re.I
+            r"^[ \t]*(?:réponse|reponse|answer|r|a|جواب|إجابة)[ \t]*[:：][ \t]*(.*)$", re.I
         )
         heading = re.compile(r"^ {0,3}#{1,6}[ \t]+")
         pairs: list[tuple[int, int]] = []
         start: int | None = None
         has_answer = False
+        awaiting_answer_text = False
         offset = 0
         fence: str | None = None
         for line in text.splitlines(keepends=True):
@@ -167,7 +168,7 @@ class ChunkingService:
                 if fence is None:
                     if start is not None and has_answer:
                         pairs.append((start, offset))
-                    start, has_answer = None, False
+                    start, has_answer, awaiting_answer_text = None, False, False
                     fence = marker.group(1)[0]
                 elif marker.group(1)[0] == fence:
                     fence = None
@@ -175,13 +176,20 @@ class ChunkingService:
                 if question.match(line):
                     if start is not None and has_answer:
                         pairs.append((start, offset))
-                    start, has_answer = offset, False
+                    start, has_answer, awaiting_answer_text = offset, False, False
                 elif heading.match(line):
                     if start is not None and has_answer:
                         pairs.append((start, offset))
-                    start, has_answer = None, False
-                elif start is not None and answer.match(line):
-                    has_answer = True
+                    start, has_answer, awaiting_answer_text = None, False, False
+                elif start is not None:
+                    answer_match = answer.match(line)
+                    if answer_match:
+                        has_text = bool(answer_match.group(1).strip())
+                        has_answer = has_answer or has_text
+                        awaiting_answer_text = not has_text
+                    elif awaiting_answer_text and line.strip():
+                        has_answer = True
+                        awaiting_answer_text = False
             offset += len(line)
         if start is not None and has_answer:
             pairs.append((start, len(text)))

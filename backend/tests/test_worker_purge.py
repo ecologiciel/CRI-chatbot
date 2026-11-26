@@ -13,6 +13,8 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Set env vars before importing app modules
 os.environ.setdefault("POSTGRES_PASSWORD", "test-password")
@@ -32,6 +34,40 @@ from app.workers.purge import (
 TEST_TENANT_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 TEST_TENANT_SLUG = "rabat"
 CUTOFF = datetime.now(UTC) - timedelta(days=RETENTION_DAYS_CONVERSATIONS)
+
+
+@pytest.mark.asyncio
+async def test_real_queries_keep_recent_and_nonweb_sessions():
+    """Exercise the actual retention queries on isolated disposable tables."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    old, recent = CUTOFF - timedelta(days=2), CUTOFF + timedelta(days=2)
+    ids = [uuid.uuid4().hex for _ in range(10)]
+    async with engine.begin() as connection:
+        await connection.execute(text("CREATE TABLE contacts (id TEXT PRIMARY KEY, source TEXT, created_at DATETIME, metadata JSON)"))
+        await connection.execute(text("CREATE TABLE conversations (id TEXT PRIMARY KEY, contact_id TEXT, started_at DATETIME, ended_at DATETIME)"))
+        await connection.execute(text("CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT, created_at DATETIME)"))
+        for i, source in enumerate(["web", "web", "whatsapp", "web", "web"]):
+            metadata = '{"pseudonymous": true}' if source == "web" and i != 4 else '{}'
+            await connection.execute(text("INSERT INTO contacts VALUES (:id, :source, :created, :metadata)"), {"id": ids[i], "source": source, "created": old, "metadata": metadata})
+            await connection.execute(text("INSERT INTO conversations VALUES (:id, :contact, :started, :ended)"), {"id": ids[i+5], "contact": ids[i], "started": old, "ended": old if i == 3 else None})
+        await connection.execute(text("INSERT INTO messages VALUES (:id, :conversation, :created)"), {"id": uuid.uuid4().hex, "conversation": ids[6], "created": recent})
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant = MagicMock()
+    tenant.db_session = factory
+    try:
+        with (
+            patch("app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=tenant),
+            patch("app.services.audit.service.get_audit_service", return_value=AsyncMock()),
+        ):
+            result = await _purge_tenant_conversations("rabat", CUTOFF)
+        async with engine.connect() as connection:
+            remaining = set((await connection.execute(text("SELECT id FROM conversations"))).scalars())
+            contacts = set((await connection.execute(text("SELECT id FROM contacts"))).scalars())
+        assert result["conversations_deleted"] == 2
+        assert remaining == {ids[6], ids[7], ids[9]}  # recent web, WhatsApp, non-pseudonymous web
+        assert contacts == {ids[1], ids[2], ids[4]}
+    finally:
+        await engine.dispose()
 
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -110,6 +146,7 @@ class TestPurgeTenantConversations:
             side_effect=[
                 _make_execute_result(5),
                 _make_execute_result(0),
+                _make_execute_result(0),
             ],
         )
         tenant = _make_tenant_with_session(session)
@@ -160,12 +197,7 @@ class TestPurgeTenantConversations:
 
     @pytest.mark.asyncio
     async def test_purge_keeps_active_conversations(self):
-        """Active conversations (ended_at IS NULL) are never deleted.
-
-        The SQL WHERE clause filters on ended_at IS NOT NULL, so active
-        conversations can never match.  We verify that only the batched
-        delete statement is executed (no separate active-conversation query).
-        """
+        """A zero-result purge succeeds without creating an audit event."""
         session = AsyncMock()
         session.commit = AsyncMock()
         session.execute = AsyncMock(
@@ -234,6 +266,7 @@ class TestPurgeTenantConversations:
             side_effect=[
                 _make_execute_result(3),
                 _make_execute_result(0),
+                _make_execute_result(0),
             ],
         )
         tenant = _make_tenant_with_session(session)
@@ -251,8 +284,8 @@ class TestPurgeTenantConversations:
             stats = await _purge_tenant_conversations(TEST_TENANT_SLUG, CUTOFF)
 
         assert stats["conversations_deleted"] == 3
-        # Only 2 execute calls (batch with 3, batch with 0) — no message delete
-        assert session.execute.call_count == 2
+        # Conversation batches and orphaned web-contact cleanup; no message delete.
+        assert session.execute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_purge_audits_action(self):
@@ -262,6 +295,7 @@ class TestPurgeTenantConversations:
         session.execute = AsyncMock(
             side_effect=[
                 _make_execute_result(10),
+                _make_execute_result(0),
                 _make_execute_result(0),
             ],
         )
@@ -300,6 +334,7 @@ class TestPurgeTenantConversations:
                 _make_execute_result(BATCH_SIZE),
                 _make_execute_result(500),
                 _make_execute_result(0),
+                _make_execute_result(0),
             ],
         )
         tenant = _make_tenant_with_session(session)
@@ -317,8 +352,8 @@ class TestPurgeTenantConversations:
             stats = await _purge_tenant_conversations(TEST_TENANT_SLUG, CUTOFF)
 
         assert stats["conversations_deleted"] == BATCH_SIZE + 500
-        # commit() called once per productive batch (2 batches had rows)
-        assert session.commit.call_count == 2
+        # Two productive batches and the web-contact cleanup.
+        assert session.commit.call_count == 3
 
 
 # ── Tests: task_purge_expired_data ───────────────────────────

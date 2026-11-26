@@ -11,9 +11,8 @@ Retention policy:
     messages/feedback: cascade-deleted with conversations (FK CASCADE)
     escalations: cascade-deleted with conversations (FK CASCADE)
 
-Production tenants purge only conversations with ended_at IS NOT NULL.  Explicitly
-configured demo tenants also purge inactive browser sessions after their shorter
-retention period, including conversations that were never formally closed.
+Ended conversations follow the configured retention period. Unclosed anonymous
+web conversations also expire after inactivity, including on non-demo tenants.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ from typing import Any
 import structlog
 from arq.connections import RedisSettings
 from arq.cron import cron
-from sqlalchemy import delete, select, text
+from sqlalchemy import and_, delete, or_, select, text
 
 from app.core.config import get_settings
 
@@ -106,7 +105,7 @@ async def _purge_tenant_conversations(
     """
     from app.core.tenant import TenantResolver
     from app.models.contact import Contact
-    from app.models.conversation import Conversation
+    from app.models.conversation import Conversation, Message
     from app.models.enums import ContactSource
 
     log = logger.bind(task="purge_conversations", tenant=slug)
@@ -118,14 +117,25 @@ async def _purge_tenant_conversations(
         while True:
             # PostgreSQL doesn't support DELETE ... LIMIT, so use subquery.
             subq = select(Conversation.id).limit(BATCH_SIZE)
-            if purge_active:
-                # Demonstration tenants may keep an abandoned chat active
-                # indefinitely.  Their configured retention still wins.
-                subq = subq.where(Conversation.started_at < cutoff)
-            else:
-                subq = subq.where(Conversation.ended_at.is_not(None)).where(
-                    Conversation.ended_at < cutoff
-                )
+            # A web conversation may never be explicitly closed. Use recent
+            # message creation time to avoid purging an old but active session.
+            recent_message = select(Message.id).where(
+                Message.conversation_id == Conversation.id,
+                Message.created_at >= cutoff,
+            ).exists()
+            web_contact = select(Contact.id).where(
+                Contact.id == Conversation.contact_id,
+                Contact.source == ContactSource.web,
+                Contact.metadata_["pseudonymous"].as_boolean().is_(True),
+            ).exists()
+            unclosed_expired = and_(
+                Conversation.ended_at.is_(None),
+                Conversation.started_at < cutoff,
+                ~recent_message,
+            )
+            if not purge_active:
+                unclosed_expired = and_(unclosed_expired, web_contact)
+            subq = subq.where(or_(Conversation.ended_at < cutoff, unclosed_expired))
             stmt = delete(Conversation).where(Conversation.id.in_(subq))
             result = await session.execute(stmt)
             batch_deleted = result.rowcount
@@ -142,20 +152,19 @@ async def _purge_tenant_conversations(
             )
 
         # A web demo contact is pseudonymous and exists solely to group a
-        # browser session.  Once its last conversation has been purged, erase
-        # the contact as well.  This path is deliberately restricted to demo
-        # tenants so ordinary CRM contacts remain governed by their normal
-        # retention policy.
-        if purge_active:
-            orphaned_web_contacts = (
-                delete(Contact)
-                .where(Contact.source == ContactSource.web)
-                .where(
-                    ~select(Conversation.id).where(Conversation.contact_id == Contact.id).exists()
-                )
+        # Restrict cleanup to old web contacts, never ordinary CRM contacts or
+        # a newly created session that has yet to create its first conversation.
+        orphaned_web_contacts = (
+            delete(Contact)
+            .where(
+                Contact.source == ContactSource.web,
+                Contact.metadata_["pseudonymous"].as_boolean().is_(True),
+                Contact.created_at < cutoff,
             )
-            await session.execute(orphaned_web_contacts)
-            await session.commit()
+            .where(~select(Conversation.id).where(Conversation.contact_id == Contact.id).exists())
+        )
+        await session.execute(orphaned_web_contacts)
+        await session.commit()
 
     # Audit trail (only if something was actually deleted)
     if total_deleted > 0:

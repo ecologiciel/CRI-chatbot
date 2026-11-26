@@ -51,7 +51,11 @@ async def _run_child(data: bytes, extension: str) -> dict:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
         start_new_session=True,
-        env={"PATH": "/usr/local/bin:/usr/bin:/bin", "PYTHONPATH": "/app"},
+        env={
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+            "PYTHONPATH": "/app",
+            "TIKTOKEN_CACHE_DIR": "/opt/tiktoken-cache",
+        },
     )
     assert process.stdin is not None and process.stdout is not None
 

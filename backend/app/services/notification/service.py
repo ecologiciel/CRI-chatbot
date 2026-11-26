@@ -300,6 +300,7 @@ class NotificationService:
         template_name: str,
         language_code: str,
         components: list,
+        sender: WhatsAppSenderService | None = None,
     ) -> tuple[str | None, str | None]:
         """Serialize opt-out updates with the bounded provider send request."""
         async with tenant.db_session() as session:
@@ -313,7 +314,7 @@ class NotificationService:
                 return "opted_out", None
             if not contact.phone:
                 return "no_phone", None
-            wamid = await self._sender.send_template(
+            wamid = await (sender or self._sender).send_template(
                 tenant=tenant,
                 to=contact.phone,
                 template_name=template_name,
@@ -460,29 +461,52 @@ class NotificationService:
             )
             if skip_reason:
                 log.info("notification_skipped_after_recheck", reason=skip_reason)
+                await self._audit.log_action(
+                    AuditLogCreate(
+                        tenant_slug=tenant.slug,
+                        user_type="system",
+                        action="notification_skipped",
+                        resource_type="notification",
+                        resource_id=event.dossier_id,
+                        details={"reason": skip_reason, "contact_id": event.contact_id},
+                    )
+                )
                 return {"status": "skipped", "reason": skip_reason}
         except Exception as exc:
-            log.error(
-                "notification_send_failed",
-                contact_id=event.contact_id,
-                error=str(exc),
-                exc_info=True,
-            )
+            log.warning("notification_send_unconfirmed", error_type=type(exc).__name__)
             await self._audit.log_action(
                 AuditLogCreate(
                     tenant_slug=tenant.slug,
                     user_type="system",
-                    action="notification_failed",
+                    action="notif_unconfirmed",
                     resource_type="notification",
                     resource_id=event.dossier_id,
                     details={
                         "contact_id": event.contact_id,
                         "event_type": decision.event_type.value,
-                        "error": str(exc),
+                        "error_type": type(exc).__name__,
                     },
                 ),
             )
-            return {"status": "failed", "error": str(exc)}
+            return {"status": "unconfirmed"}
+
+        if not wamid:
+            log.warning("notification_send_unconfirmed", error_type="MissingProviderId")
+            await self._audit.log_action(
+                AuditLogCreate(
+                    tenant_slug=tenant.slug,
+                    user_type="system",
+                    action="notif_unconfirmed",
+                    resource_type="notification",
+                    resource_id=event.dossier_id,
+                    details={
+                        "contact_id": event.contact_id,
+                        "event_type": decision.event_type.value,
+                        "error_type": "MissingProviderId",
+                    },
+                )
+            )
+            return {"status": "unconfirmed"}
 
         # 7. Audit success
         log.info(

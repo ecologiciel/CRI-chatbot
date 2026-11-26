@@ -341,6 +341,24 @@ class TestSendNotification:
         audit.log_action.assert_called()
 
     @pytest.mark.asyncio
+    async def test_missing_provider_id_is_unconfirmed(self) -> None:
+        sender = AsyncMock()
+        sender.send_template.return_value = None
+        service = _make_service(sender=sender, audit=AsyncMock())
+        contact = _make_contact(opt_in_status=OptInStatus.opted_in)
+        tenant = _make_tenant()
+        event = _make_event(contact_id=str(contact.id), new_statut="valide")
+        redis = AsyncMock()
+        redis.set.return_value = True
+        with (
+            patch.object(service, "_load_contact", return_value=contact),
+            patch("app.services.notification.service.get_redis", return_value=redis),
+        ):
+            result = await service.send_notification(event, tenant)
+        assert result["status"] == "unconfirmed"
+        sender.send_template.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_no_contact_id_skips(self) -> None:
         """Event without contact_id → skip."""
         audit = AsyncMock()
@@ -388,7 +406,7 @@ class TestSendNotification:
         assert result["reason"] == "deduplicated"
 
     @pytest.mark.asyncio
-    async def test_whatsapp_failure_returns_failed(self) -> None:
+    async def test_whatsapp_failure_returns_unconfirmed(self) -> None:
         """WhatsApp send error → returns failed, audits error."""
         sender = AsyncMock()
         sender.send_template = AsyncMock(side_effect=Exception("API timeout"))
@@ -408,7 +426,7 @@ class TestSendNotification:
         ):
             result = await service.send_notification(event, tenant)
 
-        assert result["status"] == "failed"
+        assert result["status"] == "unconfirmed"
         # Audit should log the failure
         audit.log_action.assert_called()
 

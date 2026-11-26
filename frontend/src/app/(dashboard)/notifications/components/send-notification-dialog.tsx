@@ -260,16 +260,18 @@ export function SendNotificationDialog({
       const result = await sendMutation.mutateAsync(data);
 
       if (result.status === "sent") {
-        toast.success("Notification envoyée avec succès");
+        toast.success("Notification acceptée par WhatsApp ; livraison non confirmée.");
         resetForm();
         onOpenChange(false);
       } else if (result.status === "skipped") {
         toast.warning(`Notification ignorée : ${result.reason ?? "raison inconnue"}`);
+      } else if (result.status === "unconfirmed") {
+        toast.warning("Résultat inconnu : vérifiez avant de tenter un nouvel envoi.");
       } else {
         toast.error(`Échec de l'envoi : ${result.reason ?? "erreur inconnue"}`);
       }
     } catch {
-      toast.error("Erreur lors de l'envoi de la notification");
+      toast.warning("Résultat inconnu : vérifiez l’historique avant de tenter un nouvel envoi.");
     }
   }
 

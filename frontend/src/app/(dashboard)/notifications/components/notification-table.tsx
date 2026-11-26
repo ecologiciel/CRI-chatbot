@@ -36,7 +36,7 @@ const STATUS_CONFIG: Record<
   { label: string; className: string }
 > = {
   sent: {
-    label: "Envoyée",
+    label: "Acceptée",
     className: "bg-[hsl(var(--success))]/10 text-[hsl(var(--success))] border-0",
   },
   skipped: {
@@ -47,6 +47,10 @@ const STATUS_CONFIG: Record<
   failed: {
     label: "Échouée",
     className: "bg-destructive/10 text-destructive border-0",
+  },
+  unconfirmed: {
+    label: "À vérifier",
+    className: "bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))] border-0",
   },
 };
 
@@ -129,9 +133,10 @@ export function NotificationTable() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tous les statuts</SelectItem>
-              <SelectItem value="sent">Envoyée</SelectItem>
+              <SelectItem value="sent">Acceptée</SelectItem>
               <SelectItem value="skipped">Ignorée</SelectItem>
               <SelectItem value="failed">Échouée</SelectItem>
+              <SelectItem value="unconfirmed">À vérifier</SelectItem>
             </SelectContent>
           </Select>
 

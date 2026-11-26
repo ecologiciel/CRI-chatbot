@@ -134,6 +134,7 @@ async def _process_tenant_notifications(tenant_slug: str) -> dict[str, int]:
         "sent": 0,
         "skipped": 0,
         "failed": 0,
+        "unconfirmed": 0,
     }
 
     while True:
@@ -161,6 +162,8 @@ async def _process_tenant_notifications(tenant_slug: str) -> dict[str, int]:
                     stats["skipped"] += 1
                 elif status == "failed":
                     stats["failed"] += 1
+                elif status == "unconfirmed":
+                    stats["unconfirmed"] += 1
 
             except Exception as exc:
                 log.error(

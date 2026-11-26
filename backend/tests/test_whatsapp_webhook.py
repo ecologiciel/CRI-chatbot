@@ -8,7 +8,7 @@ import hmac
 import json
 import os
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Set required env vars BEFORE importing app (which triggers Settings())
 os.environ.setdefault("POSTGRES_PASSWORD", "test_password")
@@ -20,6 +20,7 @@ os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "test_verify_token_456")
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.exceptions import WhatsAppSignatureError
 from app.core.tenant import TenantContext
 from app.main import app
 from app.services.whatsapp.webhook import WhatsAppWebhookService
@@ -165,6 +166,37 @@ class TestWebhookVerification:
 
 
 class TestWebhookPost:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure, expected",
+        [
+            (None, 200),
+            (RuntimeError("database offline"), 503),
+            (WhatsAppSignatureError("invalid"), 403),
+        ],
+    )
+    async def test_durable_intake_controls_acknowledgement(self, failure, expected):
+        settings = MagicMock(
+            whatsapp_durable_inbox_enabled=True,
+            whatsapp_webhook_max_body_bytes=1_048_576,
+            webhook_proxy_shared_secret="",
+        )
+        intake = AsyncMock(side_effect=failure)
+        with (
+            patch("app.api.v1.webhook.get_settings", return_value=settings),
+            patch("app.services.whatsapp.inbox_intake.persist_authenticated_webhook", intake),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/api/v1/webhook/whatsapp",
+                    content=b"{}",
+                    headers={"X-Hub-Signature-256": "signature"},
+                )
+        assert response.status_code == expected
+        intake.assert_awaited_once_with(b"{}", "signature")
+
     @pytest.mark.asyncio
     async def test_valid_hmac(self):
         """POST with valid HMAC signature returns 200."""

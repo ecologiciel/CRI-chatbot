@@ -1,6 +1,8 @@
 """Exercise staged WhatsApp inbox against a disposable PostgreSQL database only."""
 
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -379,13 +381,84 @@ async def main():
     if os.getenv("WA_INBOX_ARQ_TEST") == "1":
         from arq.connections import RedisSettings, create_pool
         from arq.worker import Worker
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
 
+        import app.api.v1.webhook as webhook_api
         import app.services.whatsapp.inbox_execution as execution
+        import app.services.whatsapp.inbox_intake as intake
+        import app.services.whatsapp.webhook as webhook_service
         from app.services.whatsapp.handler import HandlingOutcome
         from app.workers.whatsapp_inbox import WorkerSettings, poll_incoming
 
         fresh = message.model_copy(update={"id": "synthetic-worker-wamid"})
-        assert await persist_incoming_message(tenant, "123", fresh, None, cipher=cipher)
+        raw = json.dumps(
+            {
+                "object": "whatsapp_business_account",
+                "entry": [
+                    {
+                        "id": "synthetic-account",
+                        "changes": [
+                            {
+                                "field": "messages",
+                                "value": {
+                                    "messaging_product": "whatsapp",
+                                    "metadata": {
+                                        "phone_number_id": "123",
+                                        "display_phone_number": "123",
+                                    },
+                                    "messages": [
+                                        fresh.model_dump(mode="json", by_alias=True)
+                                    ],
+                                    "statuses": [status.model_dump(mode="json")],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ).encode()
+        secret = "synthetic-webhook-secret"
+        signature = (
+            "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+        )
+        api_settings = MagicMock(
+            whatsapp_durable_inbox_enabled=True,
+            whatsapp_webhook_max_body_bytes=1_048_576,
+            webhook_proxy_shared_secret="",
+        )
+        app = FastAPI()
+        app.include_router(webhook_api.router, prefix="/api/v1")
+        with (
+            patch.object(webhook_api, "get_settings", return_value=api_settings),
+            patch.object(
+                webhook_service,
+                "get_settings",
+                return_value=MagicMock(whatsapp_app_secret=secret),
+            ),
+            patch.object(
+                intake,
+                "get_settings",
+                return_value=MagicMock(kms_master_key=master.hex()),
+            ),
+            patch.object(intake, "VersionedEnvelopeService", return_value=cipher),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                denied = await client.post(
+                    "/api/v1/webhook/whatsapp",
+                    content=raw,
+                    headers={"X-Hub-Signature-256": "sha256=invalid"},
+                )
+                assert denied.status_code == 403
+                for _ in range(2):
+                    response = await client.post(
+                        "/api/v1/webhook/whatsapp",
+                        content=raw,
+                        headers={"X-Hub-Signature-256": signature},
+                    )
+                    assert response.status_code == 200
         redis = await create_pool(
             RedisSettings(host="wa-inbox-redis", password="wa_test")
         )

@@ -79,6 +79,9 @@ class Settings(BaseSettings):
         default="", description="Meta App Secret for HMAC webhook validation"
     )
     whatsapp_verify_token: str = Field(default="", description="Webhook verification token")
+    whatsapp_durable_inbox_enabled: bool = Field(
+        default=False, description="Use transactional WhatsApp webhook intake"
+    )
     webhook_proxy_shared_secret: str = Field(
         default="", description="Optional shared secret required from the Cloudflare webhook relay"
     )

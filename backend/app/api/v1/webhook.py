@@ -61,8 +61,8 @@ async def receive_whatsapp_webhook(
 ) -> JSONResponse:
     """Receive webhook events from Meta.
 
-    IMPORTANT: Always returns 200 to prevent Meta from retrying.
-    The only exception is 403 on HMAC signature failure.
+    The legacy path acknowledges processing failures. When durable intake is
+    enabled, only committed events are acknowledged; failures return 503.
 
     Raw body is read directly for HMAC verification — we do NOT use
     a Pydantic body parameter because that would re-serialize the JSON.
@@ -77,17 +77,24 @@ async def receive_whatsapp_webhook(
     raw_body = bytes(body)
     signature = request.headers.get("X-Hub-Signature-256")
 
+    durable = get_settings().whatsapp_durable_inbox_enabled is True
     try:
-        await webhook_service.process_webhook(raw_body, signature)
+        if durable:
+            from app.services.whatsapp.inbox_intake import persist_authenticated_webhook
+
+            await persist_authenticated_webhook(raw_body, signature)
+        else:
+            await webhook_service.process_webhook(raw_body, signature)
     except WhatsAppSignatureError as exc:
         logger.warning("whatsapp_hmac_failed", error=exc.message)
         return JSONResponse(
             status_code=403,
             content={"error": "Invalid signature", "message": exc.message},
         )
-    except Exception:
-        # Catch ALL other errors — always return 200 to Meta.
-        # Errors are logged inside process_webhook and here as a safety net.
+    except Exception as exc:
+        if durable:
+            logger.error("whatsapp_durable_intake_failed", error_type=type(exc).__name__)
+            return JSONResponse(status_code=503, content={"error": "Webhook intake unavailable"})
         logger.exception("whatsapp_webhook_unhandled_error")
 
     return JSONResponse(

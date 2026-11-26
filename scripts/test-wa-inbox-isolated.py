@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import secrets
 import uuid
 
@@ -46,13 +47,22 @@ async def main():
         await conn.run_sync(
             lambda sync: Base.metadata.create_all(
                 sync,
-                tables=[
-                    Tenant.__table__,
-                    TenantKey.__table__,
-                    WhatsAppInboxEvent.__table__,
-                ],
+                tables=(
+                    [Tenant.__table__, TenantKey.__table__]
+                    if os.getenv("WA_INBOX_ALEMBIC_TEST") == "1"
+                    else [
+                        Tenant.__table__,
+                        TenantKey.__table__,
+                        WhatsAppInboxEvent.__table__,
+                    ]
+                ),
             )
         )
+    if os.getenv("WA_INBOX_ALEMBIC_TEST") == "1":
+        for args in (("stamp", "0017"), ("upgrade", "0018")):
+            process = await asyncio.create_subprocess_exec("alembic", *args, cwd="/app")
+            if await process.wait() != 0:
+                raise RuntimeError("Isolated Alembic migration failed")
 
     tenant_id = uuid.uuid4()
     master, data_key = secrets.token_bytes(32), secrets.token_bytes(32)

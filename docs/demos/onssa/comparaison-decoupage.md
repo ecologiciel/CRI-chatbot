@@ -25,3 +25,17 @@ Sur ce PDF, le chevauchement accroît le volume de tokens d’environ 12 à 30 %
 Sur le même PDF, 61 titres d’articles isolés ont été repérés ; les 60 intervalles entre titres consécutifs ont servi de mesure exploratoire. Avant correction, avec 10 % de chevauchement, respectivement 18 des 38 articles pouvant tenir dans 256 tokens, 16 des 54 pouvant tenir dans 512 tokens et 17 des 59 pouvant tenir dans 768 tokens étaient coupés. Après reconnaissance des titres d’articles et priorité aux limites de section, aucun de ces articles n’est coupé dans les trois configurations. Les articles trop longs restent découpés sous la limite technique. Le dernier article est exclu de ce comptage car sa fin n’est pas déterminée par un titre suivant ; la mesure ne prouve pas l’exactitude juridique des limites détectées.
 
 Cette reconnaissance s’applique aux titres autonomes « Article N », « Art. N » et « المادة N » et ignore ceux placés dans un bloc de code. La recherche et la qualité des réponses doivent encore être évaluées avant de modifier les réglages de production ou de réindexer les documents existants.
+
+## Essai d'une FAQ étiquetée
+
+Le 26 novembre 2026, un fichier texte fictif comportant trois paires
+« Question : / Réponse : » a été importé et validé par API dans une institution
+temporaire isolée sur le VPS. Les trois paires étaient chacune réunies dans un
+passage indexé. Le chat a répondu à une question sur la deuxième paire avec la
+valeur attendue et une source. L'institution temporaire a ensuite été supprimée
+par API (204).
+
+Cet essai couvre une FAQ courte et explicitement étiquetée, pas toutes les
+présentations possibles ni le parcours d'import dans l'interface. Les réponses
+qui dépassent la limite restent découpées, et les documents déjà indexés ne
+sont pas retraités automatiquement.

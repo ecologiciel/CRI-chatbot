@@ -18,6 +18,7 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
   const [error, setError] = useState<string | null>(null);
   const [institution, setInstitution] = useState<string | null>(null);
   const started = useRef(false);
+  const sessionExpired = useRef(false);
 
   const startSession = useCallback(() => {
     if (started.current) return;
@@ -26,6 +27,10 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
       .then(async (response) => {
         if (!response.ok) throw new Error("Impossible de démarrer la démonstration.");
         const body = await response.json() as { tenant_name?: string };
+        if (sessionExpired.current) {
+          setMessages([INTRO]);
+          sessionExpired.current = false;
+        }
         setInstitution(body.tenant_name || null);
         setReady(true);
       })
@@ -54,12 +59,19 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
         body: JSON.stringify({ message }),
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          sessionExpired.current = true;
+          setReady(false);
+          throw new Error("Votre session a expiré. Démarrez une nouvelle conversation pour renvoyer votre question.");
+        }
         const body = await response.json().catch(() => ({}));
         throw new Error(body.detail || "La réponse n’a pas pu être générée.");
       }
       const body = await response.json() as { answer: string; sources?: Source[] };
       setMessages((current) => [...current, { role: "assistant", content: body.answer, sources: body.sources }]);
     } catch (reason) {
+      setMessages((current) => current.slice(0, -1));
+      setInput(message);
       setError(reason instanceof Error ? reason.message : "Une erreur est survenue.");
     } finally {
       setSending(false);

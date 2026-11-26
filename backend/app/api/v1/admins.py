@@ -24,7 +24,8 @@ from app.core.exceptions import (
 )
 from app.core.rbac import require_role
 from app.models.admin import Admin
-from app.models.enums import AdminRole
+from app.models.enums import AdminRole, TenantStatus
+from app.models.tenant import Tenant
 from app.schemas.admin import AdminCreate, AdminList, AdminResponse, AdminUpdate
 from app.schemas.auth import AdminTokenPayload
 from app.services.auth.service import AuthService
@@ -116,6 +117,16 @@ async def create_admin(
 
     factory = get_session_factory()
     async with factory() as session:
+        # Serialize account creation with tenant deactivation. Without this
+        # lock a new active account can be inserted while deletion is running.
+        tenant_status = (
+            await session.execute(
+                select(Tenant.status).where(Tenant.id == effective_tenant_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if tenant_status != TenantStatus.active:
+            raise ValidationError("Impossible de créer un compte pour une institution inactive.")
+
         # Enforce max 10 per tenant
         count_q = select(func.count()).where(
             Admin.tenant_id == effective_tenant_id,

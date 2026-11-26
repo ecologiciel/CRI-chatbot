@@ -24,6 +24,7 @@ from app.core.exceptions import DuplicateTenantError, TenantProvisioningError
 from app.core.minio import get_minio
 from app.core.qdrant import get_qdrant
 from app.core.redis import get_redis
+from app.models.admin import Admin
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate
@@ -194,19 +195,28 @@ class TenantProvisioningService:
         failures: list[str] = []
         tenant = None
 
-        # 1. Set status to inactive
+        # Revoke tenant-bound accounts in the same transaction as tenant
+        # deactivation. Detached accounts must never stay active after the
+        # tenant FK is set to NULL. Stop before deleting any data if this fails.
         try:
             factory = get_session_factory()
             async with factory() as session:
-                result = await session.execute(select(Tenant).where(Tenant.slug == slug))
+                result = await session.execute(
+                    select(Tenant).where(Tenant.slug == slug).with_for_update()
+                )
                 tenant = result.scalar_one_or_none()
                 if tenant:
                     tenant.status = TenantStatus.inactive
+                    await session.execute(
+                        update(Admin).where(Admin.tenant_id == tenant.id).values(is_active=False)
+                    )
                     await session.commit()
                     log.info("step_completed", step="deactivated")
         except Exception as exc:
-            log.error("deprovision_step_failed", step="deactivate", error=str(exc))
-            failures.append("deactivate")
+            log.error("deprovision_step_failed", step="deactivate", error_type=type(exc).__name__)
+            raise TenantProvisioningError(
+                f"Tenant deactivation failed for {slug}; resources were not removed"
+            ) from exc
 
         # 2. Delete MinIO bucket (must empty first)
         try:

@@ -267,6 +267,31 @@ class TestDeprovisionTenant:
         )
 
     @pytest.mark.asyncio
+    async def test_deactivation_failure_stops_before_removing_resources(self):
+        tenant = _make_tenant_orm(status=TenantStatus.active, whatsapp_config=None)
+        session = AsyncMock()
+        session.__aenter__.return_value = session
+        session.execute.side_effect = [
+            MagicMock(scalar_one_or_none=lambda: tenant),
+            RuntimeError("database unavailable"),
+        ]
+        service = TenantProvisioningService()
+        with (
+            patch(
+                "app.services.tenant.provisioning.get_session_factory", return_value=lambda: session
+            ),
+            patch.object(
+                service, "_empty_and_remove_bucket", new_callable=AsyncMock
+            ) as remove_bucket,
+            patch.object(service, "_drop_schema", new_callable=AsyncMock) as drop_schema,
+        ):
+            with pytest.raises(TenantProvisioningError, match="resources were not removed"):
+                await service.deprovision_tenant("rabat")
+        remove_bucket.assert_not_awaited()
+        drop_schema.assert_not_awaited()
+        session.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_deprovision_tenant(self):
         """Deprovisioning should clean up all resources."""
         tenant_orm = _make_tenant_orm(
@@ -308,6 +333,11 @@ class TestDeprovisionTenant:
         ):
             service = TenantProvisioningService()
             await service.deprovision_tenant("rabat")
+
+        # All tenant-bound accounts are disabled before deleting resources.
+        statements = [str(call.args[0]) for call in mock_session.execute.await_args_list]
+        assert any("UPDATE public.admins" in statement for statement in statements)
+        assert tenant_orm.status == TenantStatus.inactive
 
         # Qdrant collection deleted
         mock_qdrant.delete_collection.assert_called_once_with(collection_name="kb_rabat")

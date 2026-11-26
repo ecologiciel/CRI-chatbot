@@ -254,6 +254,9 @@ class TestDeprovisionTenant:
                 "app.services.tenant.provisioning.get_session_factory", return_value=lambda: session
             ),
             patch("app.services.tenant.provisioning.get_redis", return_value=AsyncMock()),
+            patch(
+                "app.services.tenant.provisioning._clear_tenant_redis_keys", new_callable=AsyncMock
+            ),
             patch.object(service, "_empty_and_remove_bucket", side_effect=RuntimeError("storage")),
             patch.object(service, "_delete_qdrant_collection", new_callable=AsyncMock),
             patch.object(service, "_drop_schema", new_callable=AsyncMock),
@@ -328,6 +331,9 @@ class TestDeprovisionTenant:
                 "app.services.tenant.provisioning.get_session_factory", return_value=mock_factory
             ),
             patch("app.services.tenant.provisioning.get_redis", return_value=mock_redis),
+            patch(
+                "app.services.tenant.provisioning._clear_tenant_redis_keys", new_callable=AsyncMock
+            ),
             patch("app.services.tenant.provisioning.get_qdrant", return_value=mock_qdrant),
             patch("app.services.tenant.provisioning.get_minio", return_value=mock_minio),
         ):
@@ -347,3 +353,82 @@ class TestDeprovisionTenant:
 
         # MinIO bucket removed
         mock_minio.remove_bucket.assert_called_once_with("cri-rabat")
+
+
+class TestTenantRedisCleanup:
+    @pytest.mark.asyncio
+    async def test_cleanup_is_confined_to_exact_tenant_prefix(self):
+        from app.services.tenant.provisioning import _clear_tenant_redis_keys
+
+        class FakeRedis:
+            def __init__(self):
+                self.keys = {
+                    "onssa:web_session:a",
+                    "onssa:rl:web:a",
+                    "onssatest:web_session:b",
+                    "auth:session:x",
+                }
+
+            async def scan_iter(self, match, count):
+                assert match == "onssa:*"
+                for key in list(self.keys):
+                    if key.startswith("onssa:"):
+                        yield key
+
+            async def delete(self, *keys):
+                self.keys.difference_update(keys)
+                return len(keys)
+
+        redis = FakeRedis()
+        assert await _clear_tenant_redis_keys(redis, "onssa") == 2
+        assert redis.keys == {"onssatest:web_session:b", "auth:session:x"}
+
+    @pytest.mark.asyncio
+    async def test_cleanup_rejects_glob_metacharacters(self):
+        from app.services.tenant.provisioning import _clear_tenant_redis_keys
+
+        with pytest.raises(ValueError, match="Invalid tenant slug"):
+            await _clear_tenant_redis_keys(AsyncMock(), "onssa*")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_fails_if_new_keys_keep_appearing(self):
+        from app.services.tenant.provisioning import _clear_tenant_redis_keys
+
+        class BusyRedis:
+            async def scan_iter(self, match, count):
+                yield "onssa:session:recreated"
+
+            async def delete(self, *keys):
+                return len(keys)
+
+        with pytest.raises(RuntimeError, match="bounded cleanup"):
+            await _clear_tenant_redis_keys(BusyRedis(), "onssa")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_failure_preserves_tenant_record(self):
+        tenant = _make_tenant_orm(status=TenantStatus.active, whatsapp_config=None)
+        session = AsyncMock()
+        session.__aenter__.return_value = session
+        session.execute.return_value = MagicMock(scalar_one_or_none=lambda: tenant)
+        service = TenantProvisioningService()
+        with (
+            patch(
+                "app.services.tenant.provisioning.get_session_factory", return_value=lambda: session
+            ),
+            patch("app.services.tenant.provisioning.get_redis", return_value=AsyncMock()),
+            patch(
+                "app.services.tenant.provisioning._clear_tenant_redis_keys",
+                AsyncMock(side_effect=RuntimeError("busy")),
+            ),
+            patch.object(service, "_empty_and_remove_bucket", new_callable=AsyncMock),
+            patch.object(service, "_delete_qdrant_collection", new_callable=AsyncMock),
+            patch.object(service, "_drop_schema", new_callable=AsyncMock),
+            patch("app.services.tenant.provisioning.get_settings") as settings,
+        ):
+            settings.return_value.kms_master_key = ""
+            with pytest.raises(TenantProvisioningError, match="redis"):
+                await service.deprovision_tenant("rabat")
+        assert not any(
+            "DELETE FROM public.tenants" in str(call.args[0])
+            for call in session.execute.await_args_list
+        )

@@ -9,6 +9,7 @@ rolled back.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from collections.abc import Callable, Coroutine
 from typing import Any
@@ -92,6 +93,29 @@ _CROSS_SCHEMA_FKS = [
     ("internal_whitelist", "fk_whitelist_creator", "added_by", "public.admins", "id", "SET NULL"),
     ("sync_logs", "fk_sync_trigger", "triggered_by", "public.admins", "id", "SET NULL"),
 ]
+
+
+async def _clear_tenant_redis_keys(redis: Any, slug: str) -> int:
+    """Remove only keys under the exact tenant prefix, with bounded rescans."""
+    if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", slug):
+        raise ValueError("Invalid tenant slug")
+    removed = 0
+    # Redis SCAN can miss entries while the keyspace changes. Repeat and fail
+    # closed if it does not become empty; never report incomplete cleanup.
+    for _ in range(5):
+        batch: list = []
+        found = False
+        async for key in redis.scan_iter(match=f"{slug}:*", count=200):
+            found = True
+            batch.append(key)
+            if len(batch) == 200:
+                removed += await redis.delete(*batch)
+                batch.clear()
+        if batch:
+            removed += await redis.delete(*batch)
+        if not found:
+            return removed
+    raise RuntimeError("Tenant Redis keys remain after bounded cleanup")
 
 
 class TenantProvisioningService:
@@ -191,6 +215,8 @@ class TenantProvisioningService:
         Args:
             slug: Tenant slug to deprovision.
         """
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", slug):
+            raise TenantProvisioningError("Invalid tenant slug; no resources removed")
         log = self.logger.bind(slug=slug, action="deprovision")
         failures: list[str] = []
         tenant = None
@@ -234,9 +260,11 @@ class TenantProvisioningService:
                 phone_id = tenant.whatsapp_config.get("phone_number_id")
                 if phone_id:
                     await redis.delete(f"phone_mapping:{phone_id}")
-            await redis.delete(f"tenant_cache:{tenant.id}" if tenant else "")
+            if tenant:
+                await redis.delete(f"tenant_cache:{tenant.id}")
             await redis.delete(f"tenant_cache:slug:{slug}")
-            log.info("step_completed", step="redis_cleaned")
+            removed = await _clear_tenant_redis_keys(redis, slug)
+            log.info("step_completed", step="redis_cleaned", keys_removed=removed)
         except Exception as exc:
             log.error("deprovision_step_failed", step="redis", error=str(exc))
             failures.append("redis")

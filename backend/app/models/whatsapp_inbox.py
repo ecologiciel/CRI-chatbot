@@ -24,6 +24,11 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
             "state IN ('pending', 'processing', 'uncertain', 'completed')", name="ck_wa_inbox_state"
         ),
         CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_inbox_counters"),
+        CheckConstraint(
+            "(state = 'processing' AND lease_until IS NOT NULL AND lease_token IS NOT NULL) "
+            "OR (state <> 'processing' AND lease_until IS NULL AND lease_token IS NULL)",
+            name="ck_wa_inbox_lease",
+        ),
         Index("uq_wa_inbox_tenant_message", "tenant_id", "provider_message_id", unique=True),
         Index("ix_wa_inbox_pending", "state", "created_at"),
         {"schema": "public"},
@@ -39,6 +44,7 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

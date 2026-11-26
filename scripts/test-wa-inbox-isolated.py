@@ -6,7 +6,7 @@ import secrets
 import uuid
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import select
+from sqlalchemy import select, text, update
 
 from app.core.config import get_settings
 from app.core.database import Base, close_engine, get_engine, get_session_factory
@@ -19,6 +19,12 @@ from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.schemas.whatsapp import IncomingMessage
 from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
 from app.services.whatsapp.inbox import persist_incoming_message
+from app.services.whatsapp.inbox_leases import (
+    claim_next,
+    finish_claim,
+    quarantine_expired,
+    renew_claim,
+)
 
 
 async def main():
@@ -109,6 +115,33 @@ async def main():
         pass
     else:
         raise AssertionError("Changed channel accepted")
+
+    claims = await asyncio.gather(*(claim_next(lease_seconds=30) for _ in range(4)))
+    active = [claim for claim in claims if claim is not None]
+    assert len(active) == 1
+    claim = active[0]
+    assert claim.id == event.id
+    assert await renew_claim(claim.id, uuid.uuid4(), lease_seconds=30) is False
+    assert await renew_claim(claim.id, claim.lease_token, lease_seconds=30) is True
+    assert await finish_claim(claim.id, uuid.uuid4(), uncertain=False) is False
+    async with get_session_factory()() as session:
+        await session.execute(
+            update(WhatsAppInboxEvent)
+            .where(WhatsAppInboxEvent.id == claim.id)
+            .values(lease_until=text("clock_timestamp() - interval '1 second'"))
+        )
+        await session.commit()
+    assert await finish_claim(claim.id, claim.lease_token, uncertain=False) is False
+    assert await quarantine_expired() == 1
+    assert await finish_claim(claim.id, claim.lease_token, uncertain=True) is False
+    assert await claim_next(lease_seconds=30) is None
+    async with get_session_factory()() as session:
+        state = (
+            await session.execute(
+                select(WhatsAppInboxEvent.state).where(WhatsAppInboxEvent.id == claim.id)
+            )
+        ).scalar_one()
+    assert state == "uncertain"
     await close_engine()
     print("ISOLATED_INBOX_POSTGRES_OK", flush=True)
 

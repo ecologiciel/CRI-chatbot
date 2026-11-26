@@ -28,6 +28,7 @@ def upgrade() -> None:
         sa.Column("state", sa.String(16), nullable=False, server_default="pending"),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("lease_token", sa.UUID(), nullable=True),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -40,6 +41,11 @@ def upgrade() -> None:
             "state IN ('pending', 'processing', 'uncertain', 'completed')", name="ck_wa_inbox_state"
         ),
         sa.CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_inbox_counters"),
+        sa.CheckConstraint(
+            "(state = 'processing' AND lease_until IS NOT NULL AND lease_token IS NOT NULL) "
+            "OR (state <> 'processing' AND lease_until IS NULL AND lease_token IS NULL)",
+            name="ck_wa_inbox_lease",
+        ),
         schema="public",
     )
     op.create_index(

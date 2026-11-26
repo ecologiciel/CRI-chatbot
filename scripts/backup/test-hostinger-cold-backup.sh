@@ -118,6 +118,21 @@ printf 'release\n' > "$fixture/release-lock"
 wait "$lock_pid"
 lock_pid=""
 
+# Backup and master-key maintenance must never overlap.
+mkfifo "$fixture/release-kms-lock"
+( flock -x 9; touch "$fixture/kms-lock-ready"; read -r _ < "$fixture/release-kms-lock" ) 9>"$fixture/.kms-rotation.lock" &
+lock_pid=$!
+for attempt in $(seq 1 30); do [[ -f "$fixture/kms-lock-ready" ]] && break; sleep 1; done
+test -f "$fixture/kms-lock-ready"
+if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"; then
+    echo 'A backup was unexpectedly accepted during KMS maintenance' >&2
+    exit 1
+fi
+[[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
+printf 'release\n' > "$fixture/release-kms-lock"
+wait "$lock_pid"
+lock_pid=""
+
 # A signing-only key cannot encrypt. Verify that a failure after stop restarts
 # the original services and leaves no plaintext or partial archive.
 gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Signing Fixture <sign@example.com>' rsa2048 sign 1d >/dev/null 2>&1

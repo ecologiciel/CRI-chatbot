@@ -19,6 +19,18 @@ command -v flock >/dev/null
 test -r "$RECIPIENT"
 test -f "$DEPLOY_DIR/.env.demo"
 docker image inspect redis:7-alpine >/dev/null
+# A shared lock prevents the KMS database/configuration switch from racing a
+# backup. Rotation holds the same lock exclusively for the whole operation.
+if [[ -L "$DEPLOY_DIR/.kms-rotation.lock" ]]; then
+    echo "Unsafe KMS maintenance lock." >&2
+    exit 1
+fi
+exec 8> "$DEPLOY_DIR/.kms-rotation.lock"
+chmod 600 "$DEPLOY_DIR/.kms-rotation.lock"
+if ! flock -s -n 8; then
+    echo "KMS maintenance is in progress; backup postponed." >&2
+    exit 1
+fi
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 exec 9> "$BACKUP_DIR/.cold-backup.lock"

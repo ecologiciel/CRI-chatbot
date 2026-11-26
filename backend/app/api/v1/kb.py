@@ -207,7 +207,7 @@ async def validate_document(
         document = result.scalar_one_or_none()
         if document is None:
             raise ResourceNotFoundError("Document introuvable.")
-        if document.status not in {KBDocumentStatus.pending_validation, KBDocumentStatus.rejected}:
+        if document.status != KBDocumentStatus.pending_validation:
             raise ValidationError("Seul un document en attente de validation peut être publié.")
 
         document.source_authority = data.source_authority

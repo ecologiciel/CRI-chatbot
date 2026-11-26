@@ -297,6 +297,38 @@ class TestUploadDocument:
 
 class TestListDocuments:
     @pytest.mark.asyncio
+    async def test_rejected_document_cannot_be_reapproved(self):
+        _setup_overrides()
+        doc_id = uuid.uuid4()
+        doc = _make_document_orm(doc_id=doc_id, status=KBDocumentStatus.rejected)
+        mock_session = _mock_tenant_db_session(scalar_one_or_none=doc)
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as MockResolver,
+                patch.object(TenantContext, "db_session", return_value=mock_session),
+                patch("app.api.v1.kb._enqueue_ingestion", AsyncMock()) as enqueue,
+            ):
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.post(
+                        f"/api/v1/kb/documents/{doc_id}/validate",
+                        json={
+                            "source_authority": "ONSSA",
+                            "source_reference": "Guide",
+                            "source_version": "v1",
+                            "published_at": "2026-11-26",
+                        },
+                        headers=_headers(),
+                    )
+        finally:
+            _clear_overrides()
+        assert response.status_code == 422
+        assert doc.status == KBDocumentStatus.rejected
+        enqueue.assert_not_awaited()
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("scan_error", "expected_status"),
         [

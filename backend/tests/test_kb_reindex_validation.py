@@ -43,11 +43,71 @@ def test_approved_document_can_be_reindexed():
         {"status": KBDocumentStatus.rejected},
         {"expires_at": date.today() - timedelta(days=1)},
         {"source_authority": None},
+        {"source_reference": "   "},
     ],
 )
 def test_unapproved_or_expired_document_cannot_be_reindexed(override):
     with pytest.raises(ValidationError):
         _ensure_reindexable(document(**override))
+
+
+@pytest.mark.parametrize("field", ["source_authority", "source_reference", "source_version"])
+def test_validation_rejects_blank_evidence(field):
+    from pydantic import ValidationError as SchemaError
+
+    from app.schemas.kb import KBDocumentValidationRequest
+
+    values = {
+        "source_authority": "ONSSA",
+        "source_reference": "Guide",
+        "source_version": "v1",
+        "published_at": "2026-11-26",
+    }
+    values[field] = "   "
+    with pytest.raises(SchemaError):
+        KBDocumentValidationRequest(**values)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "https://user:pass@example.com",
+        "https://example.com/invalid path",
+        "https://example.com:invalid",
+    ],
+)
+def test_validation_rejects_unsafe_source_urls(url):
+    from pydantic import ValidationError as SchemaError
+
+    from app.schemas.kb import KBDocumentValidationRequest
+
+    with pytest.raises(SchemaError):
+        KBDocumentValidationRequest(
+            source_authority="ONSSA",
+            source_reference="Guide",
+            source_version="v1",
+            published_at=date.today(),
+            source_url=url,
+        )
+
+
+def test_validation_trims_evidence_and_accepts_optional_empty_url():
+    from app.schemas.kb import KBDocumentValidationRequest
+
+    data = KBDocumentValidationRequest(
+        source_authority=" ONSSA ",
+        source_reference=" Guide ",
+        source_version=" v1 ",
+        published_at=date.today(),
+        source_url="   ",
+    )
+    assert (data.source_authority, data.source_reference, data.source_version) == (
+        "ONSSA",
+        "Guide",
+        "v1",
+    )
+    assert data.source_url is None
 
 
 @pytest.mark.asyncio

@@ -16,7 +16,7 @@ def ensure_publishable(document: KBDocument) -> None:
             "source_version": document.source_version,
             "published_at": document.published_at,
         }.items()
-        if not value
+        if not value or (isinstance(value, str) and not value.strip())
     ]
     if missing:
         raise ValidationError(

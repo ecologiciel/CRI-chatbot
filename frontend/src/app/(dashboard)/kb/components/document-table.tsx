@@ -185,6 +185,14 @@ export function DocumentTable() {
   }
 
   function handleValidate(doc: (typeof documents)[number]) {
+    if (!doc.source_authority?.trim() || !doc.source_reference?.trim() || !doc.source_version?.trim() || !doc.published_at) {
+      toast.error("Renseignez l'autorité, la référence, la version et la date de publication.");
+      return;
+    }
+    if (doc.source_url?.trim() && !safeSourceUrl(doc.source_url.trim())) {
+      toast.error("Indiquez une URL de source HTTP ou HTTPS valide.");
+      return;
+    }
     validateDoc.mutate(doc, {
       onSuccess: () => { toast.success(`Document "${doc.title}" validé et envoyé à l'indexation`); setSelectedDocument(null); },
       onError: () => toast.error("Les métadonnées de preuve sont incomplètes"),

@@ -2,8 +2,9 @@
 
 import uuid
 from datetime import date, datetime
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.core.ingestion_errors import public_ingestion_error
 from app.models.enums import KBDocumentStatus
@@ -41,12 +42,40 @@ class KBDocumentUpdate(BaseModel):
 class KBDocumentValidationRequest(BaseModel):
     """Explicit human approval required before a document is indexed."""
 
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     source_authority: str = Field(..., min_length=1, max_length=300)
     source_reference: str = Field(..., min_length=1, max_length=500)
     source_version: str = Field(..., min_length=1, max_length=100)
     published_at: date
     source_url: str | None = Field(default=None, max_length=1000)
     expires_at: date | None = None
+
+    @field_validator("source_url", mode="before")
+    @classmethod
+    def validate_source_url(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("URL de source invalide.")
+        value = value.strip()
+        if not value:
+            return None
+        if "\\" in value or any(ord(char) <= 32 or ord(char) == 127 for char in value):
+            raise ValueError("URL de source invalide.")
+        try:
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme.lower() not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                raise ValueError("URL de source invalide.")
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("URL de source invalide.") from exc
+        return value
 
 
 class KBDocumentResponse(BaseModel):

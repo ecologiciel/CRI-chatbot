@@ -55,3 +55,13 @@ au fournisseur d'IA, ni la publication ; ils ne sont pas comparables au test
 local synthétique avant optimisation. Le fichier n'a pas été importé dans la
 base ONSSA lors de ce contrôle, qui ne valide ni la fidélité complète de
 l'extraction ni l'exactitude des réponses du chatbot.
+
+## Mesure locale sur une FAQ volumineuse
+
+Un document synthétique de 4 000 paires étiquetées a été découpé sur le poste
+de développement avant et après optimisation. Le temps observé est passé de
+32,9 à 0,8 seconde ; les deux essais ont produit les mêmes 4 000 plages de
+caractères. Ce résultat ponctuel concerne uniquement le découpage, pas l'import
+complet : l'indexation de 4 000 passages peut toujours demander du temps et
+générer des coûts auprès du fournisseur d'IA. Il ne préjuge pas non plus des
+performances de tous les formats ou d'un chargement simultané multi-utilisateur.

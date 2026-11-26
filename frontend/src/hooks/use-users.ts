@@ -33,8 +33,12 @@ export interface AdminUpdatePayload {
 
 export function useAdmins(params?: AdminsParams) {
   const api = useApiClient();
+  const { admin } = useAuth();
+  const selectedTenantId = admin?.role === "super_admin" && typeof window !== "undefined"
+    ? sessionStorage.getItem("cri_selected_tenant_id")
+    : null;
   return useQuery({
-    queryKey: ["admins", params] as const,
+    queryKey: ["admins", selectedTenantId, params] as const,
     queryFn: () =>
       api.get<PaginatedResponse<Admin>>("/auth/admins", {
         page: params?.page,
@@ -44,6 +48,7 @@ export function useAdmins(params?: AdminsParams) {
           params?.is_active !== undefined
             ? String(params.is_active)
             : undefined,
+        tenant_id: selectedTenantId || undefined,
       }),
   });
 }

@@ -43,8 +43,8 @@ export const superAdminApi = {
 
   // ── Monitoring ────────────────────────────────────────────────────────────
 
-  getTenantsHealth: (api: ApiClient) =>
-    api.get<MonitoringTenantHealth[]>("/tenants/health"),
+  getTenantsHealth: (api: ApiClient, page: number) =>
+    api.get<PaginatedResponse<MonitoringTenantHealth>>("/tenants/health", { page, page_size: 20 }),
 
   // ── Audit Logs ────────────────────────────────────────────────────────────
 

@@ -15,11 +15,11 @@ export function useTenants() {
   });
 }
 
-export function useTenantsHealth() {
+export function useTenantsHealth(page: number) {
   const api = useApiClient();
   return useQuery({
-    queryKey: ["sa-tenants-health"] as const,
-    queryFn: () => superAdminApi.getTenantsHealth(api),
+    queryKey: ["sa-tenants-health", page] as const,
+    queryFn: () => superAdminApi.getTenantsHealth(api, page),
     refetchInterval: 30_000, // auto-refresh every 30s
   });
 }

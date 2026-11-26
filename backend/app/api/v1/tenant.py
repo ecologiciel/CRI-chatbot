@@ -7,16 +7,19 @@ All endpoints are excluded from TenantMiddleware (operate on public schema).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import get_session_factory
 from app.core.exceptions import AuthorizationError, DuplicateResourceError, ResourceNotFoundError
+from app.core.minio import get_minio
+from app.core.qdrant import get_qdrant
 from app.core.rbac import get_current_admin, require_role
 from app.models.enums import AdminRole, TenantStatus
 from app.models.tenant import Tenant
@@ -98,6 +101,70 @@ async def list_tenants(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/health")
+async def tenant_resource_health(
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin)),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> dict:
+    """Report resource presence, not end-to-end availability or Meta connectivity."""
+    async with get_session_factory()() as session:
+        total = (await session.execute(select(func.count()).select_from(Tenant))).scalar_one()
+        result = await session.execute(
+            select(Tenant)
+            .order_by(Tenant.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        tenants = list(result.scalars().all())
+        schemas = set(
+            (await session.execute(text("SELECT nspname FROM pg_catalog.pg_namespace")))
+            .scalars()
+            .all()
+        )
+
+    async def collections():
+        try:
+            result = await asyncio.wait_for(get_qdrant().get_collections(), timeout=5)
+            return {item.name for item in result.collections}
+        except Exception as exc:
+            logger.warning("tenant_health_qdrant_unavailable", error_type=type(exc).__name__)
+            return None
+
+    async def buckets():
+        try:
+            result = await asyncio.wait_for(get_minio().list_buckets(), timeout=5)
+            return {item.name for item in result}
+        except Exception as exc:
+            logger.warning("tenant_health_minio_unavailable", error_type=type(exc).__name__)
+            return None
+
+    collection_names, bucket_names = await asyncio.gather(collections(), buckets())
+    items = []
+    for tenant in tenants:
+        config = tenant.whatsapp_config or {}
+        items.append(
+            {
+                "id": str(tenant.id),
+                "name": tenant.name,
+                "slug": tenant.slug,
+                "status": tenant.status.value,
+                "schema_present": f"tenant_{tenant.slug}" in schemas,
+                "collection_present": None
+                if collection_names is None
+                else f"kb_{tenant.slug}" in collection_names,
+                "bucket_present": None
+                if bucket_names is None
+                else f"cri-{tenant.slug}" in bucket_names,
+                "web_enabled": bool((tenant.public_config or {}).get("web_enabled")),
+                "whatsapp_configured": bool(
+                    config.get("phone_number_id") and config.get("access_token")
+                ),
+            }
+        )
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/{tenant_id}")

@@ -44,13 +44,15 @@ export interface TenantCreateData {
 // ---------------------------------------------------------------------------
 
 export interface MonitoringTenantHealth {
-  tenant: TenantSummary;
-  is_healthy: boolean;
-  messages_today: number;
-  conversations_active: number;
-  last_webhook_at: string | null;
-  whatsapp_connected: boolean;
-  qdrant_collection_size: number;
+  id: string;
+  name: string;
+  slug: string;
+  status: TenantStatus;
+  schema_present: boolean;
+  collection_present: boolean | null;
+  bucket_present: boolean | null;
+  web_enabled: boolean;
+  whatsapp_configured: boolean;
 }
 
 // ---------------------------------------------------------------------------

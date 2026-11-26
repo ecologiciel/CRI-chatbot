@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Activity, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,7 +8,8 @@ import { TenantHealthCard } from "@/components/super-admin/tenant-health-card";
 import { useTenantsHealth } from "@/hooks/use-super-admin";
 
 export default function MonitoringPage() {
-  const { data: healthData, isLoading, isError, dataUpdatedAt, refetch, isFetching } = useTenantsHealth();
+  const [page, setPage] = useState(1);
+  const { data: healthData, isLoading, isError, dataUpdatedAt, refetch, isFetching } = useTenantsHealth(page);
 
   return (
     <div className="space-y-6">
@@ -15,7 +17,7 @@ export default function MonitoringPage() {
         <div>
           <h1 className="text-2xl font-bold font-heading">Monitoring</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            État des institutions lorsqu’une source de surveillance est disponible.
+            Présence des ressources à cet instant. Ces vérifications ne testent ni les réponses du chatbot ni la connexion à Meta.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -71,21 +73,27 @@ export default function MonitoringPage() {
             </Button>
           </CardContent>
         </Card>
-      ) : !healthData || healthData.length === 0 ? (
+      ) : !healthData || healthData.items.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <Activity className="h-10 w-10 text-muted-foreground/50 mb-3" strokeWidth={1.5} />
             <p className="text-muted-foreground text-sm">
-              Aucun tenant à monitorer.
+              {page === 1 ? "Aucune institution à surveiller." : "Aucune institution sur cette page."}
             </p>
+            {page > 1 && <Button variant="outline" size="sm" className="mt-4" onClick={() => setPage(page - 1)}>Page précédente</Button>}
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {healthData.map((health) => (
-            <TenantHealthCard key={health.tenant.id} health={health} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {healthData.items.map((health) => <TenantHealthCard key={health.id} health={health} />)}
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>Précédent</Button>
+            <span className="text-sm">Page {page} · {healthData.total} institution(s)</span>
+            <Button variant="outline" size="sm" disabled={page * healthData.page_size >= healthData.total} onClick={() => setPage(page + 1)}>Suivant</Button>
+          </div>
+        </>
       )}
     </div>
   );

@@ -39,8 +39,10 @@ COPY backend/alembic.ini .
 COPY backend/alembic/ alembic/
 COPY docs/demos/onssa/ /app/onssa-corpus/
 
-# Set ownership
-RUN chown -R cri:cri /app
+# The root KMS maintenance process drops all capabilities and must be able to
+# read application code even when the checkout was created with umask 077.
+# Runtime secrets are injected separately and are not part of /app.
+RUN chown -R cri:cri /app && chmod -R a+rX /app
 
 USER cri
 

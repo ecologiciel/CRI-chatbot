@@ -41,6 +41,7 @@ def setup_intake(monkeypatch):
         intake.TenantResolver, "from_phone_number_id", AsyncMock(return_value="tenant")
     )
     monkeypatch.setattr(intake, "persist_incoming_message", persist)
+    monkeypatch.setattr(intake, "persist_delivery_status", AsyncMock(return_value=True))
     return verify, persist
 
 
@@ -63,15 +64,27 @@ async def test_bad_signature_never_persists(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mixed_batch_rejected_before_any_writes(monkeypatch):
+async def test_mixed_batch_persists_both_event_types(monkeypatch):
     _, persist = setup_intake(monkeypatch)
     event = payload()
     event["entry"][0]["changes"][0]["value"]["statuses"] = [
         {"id": "wamid.2", "status": "delivered", "timestamp": "1", "recipient_id": "123"}
     ]
-    with pytest.raises(intake.UnsupportedInboxEventError):
+    await intake.persist_authenticated_webhook(json.dumps(event).encode(), "signature")
+    persist.assert_awaited_once()
+    intake.persist_delivery_status.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_status_storage_failure_is_not_acknowledged(monkeypatch):
+    setup_intake(monkeypatch)
+    event = payload()
+    event["entry"][0]["changes"][0]["value"]["statuses"] = [
+        {"id": "wamid.2", "status": "delivered", "timestamp": "1", "recipient_id": "123"}
+    ]
+    intake.persist_delivery_status.side_effect = RuntimeError("storage unavailable")
+    with pytest.raises(RuntimeError):
         await intake.persist_authenticated_webhook(json.dumps(event).encode(), "signature")
-    persist.assert_not_awaited()
 
 
 @pytest.mark.asyncio

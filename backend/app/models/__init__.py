@@ -44,6 +44,7 @@ from app.models.sync import SyncConfig, SyncLog
 from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
+from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
 from app.models.whitelist import InternalWhitelist
 
 __all__ = [
@@ -76,6 +77,7 @@ __all__ = [
     "TenantKey",
     "UnansweredQuestion",
     "WhatsAppInboxEvent",
+    "WhatsAppStatusEvent",
     # Enums
     "AdminRole",
     "AgentType",

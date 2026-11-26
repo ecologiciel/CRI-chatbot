@@ -17,7 +17,8 @@ from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
-from app.schemas.whatsapp import IncomingMessage
+from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
+from app.schemas.whatsapp import IncomingMessage, StatusInfo
 from app.services.crypto.versioned_envelope import (
     VersionedEnvelope,
     VersionedEnvelopeService,
@@ -31,6 +32,7 @@ from app.services.whatsapp.inbox_leases import (
     renew_claim,
 )
 from app.services.whatsapp.inbox_payload import decrypt_claim
+from app.services.whatsapp.status_inbox import persist_delivery_status
 
 
 async def main():
@@ -54,12 +56,13 @@ async def main():
                         Tenant.__table__,
                         TenantKey.__table__,
                         WhatsAppInboxEvent.__table__,
+                        WhatsAppStatusEvent.__table__,
                     ]
                 ),
             )
         )
     if os.getenv("WA_INBOX_ALEMBIC_TEST") == "1":
-        for args in (("stamp", "0017"), ("upgrade", "0018")):
+        for args in (("stamp", "0017"), ("upgrade", "0019")):
             process = await asyncio.create_subprocess_exec("alembic", *args, cwd="/app")
             if await process.wait() != 0:
                 raise RuntimeError("Isolated Alembic migration failed")
@@ -95,6 +98,33 @@ async def main():
         await session.commit()
 
     cipher = VersionedEnvelopeService(get_session_factory(), master.hex())
+    status = StatusInfo(
+        id="status-wamid",
+        status="delivered",
+        timestamp="123",
+        recipient_id="212600000001",
+    )
+    status_results = await asyncio.gather(
+        *(
+            persist_delivery_status(
+                tenant, "123", status, cipher=cipher, fingerprint_key=master
+            )
+            for _ in range(4)
+        )
+    )
+    assert status_results.count(True) == 1 and status_results.count(False) == 3
+    async with get_session_factory()() as session:
+        status_rows = (
+            (await session.execute(select(WhatsAppStatusEvent))).scalars().all()
+        )
+    assert len(status_rows) == 1 and "212600000001" not in status_rows[0].ciphertext
+    status_plaintext = await cipher.decrypt(
+        VersionedEnvelope(status_rows[0].key_version, status_rows[0].ciphertext),
+        tenant_id=tenant_id,
+        purpose="wa_status",
+        record_id=status_rows[0].id,
+    )
+    assert json.loads(status_plaintext)["status"]["status"] == "delivered"
     message = IncomingMessage.model_validate(
         {
             "id": "synthetic-wamid",

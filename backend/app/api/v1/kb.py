@@ -433,7 +433,23 @@ async def delete_document(
                 minio = get_minio()
                 await minio.remove_object(tenant.minio_bucket, file_path)
             except Exception as exc:
-                log.warning("minio_delete_failed", file_path=file_path, error=str(exc))
+                # The vector and chunk cleanup may already have succeeded in
+                # separate transactions. Keep the document record so the
+                # operator can retry; never claim that its file was deleted.
+                log.error("minio_delete_failed", error_type=type(exc).__name__)
+                async with tenant.db_session() as failure_session:
+                    await failure_session.execute(
+                        update(KBDocument)
+                        .where(KBDocument.id == document_id)
+                        .values(
+                            status=KBDocumentStatus.error,
+                            error_message="Suppression du fichier impossible. Réessayez.",
+                        )
+                    )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Suppression du fichier impossible. Réessayez.",
+                ) from exc
 
         await session.execute(delete(KBDocument).where(KBDocument.id == document_id))
 

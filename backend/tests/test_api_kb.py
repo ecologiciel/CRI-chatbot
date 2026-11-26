@@ -686,6 +686,41 @@ class TestDeleteDocument:
         mock_minio.remove_object.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_storage_failure_is_reported_and_document_record_is_retained(self):
+        _setup_overrides()
+        doc_id = uuid.uuid4()
+        doc = _make_document_orm(doc_id=doc_id, file_path="kb/test/guide.pdf")
+        mock_session = _mock_tenant_db_session(scalar_one_or_none=doc)
+        mock_minio = MagicMock()
+        mock_minio.remove_object = AsyncMock(side_effect=RuntimeError("private storage details"))
+
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as resolver,
+                patch.object(TenantContext, "db_session", return_value=mock_session),
+                patch("app.api.v1.kb.get_minio", return_value=mock_minio),
+                patch("app.services.rag.ingestion.get_ingestion_service") as ingestion,
+            ):
+                resolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                ingestion.return_value.delete_document = AsyncMock()
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.delete(
+                        f"/api/v1/kb/documents/{doc_id}", headers=_headers()
+                    )
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 503
+        assert "private storage details" not in response.text
+        assert not any(
+            getattr(call.args[0], "is_delete", False)
+            for call in mock_session.__aenter__.return_value.execute.await_args_list
+            if call.args
+        )
+
+    @pytest.mark.asyncio
     async def test_delete_not_found(self):
         """DELETE /kb/documents/{id} for missing document returns 404."""
         _setup_overrides()

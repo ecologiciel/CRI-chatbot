@@ -7,7 +7,7 @@ import { TenantHealthCard } from "@/components/super-admin/tenant-health-card";
 import { useTenantsHealth } from "@/hooks/use-super-admin";
 
 export default function MonitoringPage() {
-  const { data: healthData, isLoading, dataUpdatedAt, refetch, isFetching } = useTenantsHealth();
+  const { data: healthData, isLoading, isError, dataUpdatedAt, refetch, isFetching } = useTenantsHealth();
 
   return (
     <div className="space-y-6">
@@ -15,11 +15,11 @@ export default function MonitoringPage() {
         <div>
           <h1 className="text-2xl font-bold font-heading">Monitoring</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Santé en temps réel des tenants CRI. Rafraîchissement auto toutes les 30s.
+            État des institutions lorsqu’une source de surveillance est disponible.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {dataUpdatedAt > 0 && (
+          {!isError && dataUpdatedAt > 0 && (
             <span className="text-xs text-muted-foreground hidden sm:inline">
               Mis à jour à{" "}
               {new Date(dataUpdatedAt).toLocaleTimeString("fr-FR", {
@@ -60,6 +60,17 @@ export default function MonitoringPage() {
             </Card>
           ))}
         </div>
+      ) : isError ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center" role="alert">
+            <Activity className="h-10 w-10 text-destructive mb-3" strokeWidth={1.5} />
+            <p className="text-sm text-destructive">La surveillance des institutions est indisponible.</p>
+            <p className="text-xs text-muted-foreground mt-2">L’état des canaux et des services ne peut pas être confirmé depuis cette page.</p>
+            <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()} disabled={isFetching}>
+              Réessayer
+            </Button>
+          </CardContent>
+        </Card>
       ) : !healthData || healthData.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">

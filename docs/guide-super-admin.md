@@ -1,112 +1,75 @@
-# Guide — Back-Office Super-Admin
+# Créer une démonstration pour une institution
 
-> Module Phase 2 — Administration cross-tenant de la plateforme CRI Chatbot.
+Ce guide décrit le parcours web de la plateforme de démonstration déployée sur
+Hostinger. Il s'adresse au titulaire d'un compte **super-administrateur**.
+Les espaces créés sont des démonstrations non officielles ; vérifiez les
+sources et les réponses avant de les présenter à un prospect.
 
-## Role du super-admin
+## Créer l'espace
 
-Le super-admin a un acces global a la plateforme. Il peut :
-- **Creer et gerer les tenants** (CRI regionaux)
-- **Superviser** l'activite de tous les tenants
-- **Gerer les administrateurs** de chaque tenant
-- **Consulter les logs d'audit** centralises
-- **Acceder a tous les modules** sans restriction de tenant
+1. Ouvrez [l'administration](https://2-25-21-84.sslip.io/admin/) et connectez-vous.
+2. Dans l'espace super-administrateur, ouvrez **Tenants**, puis **Créer une démonstration**.
+3. Indiquez le nom de l'institution, son code et la zone couverte. Le code
+   contient 2 à 50 lettres minuscules ou chiffres, commence par une lettre et
+   figure dans le lien public. Vérifiez-le avant la création.
+4. Cliquez sur **Créer la démonstration**. La page **Institutions** liste les
+   espaces et leur état. Le chat web est activé pour ce nouvel espace ; sa
+   durée de conservation des conversations est configurée à sept jours.
 
-## Acces
+La purge est quotidienne : une conversation terminée est éligible après le
+délai configuré ; une conversation de démo non terminée devient éligible après
+ce délai sans message récent. La suppression n'est donc pas instantanée au
+bout de sept jours. N'utilisez pas ce délai comme engagement contractuel sans
+avoir défini la politique de conservation avec l'institution.
 
-Le super-admin accede au back-office avec ses identifiants. L'espace super-admin offre une navigation distincte avec des pages dediees :
-- **Tenants** — Gestion des CRI regionaux
-- **Administrateurs** — Gestion des comptes admin par tenant
-- **Monitoring** — Vue d'ensemble de la sante de la plateforme
-- **Logs d'audit** — Consultation centralisee de toutes les actions
+## Importer et valider des documents
 
-## Creer un nouveau tenant CRI
+1. Sur la ligne de l'institution active, cliquez sur **Gérer les documents**.
+   Vérifiez le nom de l'institution affiché en haut de l'administration avant
+   de poursuivre. Pour changer d'espace, utilisez **Choisir une institution**.
+2. Dans **Base de connaissances**, cliquez sur **Ajouter un document** et
+   choisissez un fichier PDF, DOCX, TXT, Markdown ou CSV. L'interface indique
+   une limite de 50 Mo ; pour un CSV, la première ligne est considérée comme
+   les intitulés des colonnes.
+3. Renseignez l'organisme émetteur, la référence et la version de la source,
+   puis le titre, la catégorie et la langue. Ajoutez un lien officiel si vous
+   en disposez. La date de publication est facultative si elle est inconnue :
+   ne la remplacez pas par la date de téléchargement.
+4. Importez le fichier. Dans la liste, ouvrez le menu **…** du document
+   **À valider**, choisissez **Valider et indexer**, puis confirmez après avoir
+   contrôlé sa source et son contenu. L'indexation démarre après validation.
+5. Actualisez la liste et attendez **Indexé** avant de tester. **En attente**
+   ou **En cours** indique que le traitement n'est pas terminé ; **Erreur**
+   signifie que le document ne doit pas être considéré comme disponible.
+   Le menu **…** permet de demander une réindexation si nécessaire.
 
-1. **Tenants** → bouton **"Creer un tenant"**
-2. Renseigner les informations :
-   - **Nom du CRI** (ex : "CRI Rabat-Sale-Kenitra")
-   - **Slug** (auto-genere a partir du nom, ex : `rabat`)
-   - **Region** (ex : "Rabat-Sale-Kenitra")
-3. Configurer WhatsApp :
-   - **Phone Number ID** (identifiant du numero dans Meta Business)
-   - **Access Token** (token d'acces API WhatsApp)
-   - **App Secret** (secret pour la validation HMAC des webhooks)
-4. Personnaliser (optionnel) :
-   - **Logo** (SVG ou PNG, max 200x60px)
-   - **Couleur accent** (pour la page de login du tenant)
-5. Confirmer la creation
+Importez uniquement des documents que vous êtes autorisé à utiliser. Les
+fichiers scannés, tableaux complexes et sources anciennes demandent un contrôle
+particulier : la présence de passages indexés ne garantit pas une extraction
+fidèle ni des réponses exactes.
 
-### Provisionnement automatique
+## Tester et partager la démo
 
-A la creation d'un tenant, la plateforme provisionne automatiquement :
-- **Schema PostgreSQL** : `tenant_{slug}` avec toutes les tables metier
-- **Collection Qdrant** : `kb_{slug}` pour la base de connaissances vectorielle
-- **Bucket MinIO** : `cri-{slug}` pour le stockage de fichiers
-- **Prefixe Redis** : `{slug}:*` pour le cache et les sessions
-- **Cle de chiffrement KMS** : cle AES-256 dediee au tenant (envelope encryption)
+Dans **Institutions**, cliquez sur **Ouvrir le chatbot** pour l'espace voulu.
+Posez plusieurs questions dont vous connaissez les réponses, y compris une
+question absente des documents. Vérifiez la réponse et les **documents
+consultés**. Les pages affichées sont les pages des passages consultés ; elles
+ne prouvent pas que chaque affirmation est justifiée par chaque page.
 
-## Gerer les administrateurs
+La démonstration est publique et accessible sans connexion : évitez d'y mettre
+des documents confidentiels ou des données réelles. Le chat
+demande aux visiteurs de ne pas transmettre de données personnelles. Certains
+motifs reconnus sont masqués, mais cela ne constitue pas une anonymisation
+complète. Une vérification humaine des réponses en français et en arabe reste
+nécessaire avant une présentation institutionnelle.
 
-Chaque tenant peut avoir jusqu'a **10 administrateurs** avec des roles differents :
+## Limites d'exploitation
 
-| Role | Droits |
-|------|--------|
-| `admin_tenant` | Acces complet au tenant (KB, contacts, campagnes, escalades, configuration) |
-| `supervisor` | Gestion des escalades, apprentissage supervise, consultation contacts |
-| `viewer` | Consultation seule (dashboards, statistiques) |
-
-### Operations :
-- **Creer un admin** : renseigner email, mot de passe initial, role
-- **Modifier un admin** : changer le role, reactiver/desactiver
-- **Desactiver un admin** : l'admin ne peut plus se connecter mais son historique est conserve
-
-## Monitoring multi-tenant
-
-La page Monitoring affiche en temps reel pour chaque tenant :
-- **Statut** : actif / inactif
-- **Messages du jour** : nombre de messages WhatsApp echanges
-- **Contacts** : nombre total de contacts
-- **Derniere activite** : horodatage du dernier message
-- **Sante des services** : etat des connexions DB, Qdrant, Redis, MinIO
-
-## Logs d'audit
-
-La table `audit_logs` est en mode **INSERT ONLY** (aucune suppression ni modification possible par l'application). Chaque action significative est enregistree :
-
-| Champ | Description |
-|-------|-------------|
-| `tenant_slug` | Tenant concerne |
-| `user_id` | Administrateur ayant effectue l'action |
-| `user_type` | Type d'utilisateur (admin, super_admin, system) |
-| `action` | Action effectuee (create, update, delete, login, etc.) |
-| `resource_type` | Type de ressource (contact, escalation, campaign, etc.) |
-| `resource_id` | Identifiant de la ressource |
-| `ip_address` | Adresse IP de l'utilisateur |
-| `details` | Details supplementaires (JSON) |
-| `created_at` | Horodatage |
-
-### Filtres disponibles :
-- Par **tenant**
-- Par **utilisateur**
-- Par **action**
-- Par **periode** (date debut / date fin)
-
-### Archivage
-Les logs sont archives automatiquement chaque semaine :
-- Signature SHA-256 du lot archive
-- Stockage sur MinIO (bucket dedie)
-- Retention : 12 mois PostgreSQL, 24 mois MinIO
-
-## Securite
-
-### KMS (Key Management Service)
-
-Chaque tenant dispose de sa propre cle de chiffrement AES-256-GCM. L'architecture utilise l'**envelope encryption** :
-- La **master key** (variable d'environnement `KMS_MASTER_KEY`) protege les cles de tenant
-- Chaque **tenant key** chiffre les donnees sensibles du tenant
-- Rotation planifiable des cles de tenant
-
-### Gestion des sessions
-
-- Detection de **changement d'adresse IP** en cours de session
-- **Session unique** : une seule session active par administrateur
-- Alertes en cas de connexion simultanee depuis des IP differentes
+- WhatsApp demande une configuration et des essais distincts ; créer une
+  démonstration web ne configure pas ce canal.
+- Un état de santé vert ne garantit pas que le fournisseur d'IA répond ni que
+  les réponses sont correctes. Voir [Surveillance depuis Windows](securite/surveillance-windows.md).
+- La sauvegarde chiffrée et les limites de récupération sont décrites dans
+  [Vérification locale d'une sauvegarde](securite/verification-sauvegarde-locale.md).
+- Ne partagez pas de mot de passe ou de clé API dans une conversation. Une
+  clé précédemment exposée doit être remplacée auprès de son fournisseur.

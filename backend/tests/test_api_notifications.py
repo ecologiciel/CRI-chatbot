@@ -256,11 +256,14 @@ class TestListNotificationHistory:
         assert data["page_size"] == 10
 
     @pytest.mark.asyncio
-    async def test_list_history_filter_by_status(self):
+    @pytest.mark.parametrize(
+        "status,action", [("sent", "notification_sent"), ("unconfirmed", "notif_unconfirmed")]
+    )
+    async def test_list_history_filter_by_status(self, status, action):
         """GET /notifications?status=sent filters to sent notifications."""
         _setup_overrides(role=AdminRole.supervisor.value)
 
-        logs = [_make_audit_log_orm(action="notification_sent")]
+        logs = [_make_audit_log_orm(action=action)]
 
         set_path_result = MagicMock()
         count_result = MagicMock()
@@ -289,7 +292,7 @@ class TestListNotificationHistory:
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
                     response = await client.get(
-                        "/api/v1/notifications?status=sent",
+                        f"/api/v1/notifications?status={status}",
                         headers=_headers(),
                     )
         finally:
@@ -299,7 +302,7 @@ class TestListNotificationHistory:
         data = response.json()
         assert data["total"] == 1
         for item in data["items"]:
-            assert item["status"] == "sent"
+            assert item["status"] == status
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +399,10 @@ class TestGetNotificationStats:
 
 class TestSendManualNotification:
     @pytest.mark.asyncio
-    async def test_send_success(self):
+    @pytest.mark.parametrize(
+        "revoked, provider", [(False, "ok"), (True, "ok"), (False, "empty"), (False, "timeout")]
+    )
+    async def test_send_success(self, revoked, provider):
         """Manual send succeeds with valid contact and dossier."""
         payload = _setup_overrides(role=AdminRole.admin_tenant.value)
 
@@ -405,14 +411,20 @@ class TestSendManualNotification:
         contact = _make_contact_orm(contact_id=contact_id)
         dossier = _make_dossier_orm(dossier_id=dossier_id)
 
-        # Two db_session calls: contact load, dossier load
+        # Contact load, dossier load, then a locked consent recheck.
         contact_result = MagicMock()
         contact_result.scalar_one_or_none.return_value = contact
         dossier_result = MagicMock()
         dossier_result.scalar_one_or_none.return_value = dossier
+        recheck_result = MagicMock()
+        recheck_result.scalar_one_or_none.return_value = (
+            _make_contact_orm(contact_id=contact_id, opt_in_status=OptInStatus.opted_out)
+            if revoked
+            else contact
+        )
 
         mock_session = _mock_tenant_db_session(
-            execute_results=[contact_result, dossier_result],
+            execute_results=[contact_result, dossier_result, recheck_result],
         )
 
         try:
@@ -425,6 +437,10 @@ class TestSendManualNotification:
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 mock_sender_inst = MockSender.return_value
                 mock_sender_inst.send_template = AsyncMock(return_value="wamid.test123")
+                if provider == "empty":
+                    mock_sender_inst.send_template.return_value = None
+                elif provider == "timeout":
+                    mock_sender_inst.send_template.side_effect = TimeoutError("synthetic timeout")
                 mock_audit = MagicMock()
                 mock_audit.log_action = AsyncMock()
                 mock_get_audit.return_value = mock_audit
@@ -446,8 +462,17 @@ class TestSendManualNotification:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "sent"
-        assert data["wamid"] == "wamid.test123"
+        if revoked:
+            assert data["status"] == "skipped"
+            assert data["reason"] == "opted_out"
+            mock_sender_inst.send_template.assert_not_awaited()
+        elif provider != "ok":
+            assert data["status"] == "unconfirmed"
+            assert data["reason"] == "provider_result_unknown"
+            mock_sender_inst.send_template.assert_awaited_once()
+        else:
+            assert data["status"] == "sent"
+            assert data["wamid"] == "wamid.test123"
 
     @pytest.mark.asyncio
     async def test_send_contact_not_found(self):

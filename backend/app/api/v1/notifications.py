@@ -61,6 +61,7 @@ _STATUS_TO_ACTION: dict[str, str] = {
     "sent": "notification_sent",
     "skipped": "notification_skipped",
     "failed": "notification_failed",
+    "unconfirmed": "notif_unconfirmed",
 }
 
 # ── Template descriptions ───────────────────────────────────────────
@@ -130,7 +131,7 @@ def _build_template_list(
 async def list_notifications(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    status: str | None = Query(default=None, pattern=r"^(sent|skipped|failed)$"),
+    status: str | None = Query(default=None, pattern=r"^(sent|skipped|failed|unconfirmed)$"),
     event_type: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
@@ -228,6 +229,7 @@ async def get_notification_stats(
         + action_counts.get("notif_manual_sent", 0),
         total_skipped=action_counts.get("notification_skipped", 0),
         total_failed=action_counts.get("notification_failed", 0),
+        total_unconfirmed=action_counts.get("notif_unconfirmed", 0),
         by_event_type=by_event_type,
         period_days=days,
     )
@@ -307,32 +309,70 @@ async def send_manual_notification(
     # 7. Send via WhatsApp
     sender = WhatsAppSenderService()
     try:
-        wamid = await sender.send_template(
-            tenant=tenant,
-            to=contact.phone,
+        skip_reason, wamid = await service._send_with_current_consent(
+            tenant,
+            data.contact_id,
             template_name=template_name,
             language_code=language_code,
             components=components,
+            sender=sender,
         )
+        if skip_reason:
+            await get_audit_service().log_action(
+                AuditLogCreate(
+                    tenant_slug=tenant.slug,
+                    user_id=uuid.UUID(admin.sub),
+                    user_type="admin",
+                    action="notification_skipped",
+                    resource_type="notification",
+                    resource_id=str(data.dossier_id),
+                    details={
+                        "reason": skip_reason,
+                        "contact_id": str(data.contact_id),
+                        "manual": True,
+                    },
+                )
+            )
+            return ManualNotificationResponse(status="skipped", reason=skip_reason)
     except Exception as exc:
-        log.error("manual_send_failed", error=str(exc), exc_info=True)
+        log.warning("manual_send_unconfirmed", error_type=type(exc).__name__)
         await get_audit_service().log_action(
             AuditLogCreate(
                 tenant_slug=tenant.slug,
                 user_id=uuid.UUID(admin.sub),
                 user_type="admin",
-                action="notification_failed",
+                action="notif_unconfirmed",
                 resource_type="notification",
                 resource_id=str(data.dossier_id),
                 details={
                     "event_type": data.event_type,
                     "contact_id": str(data.contact_id),
-                    "error": str(exc),
+                    "error_type": type(exc).__name__,
                     "manual": True,
                 },
             ),
         )
-        return ManualNotificationResponse(status="failed", reason=str(exc))
+        return ManualNotificationResponse(status="unconfirmed", reason="provider_result_unknown")
+
+    if not wamid:
+        log.warning("manual_send_unconfirmed", error_type="MissingProviderId")
+        await get_audit_service().log_action(
+            AuditLogCreate(
+                tenant_slug=tenant.slug,
+                user_id=uuid.UUID(admin.sub),
+                user_type="admin",
+                action="notif_unconfirmed",
+                resource_type="notification",
+                resource_id=str(data.dossier_id),
+                details={
+                    "event_type": data.event_type,
+                    "contact_id": str(data.contact_id),
+                    "error_type": "MissingProviderId",
+                    "manual": True,
+                },
+            )
+        )
+        return ManualNotificationResponse(status="unconfirmed", reason="provider_result_unknown")
 
     # 8. Audit trail
     log.info("manual_send_success", wamid=wamid)

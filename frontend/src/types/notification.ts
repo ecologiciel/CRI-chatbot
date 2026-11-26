@@ -2,7 +2,7 @@
 // Notification types — matches backend schemas (notification.py)
 // ---------------------------------------------------------------------------
 
-export type NotificationStatus = "sent" | "skipped" | "failed";
+export type NotificationStatus = "sent" | "skipped" | "failed" | "unconfirmed";
 
 export type NotificationEventType =
   | "decision_finale"
@@ -53,6 +53,7 @@ export interface NotificationStats {
   total_sent: number;
   total_skipped: number;
   total_failed: number;
+  total_unconfirmed: number;
   by_event_type: Record<string, number>;
   period_days: number;
 }

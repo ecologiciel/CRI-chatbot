@@ -23,6 +23,7 @@ _ACTION_TO_STATUS: dict[str, str] = {
     "notification_skipped": "skipped",
     "notification_failed": "failed",
     "notif_manual_sent": "sent",
+    "notif_unconfirmed": "unconfirmed",
 }
 
 _VALID_EVENT_TYPES = {e.value for e in NotificationEventType}
@@ -69,6 +70,7 @@ class NotificationStats(BaseModel):
     total_sent: int = 0
     total_skipped: int = 0
     total_failed: int = 0
+    total_unconfirmed: int = 0
     by_event_type: dict[str, int] = Field(default_factory=dict)
     period_days: int = 30
 

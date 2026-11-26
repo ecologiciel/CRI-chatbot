@@ -19,12 +19,13 @@ interface KPIConfig {
     total_sent: number;
     total_skipped: number;
     total_failed: number;
+    total_unconfirmed: number;
   }) => number;
 }
 
 const KPI_CARDS: KPIConfig[] = [
   {
-    title: "Total envoyées",
+    title: "Acceptées par WhatsApp",
     icon: Send,
     colorClass: "text-primary bg-primary/10",
     getValue: (s) => s.total_sent,
@@ -42,10 +43,16 @@ const KPI_CARDS: KPIConfig[] = [
     getValue: (s) => s.total_failed,
   },
   {
+    title: "À vérifier",
+    icon: AlertTriangle,
+    colorClass: "text-[hsl(var(--warning))] bg-[hsl(var(--warning))]/10",
+    getValue: (s) => s.total_unconfirmed ?? 0,
+  },
+  {
     title: "Total traitées",
     icon: Activity,
     colorClass: "text-[hsl(var(--info))] bg-[hsl(var(--info))]/10",
-    getValue: (s) => s.total_sent + s.total_skipped + s.total_failed,
+    getValue: (s) => s.total_sent + s.total_skipped + s.total_failed + (s.total_unconfirmed ?? 0),
   },
 ];
 
@@ -110,9 +117,9 @@ export function NotificationStats({
       </div>
 
       {/* KPI grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {isLoading
-          ? Array.from({ length: 4 }).map((_, i) => (
+          ? Array.from({ length: 5 }).map((_, i) => (
               <KPICardSkeleton key={i} />
             ))
           : KPI_CARDS.map((kpi) => {

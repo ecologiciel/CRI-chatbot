@@ -46,6 +46,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
       >
         <p className="text-sm whitespace-pre-wrap break-words">{content || `[${type}]`}</p>
+        {message.delivery_state === "unconfirmed" && (
+          <p className="text-xs text-destructive mt-1">Envoi WhatsApp non confirmé</p>
+        )}
         <p
           className={cn(
             "text-[10px] mt-1.5",

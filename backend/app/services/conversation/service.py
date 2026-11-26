@@ -210,6 +210,11 @@ class ConversationService:
         for msg in messages:
             if not msg.content:
                 continue
+            if (
+                msg.direction == MessageDirection.outbound
+                and (msg.metadata_ or {}).get("delivery_state") == "unconfirmed"
+            ):
+                continue
             role = "user" if msg.direction == MessageDirection.inbound else "assistant"
             history.append({"role": role, "content": msg.content})
         return history
@@ -231,6 +236,8 @@ class ConversationService:
                 .limit(25),
             )
             for message in result.scalars():
+                if (message.metadata_ or {}).get("delivery_state") == "unconfirmed":
+                    continue
                 sources = (message.metadata_ or {}).get("sources")
                 if isinstance(sources, list):
                     return sources[:3]

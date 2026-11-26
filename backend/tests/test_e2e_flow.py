@@ -294,6 +294,19 @@ class TestHappyPath:
         # Metadata updated
         mocks["conv_svc"].update_metadata.assert_awaited_once()
 
+    @pytest.mark.asyncio()
+    async def test_failed_send_is_recorded_as_unconfirmed(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        mocks["sender"].send_text.side_effect = TimeoutError("provider timeout")
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()):
+            await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+
+        outbound = mocks["conv_svc"].add_message.await_args_list[1]
+        assert outbound.kwargs["metadata"]["delivery_state"] == "unconfirmed"
+        assert outbound.kwargs["whatsapp_message_id"] is None
+        mocks["session_mgr"].increment_quota.assert_not_awaited()
+
 
 class TestMediaMessages:
     """Image and audio processing via WhatsAppMediaHandler."""

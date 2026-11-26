@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasPath, BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import (
     AgentType,
@@ -106,6 +106,9 @@ class MessageResponse(BaseModel):
     media_url: str | None
     chunk_ids: list
     whatsapp_message_id: str | None
+    delivery_state: str | None = Field(
+        default=None, validation_alias=AliasPath("metadata_", "delivery_state")
+    )
     timestamp: datetime
     created_at: datetime
 

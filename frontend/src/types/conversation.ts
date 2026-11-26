@@ -52,4 +52,5 @@ export interface ConversationMessageRecord {
   type: "text" | "image" | "audio" | "document" | "interactive" | "system";
   content: string | null;
   timestamp: string;
+  delivery_state?: string | null;
 }

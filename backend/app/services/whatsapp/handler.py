@@ -247,11 +247,6 @@ class MessageHandler:
                 response_text = PromptTemplates.get_message("no_answer", "fr")
 
             # 13. Send response via WhatsApp
-            WHATSAPP_MESSAGES.labels(
-                tenant=tenant.slug,
-                direction="outbound",
-                type="text",
-            ).inc()
             out_wamid = None
             try:
                 out_wamid = await self._sender.send_text(tenant, phone, response_text)
@@ -277,6 +272,9 @@ class MessageHandler:
                         "language": result.get("language"),
                         "confidence": result.get("confidence"),
                         "sources": result.get("sources", []),
+                        # A timeout or malformed provider response can occur
+                        # after acceptance, so do not claim definitive failure.
+                        "delivery_state": "unconfirmed" if not out_wamid else "accepted",
                     },
                 )
             except Exception as persist_err:
@@ -288,6 +286,11 @@ class MessageHandler:
 
             # 15. Track quota (only if actually sent)
             if out_wamid:
+                WHATSAPP_MESSAGES.labels(
+                    tenant=tenant.slug,
+                    direction="outbound",
+                    type="text",
+                ).inc()
                 try:
                     await self._session_manager.increment_quota(tenant)
                 except Exception:

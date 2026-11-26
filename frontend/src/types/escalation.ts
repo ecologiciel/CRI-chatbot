@@ -43,6 +43,7 @@ export interface EscalationMessage {
   type: "text" | "image" | "audio" | "system";
   content: string | null;
   timestamp: string;
+  delivery_state?: string | null;
   sender_type?: "user" | "bot" | "agent";
 }
 

@@ -110,7 +110,9 @@ class LanguageDetectionService:
     def __init__(self) -> None:
         self.logger = logger.bind(service="language_detection")
 
-    async def detect(self, text: str, tenant: TenantContext) -> LanguageResult:
+    async def detect(
+        self, text: str, tenant: TenantContext, *, local_only: bool = False
+    ) -> LanguageResult:
         """Detect the language of the input text.
 
         Strategy (ordered by cost):
@@ -123,6 +125,7 @@ class LanguageDetectionService:
         Args:
             text: Input text to analyze.
             tenant: Tenant context (needed for Gemini fallback billing).
+            local_only: Never call the external language model when true.
 
         Returns:
             LanguageResult with language, confidence, and detection method.
@@ -161,7 +164,7 @@ class LanguageDetectionService:
             return fr_en_result
 
         # Step 3: Gemini fallback
-        gemini_result = await self._gemini_detect(stripped, tenant)
+        gemini_result = None if local_only else await self._gemini_detect(stripped, tenant)
         if gemini_result is not None:
             self.logger.info(
                 "language_detected",

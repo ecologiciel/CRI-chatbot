@@ -160,6 +160,8 @@ class InputGuardService:
         text: str,
         tenant: TenantContext,
         language: str = "fr",
+        *,
+        local_only: bool = False,
     ) -> InputGuardResult:
         """Run all input guards in cost-ascending order.
 
@@ -167,6 +169,7 @@ class InputGuardService:
             text: Raw user input text.
             tenant: Tenant context for Gemini cost tracking.
             language: Detected language code (fr/ar/en).
+            local_only: Apply length and injection checks without topic classification.
 
         Returns:
             InputGuardResult with safety verdict and reason.
@@ -206,7 +209,7 @@ class InputGuardService:
             return injection_result
 
         # 3. Topic classification via Gemini (~20 tokens)
-        topic_result = await self._check_topic(stripped, tenant, language)
+        topic_result = None if local_only else await self._check_topic(stripped, tenant, language)
         if topic_result is not None:
             GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result=topic_result.action).inc()
             self._logger.info(

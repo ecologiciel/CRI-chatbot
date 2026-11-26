@@ -105,15 +105,31 @@ class IntentDetector:
         query = state.get("query", "")
         updates: dict = {}
 
+        tracking_state = state.get("tracking_state")
+        tracking_active = bool(tracking_state and tracking_state != "idle")
+        # During an authenticated tracking flow the message may be an OTP or
+        # identifier. Keep language and safety checks local; tracking remains
+        # subject to the same local length and injection checks.
+        language_text = query
+        if tracking_active:
+            recent_users = [
+                message.get("content", "")
+                for message in state.get("messages", [])[-10:]
+                if isinstance(message, dict) and message.get("role") == "user"
+            ]
+            language_text = " ".join([*recent_users[-3:], query])
+
         # Step 1: Detect language
-        lang_result = await self._language.detect(query, tenant)
+        if tracking_active:
+            lang_result = await self._language.detect(language_text, tenant, local_only=True)
+        else:
+            lang_result = await self._language.detect(query, tenant)
         updates["language"] = lang_result.language.value
 
         # Step 2: Input guardrails
+        guard_kwargs = {"local_only": True} if tracking_active else {}
         guard_result = await self._guard.check(
-            query,
-            tenant=tenant,
-            language=lang_result.language.value,
+            query, tenant=tenant, language=lang_result.language.value, **guard_kwargs
         )
 
         if not guard_result.is_safe:
@@ -135,8 +151,7 @@ class IntentDetector:
 
         # Step 2.5: If tracking flow is active, maintain intent
         # (don't re-classify OTP codes or dossier numbers mid-flow)
-        tracking_state = state.get("tracking_state")
-        if tracking_state and tracking_state not in ("idle",):
+        if tracking_active:
             updates["intent"] = IntentType.SUIVI_DOSSIER
             self._logger.info(
                 "intent_tracking_state_maintained",

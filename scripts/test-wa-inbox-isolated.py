@@ -137,13 +137,11 @@ async def main():
     claim = active[0]
     if claim.id != event.id:
         async with get_session_factory()() as session:
-            rows = (
-                await session.execute(
-                    select(WhatsAppInboxEvent.id, WhatsAppInboxEvent.state)
-                )
-            ).all()
+            rows = (await session.execute(select(WhatsAppInboxEvent))).scalars().all()
+            details = [(r.id, r.tenant_id, r.lease_token, r.state) for r in rows]
         raise AssertionError(
-            f"Unexpected claimed event: {claim.id!r} != {event.id!r}; rows={rows!r}"
+            f"Unexpected claimed event: {claim.id!r} != {event.id!r}; "
+            f"claim tenant={claim.tenant_id!r} token={claim.lease_token!r}; rows={details!r}"
         )
     decoded = await decrypt_claim(claim, cipher)
     assert decoded.message.id == message.id

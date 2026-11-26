@@ -301,6 +301,16 @@ class TestConversationGraph:
         assert result["response"] == expected
 
     @pytest.mark.asyncio
+    async def test_misclassified_in_scope_question_gets_uncertainty_not_wrong_scope_claim(self):
+        graph, _mocks = _build_graph_with_mocks(intent=IntentType.HORS_PERIMETRE)
+        state = _make_state(query="Quels sont les frais de certification ?")
+
+        result = await graph.ainvoke(state)
+
+        assert "certitude" in result["response"]
+        assert "ne relève pas" not in result["response"]
+
+    @pytest.mark.asyncio
     async def test_graph_blocked_injection(self):
         """Blocked input: is_safe=False → blocked_response with guard_message."""
         graph, _mocks = _build_graph_with_mocks(

@@ -109,13 +109,16 @@ class PromptTemplates:
         },
         "out_of_scope": {
             "fr": (
-                "Cette question ne relève pas de mon domaine de compétence. "
-                "Je peux répondre aux questions couvertes par les documents disponibles."
+                "Je ne peux pas répondre avec suffisamment de certitude à cette question. "
+                "Vous pouvez consulter les documents disponibles ou contacter l'institution."
             ),
-            "ar": ("هذا السؤال خارج نطاق اختصاصي. يمكنني الإجابة استناداً إلى الوثائق المتاحة."),
+            "ar": (
+                "لا أستطيع الإجابة عن هذا السؤال بدرجة كافية من اليقين. "
+                "يمكنكم مراجعة الوثائق المتاحة أو الاتصال بالمؤسسة."
+            ),
             "en": (
-                "This question is outside my area of expertise. "
-                "I can answer questions covered by the available documents."
+                "I cannot answer this question with sufficient certainty. "
+                "You can consult the available documents or contact the institution."
             ),
         },
         "greeting": {

@@ -35,3 +35,28 @@ résultats peuvent changer avec les documents, le fournisseur de modèles et la
 configuration. Une validation humaine de la formulation, des références et
 des réponses reste nécessaire avant d'utiliser ces chiffres comme indicateurs
 institutionnels.
+
+## Essai des cinq questions sans réponse précise attendue
+
+Les cinq questions candidates négatives ont ensuite été envoyées au chatbot
+public, chacune dans une nouvelle session. Les réponses observées le
+26 novembre 2026 sont résumées ci-dessous ; cet essai ponctuel ne garantit pas
+que les réponses seront identiques lors d'un prochain appel.
+
+| Cas | Observation | Durée approximative |
+|---|---|---:|
+| 46 — frais en 2027 | N'a pas donné de tarif ; renvoie aux services compétents. | 18 s |
+| 47 — délai garanti | N'a pas donné de délai garanti ; renvoie à l'ONSSA. | 11 s |
+| 48 — envoi de tomates | N'a pas validé l'envoi ; indique que la certification n'est pas automatique. | 27 s |
+| 49 — sanction individuelle | N'a pas donné de sanction pour une entreprise particulière. | 13 s |
+| 50 — frais en arabe | N'a pas inventé de montant, mais a qualifié la question de hors périmètre alors qu'elle concerne la certification. | 11 s |
+
+Le dernier cas illustre une orientation trompeuse à corriger ou à évaluer plus
+largement ; il ne suffit pas qu'aucun montant ne soit inventé. Les réponses ont
+été lentes pour une démonstration interactive. Sur ces appels, les journaux
+montrent des recherches documentaires d'environ 0,25 à 0,30 seconde et des
+étapes de génération variables, dépassant parfois dix secondes ; le reste du
+temps inclut d'autres étapes et les échanges réseau. Cet échantillon ne suffit
+pas à établir un percentile ni à attribuer tout le délai à un seul composant.
+Les formulations et affirmations accessoires doivent également être examinées
+par une personne compétente avant usage institutionnel.

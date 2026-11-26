@@ -133,10 +133,11 @@ docker run -d --name "${project}-unmanaged-writer" --network "$network" \
     --env KMS_MASTER_KEY=synthetic-only --entrypoint python "$image" \
     -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:sys.exit(0)); time.sleep(1800)' >/dev/null
 if timeout 90s python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" \
-    --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg" >/dev/null 2>&1; then
+    --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg" >"$fixture/unmanaged.log" 2>&1; then
     echo 'An unmanaged writer was unexpectedly accepted.' >&2
     exit 1
 fi
+grep -q 'Another possible KMS writer' "$fixture/unmanaged.log"
 [[ ! -e "$fixture/.kms-maintenance" ]]
 for service in backend ingestion-worker learning-worker purge-worker; do
     id=$("${compose[@]}" ps -aq "$service")

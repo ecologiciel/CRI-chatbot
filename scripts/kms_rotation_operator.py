@@ -89,9 +89,9 @@ def verify_backup(path: Path) -> None:
             timeout=60,
             env=env,
         )
-    if (
-        b":pubkey enc packet:" not in result.stdout
-        or b":encrypted data packet:" not in result.stdout
+    encrypted_packets = (b":encrypted data packet:", b":aead encrypted packet:")
+    if b":pubkey enc packet:" not in result.stdout or not any(
+        packet in result.stdout for packet in encrypted_packets
     ):
         raise ValueError("Backup does not contain expected encrypted OpenPGP packets")
 

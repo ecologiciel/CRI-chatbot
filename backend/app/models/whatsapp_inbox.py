@@ -33,6 +33,7 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
         UUID(as_uuid=True), ForeignKey("public.tenants.id", ondelete="CASCADE"), nullable=False
     )
     provider_message_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone_number_id: Mapped[str] = mapped_column(String(32), nullable=False)
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")

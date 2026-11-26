@@ -22,6 +22,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False, server_default=sa.text("gen_random_uuid()")),
         sa.Column("tenant_id", sa.UUID(), nullable=False),
         sa.Column("provider_message_id", sa.String(255), nullable=False),
+        sa.Column("phone_number_id", sa.String(32), nullable=False),
         sa.Column("ciphertext", sa.Text(), nullable=False),
         sa.Column("key_version", sa.Integer(), nullable=False),
         sa.Column("state", sa.String(16), nullable=False, server_default="pending"),

@@ -13,9 +13,10 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.database import get_session_factory
-from app.core.exceptions import AuthorizationError, ResourceNotFoundError
+from app.core.exceptions import AuthorizationError, DuplicateResourceError, ResourceNotFoundError
 from app.core.rbac import get_current_admin, require_role
 from app.models.enums import AdminRole, TenantStatus
 from app.models.tenant import Tenant
@@ -174,7 +175,15 @@ async def update_tenant(
                 value = value.model_dump()
             setattr(tenant, field, value)
 
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            if "uq_tenants_whatsapp_phone" in str(exc.orig):
+                raise DuplicateResourceError(
+                    "Cet identifiant WhatsApp est déjà attribué à une institution."
+                ) from exc
+            raise
         await session.refresh(tenant)
 
     logger.info(

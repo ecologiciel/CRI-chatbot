@@ -1,16 +1,23 @@
 """Tests for TenantProvisioningService — atomic provisioning with rollback."""
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
-from app.core.exceptions import DuplicateTenantError, TenantProvisioningError
+from app.core.exceptions import (
+    DuplicateResourceError,
+    DuplicateTenantError,
+    TenantProvisioningError,
+)
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
+from app.schemas.tenant import TenantCreate, WhatsAppConfig
 from app.services.tenant.provisioning import TenantProvisioningService
 
 
@@ -102,6 +109,46 @@ def _mock_session_factory(existing_tenant=None):
 
 class TestProvisionTenantSuccess:
     """Test the happy path: all steps complete successfully."""
+
+    @pytest.mark.asyncio
+    async def test_duplicate_whatsapp_identifier_is_a_conflict(self):
+        factory, session = _mock_session_factory()
+        session.commit.side_effect = IntegrityError(
+            "INSERT", {}, Exception("duplicate key uq_tenants_whatsapp_phone")
+        )
+        with (
+            patch("app.services.tenant.provisioning.get_session_factory", return_value=factory),
+            pytest.raises(DuplicateResourceError),
+        ):
+            await TenantProvisioningService()._create_tenant_record(_make_tenant_create_data())
+        session.rollback.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_real_whatsapp_config_is_persisted_as_plain_dict(self):
+        config = WhatsAppConfig(
+            phone_number_id=" 123456789 ", access_token="secret", verify_token="verify"
+        )
+        data = TenantCreate(
+            name="Institution", slug="institution", region="Maroc", whatsapp_config=config
+        )
+        factory, session = _mock_session_factory()
+        with patch("app.services.tenant.provisioning.get_session_factory", return_value=factory):
+            await TenantProvisioningService()._create_tenant_record(data)
+        tenant = session.add.call_args.args[0]
+        assert tenant.whatsapp_config["phone_number_id"] == "123456789"
+        assert isinstance(tenant.whatsapp_config, dict)
+
+    @pytest.mark.asyncio
+    async def test_legacy_redis_mapping_does_not_store_whatsapp_credentials(self):
+        tenant = _make_tenant_orm(
+            whatsapp_config={"phone_number_id": "123", "access_token": "secret"}
+        )
+        redis = AsyncMock()
+        with patch("app.services.tenant.provisioning.get_redis", return_value=redis):
+            await TenantProvisioningService()._create_redis_mapping(tenant, "123")
+        mapping = json.loads(redis.set.await_args.args[1])
+        assert "whatsapp_config" not in mapping
+        assert "secret" not in str(mapping)
 
     @pytest.mark.asyncio
     async def test_provision_tenant_success(self):

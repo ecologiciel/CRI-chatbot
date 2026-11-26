@@ -35,6 +35,14 @@ class WhatsAppConfig(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    @field_validator("phone_number_id")
+    @classmethod
+    def validate_phone_number_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value.isascii() or not value.isdecimal() or len(value) > 32:
+            raise ValueError("Identifiant de numéro WhatsApp invalide")
+        return value
+
 
 class TenantCreate(BaseModel):
     """Schema for creating a new tenant."""

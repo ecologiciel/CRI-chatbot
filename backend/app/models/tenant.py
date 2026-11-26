@@ -22,6 +22,12 @@ class Tenant(UUIDMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_tenants_slug", "slug", unique=True),
         Index("ix_tenants_status", "status"),
+        Index(
+            "uq_tenants_whatsapp_phone",
+            text("(whatsapp_config ->> 'phone_number_id')"),
+            unique=True,
+            postgresql_where=text("whatsapp_config ->> 'phone_number_id' IS NOT NULL"),
+        ),
         {"schema": "public"},
     )
 

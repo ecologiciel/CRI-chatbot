@@ -21,7 +21,11 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.core.database import get_session_factory
-from app.core.exceptions import DuplicateTenantError, TenantProvisioningError
+from app.core.exceptions import (
+    DuplicateResourceError,
+    DuplicateTenantError,
+    TenantProvisioningError,
+)
 from app.core.minio import get_minio
 from app.core.qdrant import get_qdrant
 from app.core.redis import get_redis
@@ -164,8 +168,8 @@ class TenantProvisioningService:
             log.info("step_completed", step="qdrant_collection")
 
             # Step 4: Redis phone mapping (if WhatsApp config provided)
-            if data.whatsapp_config and data.whatsapp_config.get("phone_number_id"):
-                phone_number_id = data.whatsapp_config["phone_number_id"]
+            if tenant.whatsapp_config and tenant.whatsapp_config.get("phone_number_id"):
+                phone_number_id = tenant.whatsapp_config["phone_number_id"]
                 await self._create_redis_mapping(tenant, phone_number_id)
                 rollback_stack.append(
                     ("redis_mapping", lambda: self._delete_redis_mapping(phone_number_id))
@@ -199,7 +203,7 @@ class TenantProvisioningService:
             tenant.status = TenantStatus.active
             return tenant
 
-        except (DuplicateTenantError, TenantProvisioningError):
+        except (DuplicateResourceError, DuplicateTenantError, TenantProvisioningError):
             await self._rollback(rollback_stack, data.slug)
             raise
         except Exception as exc:
@@ -342,7 +346,12 @@ class TenantProvisioningService:
                 slug=data.slug,
                 region=data.region,
                 logo_url=data.logo_url,
-                whatsapp_config=data.whatsapp_config,
+                whatsapp_config=(
+                    data.whatsapp_config.model_dump()
+                    if data.whatsapp_config is not None
+                    and hasattr(data.whatsapp_config, "model_dump")
+                    else data.whatsapp_config
+                ),
                 public_config=data.public_config,
                 is_demo=data.is_demo,
                 conversation_retention_days=data.conversation_retention_days,
@@ -363,6 +372,10 @@ class TenantProvisioningService:
                 await session.commit()
             except IntegrityError as exc:
                 await session.rollback()
+                if "uq_tenants_whatsapp_phone" in str(exc.orig):
+                    raise DuplicateResourceError(
+                        "Cet identifiant WhatsApp est déjà attribué à une institution."
+                    ) from exc
                 raise DuplicateTenantError(data.slug) from exc
 
             await session.refresh(tenant)
@@ -428,7 +441,10 @@ class TenantProvisioningService:
         )
 
     async def _create_redis_mapping(self, tenant: Tenant, phone_number_id: str) -> None:
-        """Map phone_number_id → tenant data in Redis for webhook resolution."""
+        """Maintain a legacy mapping without duplicating credentials in Redis.
+
+        Active webhook routing resolves the authoritative tenant in PostgreSQL.
+        """
         redis = get_redis()
         mapping_data = json.dumps(
             {
@@ -436,7 +452,6 @@ class TenantProvisioningService:
                 "slug": tenant.slug,
                 "name": tenant.name,
                 "status": TenantStatus.active.value,
-                "whatsapp_config": tenant.whatsapp_config,
             }
         )
         await redis.set(

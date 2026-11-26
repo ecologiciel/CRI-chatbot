@@ -130,15 +130,23 @@ async def _purge_tenant_conversations(
             subq = select(Conversation.id).limit(BATCH_SIZE)
             # A web conversation may never be explicitly closed. Use recent
             # message creation time to avoid purging an old but active session.
-            recent_message = select(Message.id).where(
-                Message.conversation_id == Conversation.id,
-                Message.created_at >= cutoff,
-            ).exists()
-            web_contact = select(Contact.id).where(
-                Contact.id == Conversation.contact_id,
-                Contact.source == ContactSource.web,
-                pseudonymous_web,
-            ).exists()
+            recent_message = (
+                select(Message.id)
+                .where(
+                    Message.conversation_id == Conversation.id,
+                    Message.created_at >= cutoff,
+                )
+                .exists()
+            )
+            web_contact = (
+                select(Contact.id)
+                .where(
+                    Contact.id == Conversation.contact_id,
+                    Contact.source == ContactSource.web,
+                    pseudonymous_web,
+                )
+                .exists()
+            )
             unclosed_expired = and_(
                 Conversation.ended_at.is_(None),
                 Conversation.started_at < cutoff,

@@ -53,27 +53,65 @@ async def test_real_queries_keep_recent_and_nonweb_sessions():
     old, recent = CUTOFF - timedelta(days=2), CUTOFF + timedelta(days=2)
     ids = [uuid.uuid4().hex for _ in range(14)]
     async with engine.begin() as connection:
-        await connection.execute(text("CREATE TABLE contacts (id TEXT PRIMARY KEY, source TEXT, created_at DATETIME, metadata JSON)"))
-        await connection.execute(text("CREATE TABLE conversations (id TEXT PRIMARY KEY, contact_id TEXT, started_at DATETIME, ended_at DATETIME)"))
-        await connection.execute(text("CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT, created_at DATETIME)"))
+        await connection.execute(
+            text(
+                "CREATE TABLE contacts (id TEXT PRIMARY KEY, source TEXT, created_at DATETIME, metadata JSON)"
+            )
+        )
+        await connection.execute(
+            text(
+                "CREATE TABLE conversations (id TEXT PRIMARY KEY, contact_id TEXT, started_at DATETIME, ended_at DATETIME)"
+            )
+        )
+        await connection.execute(
+            text(
+                "CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT, created_at DATETIME)"
+            )
+        )
         for i, source in enumerate(["web", "web", "whatsapp", "web", "web", "web", "web"]):
-            metadata = ('{"pseudonymous": true}' if i in (0, 1, 3) else
-                        '{"pseudonymous": "invalid"}' if i == 5 else
-                        '{"pseudonymous": "true"}' if i == 6 else '{}')
-            await connection.execute(text("INSERT INTO contacts VALUES (:id, :source, :created, :metadata)"), {"id": ids[i], "source": source, "created": old, "metadata": metadata})
-            await connection.execute(text("INSERT INTO conversations VALUES (:id, :contact, :started, :ended)"), {"id": ids[i+7], "contact": ids[i], "started": old, "ended": old if i == 3 else None})
-        await connection.execute(text("INSERT INTO messages VALUES (:id, :conversation, :created)"), {"id": uuid.uuid4().hex, "conversation": ids[8], "created": recent})
+            metadata = (
+                '{"pseudonymous": true}'
+                if i in (0, 1, 3)
+                else '{"pseudonymous": "invalid"}'
+                if i == 5
+                else '{"pseudonymous": "true"}'
+                if i == 6
+                else "{}"
+            )
+            await connection.execute(
+                text("INSERT INTO contacts VALUES (:id, :source, :created, :metadata)"),
+                {"id": ids[i], "source": source, "created": old, "metadata": metadata},
+            )
+            await connection.execute(
+                text("INSERT INTO conversations VALUES (:id, :contact, :started, :ended)"),
+                {
+                    "id": ids[i + 7],
+                    "contact": ids[i],
+                    "started": old,
+                    "ended": old if i == 3 else None,
+                },
+            )
+        await connection.execute(
+            text("INSERT INTO messages VALUES (:id, :conversation, :created)"),
+            {"id": uuid.uuid4().hex, "conversation": ids[8], "created": recent},
+        )
     factory = async_sessionmaker(engine, expire_on_commit=False)
     tenant = MagicMock()
     tenant.db_session = factory
     try:
         with (
-            patch("app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=tenant),
+            patch(
+                "app.core.tenant.TenantResolver.from_slug",
+                new_callable=AsyncMock,
+                return_value=tenant,
+            ),
             patch("app.services.audit.service.get_audit_service", return_value=AsyncMock()),
         ):
             result = await _purge_tenant_conversations("rabat", CUTOFF)
         async with engine.connect() as connection:
-            remaining = set((await connection.execute(text("SELECT id FROM conversations"))).scalars())
+            remaining = set(
+                (await connection.execute(text("SELECT id FROM conversations"))).scalars()
+            )
             contacts = set((await connection.execute(text("SELECT id FROM contacts"))).scalars())
         assert result["conversations_deleted"] == 2
         assert remaining == {ids[8], ids[9], ids[11], ids[12], ids[13]}

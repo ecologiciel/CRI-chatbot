@@ -238,7 +238,11 @@ class PromptTemplates:
         for chunk in chunks:
             title = _escape_prompt_data(str(chunk.metadata.get("title") or "Document"))
             pages = chunk.metadata.get("page_numbers") or []
-            page_label = f" | pages: {', '.join(_escape_prompt_data(str(page)) for page in pages)}" if pages else ""
+            page_label = (
+                f" | pages: {', '.join(_escape_prompt_data(str(page)) for page in pages)}"
+                if pages
+                else ""
+            )
             header = chunk.metadata.get("table_header")
             header_context = (
                 f"En-tête du tableau, extrait de la même source :\n{_escape_prompt_data(header)}\n"
@@ -257,7 +261,9 @@ class PromptTemplates:
             history_lines: list[str] = []
             for turn in history:
                 label = cls._ROLE_LABELS.get(turn.role, {}).get(language, turn.role)
-                history_lines.append(f"{_escape_prompt_data(label)}: {_escape_prompt_data(turn.content)}")
+                history_lines.append(
+                    f"{_escape_prompt_data(label)}: {_escape_prompt_data(turn.content)}"
+                )
             history_text = "\n".join(history_lines)
         else:
             history_text = "Aucun historique."

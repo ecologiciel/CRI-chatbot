@@ -64,11 +64,17 @@ async def test_reinjection_holds_lifecycle_lock_until_publication_finishes():
         return {"status": "ok"}
 
     with (
-        patch("app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=TEST_TENANT),
+        patch(
+            "app.core.tenant.TenantResolver.from_slug",
+            new_callable=AsyncMock,
+            return_value=TEST_TENANT,
+        ),
         patch("app.workers.learning.protect_ingestion", lock),
         patch("app.workers.learning._reinject_learning_locked", side_effect=publish),
     ):
-        assert (await reinject_learning_task({}, TEST_TENANT.slug, str(QUESTION_ID)))["status"] == "ok"
+        assert (await reinject_learning_task({}, TEST_TENANT.slug, str(QUESTION_ID)))[
+            "status"
+        ] == "ok"
     assert not held
 
 

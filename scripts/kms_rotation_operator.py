@@ -187,7 +187,13 @@ class RotationOperator:
         command("docker", "network", "inspect", self.network, capture=True)
         allowed = set(self.writer_ids(require_one=False))
         all_ids = command(
-            "docker", "ps", "-aq", "--no-trunc", capture=True
+            "docker",
+            "ps",
+            "-aq",
+            "--no-trunc",
+            "--filter",
+            f"network={self.network}",
+            capture=True,
         ).splitlines()
         for cid in all_ids:
             if cid in allowed:

@@ -8,7 +8,8 @@ CHUNKING = "Le découpage du document a échoué. Vérifiez son contenu et rées
 DUPLICATE = "Un document au contenu identique est déjà indexé."
 TIMEOUT = "Le traitement a dépassé le délai prévu. Réessayez."
 QUEUE = "Impossible de placer le document en file de traitement. Réessayez."
-SAFE_MESSAGES = frozenset({GENERIC, EMBEDDING, CHUNKING, DUPLICATE, TIMEOUT, QUEUE})
+MALWARE = "Document rejeté par le contrôle antivirus."
+SAFE_MESSAGES = frozenset({GENERIC, EMBEDDING, CHUNKING, DUPLICATE, TIMEOUT, QUEUE, MALWARE})
 
 
 def safe_ingestion_error(exc: Exception) -> str:

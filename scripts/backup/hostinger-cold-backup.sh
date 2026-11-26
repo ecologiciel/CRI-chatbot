@@ -41,7 +41,7 @@ services_ready() {
     for service in "${running[@]}"; do
         container=$("${COMPOSE[@]}" ps -q "$service") || return 1
         [[ -n "$container" ]] || return 1
-        for attempt in $(seq 1 60); do
+        for attempt in $(seq 1 150); do
             state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container") || return 1
             [[ "$state" == healthy || "$state" == running ]] && break
             sleep 2

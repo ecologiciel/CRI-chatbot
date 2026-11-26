@@ -276,3 +276,59 @@ class TestReindexDocumentTask:
         assert result["chunk_count"] == 12
         mock_service.reindex_document.assert_called_once()
         assert mock_service.reindex_document.await_args.kwargs["pages"] == (PageSpan(3, 0, 14),)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task_name", ["ingest_document_task", "reindex_document_task"])
+async def test_antivirus_failure_prevents_extraction(task_name):
+    import app.workers.ingestion as worker
+    from app.services.antivirus import MalwareDetectedError
+
+    doc_id = uuid.uuid4()
+    doc = _make_doc_orm(doc_id)
+    session = _mock_tenant_session(doc)
+    with (
+        patch(
+            "app.core.tenant.TenantResolver.from_slug",
+            new_callable=AsyncMock,
+            return_value=TEST_TENANT,
+        ),
+        patch.object(TenantContext, "db_session", return_value=session),
+        patch("app.core.minio.get_object_bytes", new_callable=AsyncMock, return_value=b"malicious"),
+        patch(
+            "app.services.antivirus.scan_document",
+            new_callable=AsyncMock,
+            side_effect=MalwareDetectedError("blocked"),
+        ),
+        patch("app.workers.ingestion.extract_document") as extract,
+        patch("app.workers.ingestion._mark_document_error", new_callable=AsyncMock) as mark,
+        pytest.raises(MalwareDetectedError),
+    ):
+        await getattr(worker, task_name)({}, "rabat", str(doc_id))
+    extract.assert_not_called()
+    mark.assert_awaited_once_with("rabat", doc_id, threat=True)
+
+
+@pytest.mark.asyncio
+async def test_detected_threat_rejects_previously_indexed_document():
+    from app.core.ingestion_errors import MALWARE, public_ingestion_error
+    from app.workers.ingestion import _mark_document_error
+
+    doc_id = uuid.uuid4()
+    doc = _make_doc_orm(doc_id, status=KBDocumentStatus.indexed)
+    doc.active_index_version = 1
+    doc.chunk_count = 3
+    session = _mock_tenant_session(doc)
+    with (
+        patch(
+            "app.core.tenant.TenantResolver.from_slug",
+            new_callable=AsyncMock,
+            return_value=TEST_TENANT,
+        ),
+        patch.object(TenantContext, "db_session", return_value=session),
+    ):
+        await _mark_document_error("rabat", doc_id, threat=True)
+    assert doc.status == KBDocumentStatus.rejected
+    assert doc.active_index_version is None
+    assert doc.chunk_count == 0
+    assert public_ingestion_error(doc.error_message) == MALWARE

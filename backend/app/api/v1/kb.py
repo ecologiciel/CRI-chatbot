@@ -23,7 +23,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.minio import get_minio
 from app.core.rbac import require_role
 from app.core.tenant import TenantContext, get_current_tenant
-from app.core.uploads import validate_upload_filename
+from app.core.uploads import validate_docx_archive, validate_upload_filename
 from app.models.enums import AdminRole, KBDocumentStatus
 from app.models.kb import KBDocument
 from app.schemas.auth import AdminTokenPayload
@@ -33,6 +33,7 @@ from app.schemas.kb import (
     KBDocumentResponse,
     KBDocumentValidationRequest,
 )
+from app.services.antivirus import AntivirusUnavailableError, MalwareDetectedError, scan_document
 from app.services.rag.publication_policy import ensure_publishable as _ensure_publishable
 from app.services.rag.publication_policy import ensure_validated as _ensure_reindexable
 
@@ -135,6 +136,18 @@ async def upload_document(
             },
         )
     _validate_file_signature(ext, file_bytes)
+    if ext == ".docx":
+        validate_docx_archive(file_bytes)
+    try:
+        await scan_document(file_bytes)
+    except MalwareDetectedError as exc:
+        raise HTTPException(
+            status_code=422, detail="Document refusé par le contrôle antivirus."
+        ) from exc
+    except AntivirusUnavailableError as exc:
+        raise HTTPException(
+            status_code=503, detail="Contrôle antivirus indisponible. Réessayez."
+        ) from exc
 
     # 3. Create KBDocument record in tenant DB
     doc_id = uuid.uuid4()

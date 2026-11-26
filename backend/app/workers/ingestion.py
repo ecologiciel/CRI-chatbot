@@ -19,15 +19,19 @@ from arq.connections import RedisSettings
 from sqlalchemy import or_, select
 
 from app.core.config import get_settings
+from app.core.ingestion_errors import MALWARE
 from app.models.enums import KBDocumentStatus
 from app.models.kb import KBDocument
+from app.services.antivirus import MalwareDetectedError
 from app.services.rag.extractors import extract_document
 
 logger = structlog.get_logger()
 
 
-async def _mark_document_error(tenant_slug: str, doc_uuid: uuid.UUID) -> None:
-    """Record an operational failure without persisting provider secrets or content."""
+async def _mark_document_error(
+    tenant_slug: str, doc_uuid: uuid.UUID, *, threat: bool = False
+) -> None:
+    """Record failures or quarantine detected threats without exposing content."""
     from app.core.tenant import TenantResolver
 
     try:
@@ -37,7 +41,14 @@ async def _mark_document_error(tenant_slug: str, doc_uuid: uuid.UUID) -> None:
                 select(KBDocument).where(KBDocument.id == doc_uuid).with_for_update()
             )
             document = result.scalar_one_or_none()
-            if document and document.status not in {
+            if document and threat and document.status != KBDocumentStatus.expired:
+                # Rejected documents are excluded from retrieval, including an
+                # older published generation that might otherwise remain active.
+                document.status = KBDocumentStatus.rejected
+                document.active_index_version = None
+                document.chunk_count = 0
+                document.error_message = MALWARE
+            elif document and document.status not in {
                 KBDocumentStatus.error,
                 KBDocumentStatus.rejected,
                 KBDocumentStatus.expired,
@@ -134,6 +145,10 @@ async def ingest_document_task(
         # 3. Download from MinIO
         file_bytes = await get_object_bytes(tenant.minio_bucket, doc.file_path)
 
+        from app.services.antivirus import scan_document
+
+        await scan_document(file_bytes)
+
         # 4. Extract text
         filename = doc.file_path.rsplit("/", 1)[-1] if "/" in doc.file_path else doc.file_path
         extracted = extract_document(file_bytes, filename)
@@ -148,6 +163,10 @@ async def ingest_document_task(
         log.info("ingestion_complete", chunk_count=chunk_count, duration_s=duration)
         return {"status": "ok", "chunk_count": chunk_count, "duration_s": duration}
 
+    except MalwareDetectedError:
+        log.warning("ingestion_rejected_by_antivirus")
+        await _mark_document_error(tenant_slug, doc_uuid, threat=True)
+        raise
     except Exception as exc:
         duration = round(time.monotonic() - start, 1)
         log.error("ingestion_failed", error=str(exc), duration_s=duration)
@@ -199,6 +218,10 @@ async def reindex_document_task(
         # Download from MinIO
         file_bytes = await get_object_bytes(tenant.minio_bucket, doc.file_path)
 
+        from app.services.antivirus import scan_document
+
+        await scan_document(file_bytes)
+
         # Extract text
         filename = doc.file_path.rsplit("/", 1)[-1] if "/" in doc.file_path else doc.file_path
         extracted = extract_document(file_bytes, filename)
@@ -213,6 +236,10 @@ async def reindex_document_task(
         log.info("reindex_complete", chunk_count=chunk_count, duration_s=duration)
         return {"status": "ok", "chunk_count": chunk_count, "duration_s": duration}
 
+    except MalwareDetectedError:
+        log.warning("reindex_rejected_by_antivirus")
+        await _mark_document_error(tenant_slug, doc_uuid, threat=True)
+        raise
     except Exception as exc:
         duration = round(time.monotonic() - start, 1)
         log.error("reindex_failed", error=str(exc), duration_s=duration)

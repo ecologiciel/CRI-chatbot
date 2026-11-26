@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from app.core.exceptions import IngestionError
+from app.core.uploads import validate_docx_archive
 
 SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".txt", ".md", ".csv"}
 
@@ -111,6 +112,9 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
             f"Unsupported file extension: {ext}",
             details={"filename": filename, "supported": sorted(SUPPORTED_EXTENSIONS)},
         )
+
+    if ext == ".docx":
+        validate_docx_archive(file_bytes)
 
     extractors = {
         ".pdf": _extract_pdf,

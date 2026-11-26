@@ -13,6 +13,11 @@ x-backend-environment: &backend-environment
   GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-3-flash-preview}
   GEMINI_TIMEOUT: ${GEMINI_TIMEOUT:-15}
   RAG_HYBRID_SEARCH_ENABLED: ${RAG_HYBRID_SEARCH_ENABLED:-true}
+  ANTIVIRUS_ENABLED: "true"
+  ANTIVIRUS_HOST: antivirus
+  ANTIVIRUS_PORT: 3310
+  ANTIVIRUS_TIMEOUT: 30
+  ANTIVIRUS_MAX_SIGNATURE_AGE_DAYS: 7
   WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
   WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
   WEBHOOK_PROXY_SHARED_SECRET: ${WEBHOOK_PROXY_SHARED_SECRET:-}
@@ -93,6 +98,26 @@ services:
     restart: unless-stopped
     mem_limit: 1g
 
+  antivirus:
+    # The scanner is private and refreshes signatures through its own egress network.
+    image: clamav/clamav:1.4@sha256:ac15046e610610347c459afabea6683a52cd041c7a10adf5f050ebb05525d62d
+    environment:
+      TZ: UTC
+      FRESHCLAM_CHECKS: "4"
+    volumes:
+      - antivirus_data:/var/lib/clamav
+      - ./docker/clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+    networks: [demo-antivirus, demo-antivirus-egress]
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    mem_limit: 4g
+
   backend:
     <<: *app-hardening
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
@@ -115,7 +140,7 @@ services:
       redis: { condition: service_healthy }
       qdrant: { condition: service_healthy }
       minio: { condition: service_healthy }
-    networks: [demo-edge, demo-data]
+    networks: [demo-edge, demo-data, demo-antivirus]
     labels:
       - traefik.enable=true
       - traefik.http.routers.demo-api.rule=Host(`${DEMO_HOSTNAME}`) && PathPrefix(`/api`)
@@ -145,9 +170,10 @@ services:
     dns: ["1.1.1.1", "8.8.8.8"]
     depends_on:
       backend: { condition: service_healthy }
+      antivirus: { condition: service_healthy }
     # It remains private for data access while gaining outbound HTTPS through
     # the edge network for the configured embedding provider (Gemini).
-    networks: [demo-data, demo-edge]
+    networks: [demo-data, demo-edge, demo-antivirus]
     healthcheck:
       disable: true
     restart: unless-stopped
@@ -292,10 +318,16 @@ networks:
   demo-data:
     name: demo-data
     internal: true
+  demo-antivirus:
+    name: chatbot-demo-antivirus
+    internal: true
+  demo-antivirus-egress:
+    name: chatbot-demo-antivirus-egress
 
 volumes:
   postgres_data:
   redis_data:
   qdrant_data:
   minio_data:
+  antivirus_data:
   traefik_letsencrypt:

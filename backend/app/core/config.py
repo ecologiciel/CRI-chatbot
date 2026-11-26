@@ -105,6 +105,13 @@ class Settings(BaseSettings):
     # --- Knowledge Base ---
     kb_max_file_size_mb: int = Field(default=10, description="Max KB upload file size in MB")
 
+    # Malware scanning is enabled explicitly for deployments with a ClamAV daemon.
+    antivirus_enabled: bool = False
+    antivirus_host: str = "clamav"
+    antivirus_port: int = Field(default=3310, ge=1, le=65535)
+    antivirus_timeout: float = Field(default=30.0, gt=0, le=120)
+    antivirus_max_signature_age_days: int = Field(default=7, ge=1, le=30)
+
     # --- CORS ---
     backoffice_url: str = Field(default="http://localhost:3000")
 

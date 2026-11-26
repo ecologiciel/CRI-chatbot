@@ -128,6 +128,7 @@ async def main():
     assert json.loads(status_plaintext)["status"]["status"] == "delivered"
     async with get_engine().begin() as conn:
         await conn.execute(text("CREATE SCHEMA tenant_synthetica"))
+        await conn.execute(text("CREATE SCHEMA tenant_syntheticb"))
         await conn.execute(
             text("""
             CREATE TABLE tenant_synthetica.messages (
@@ -140,6 +141,11 @@ async def main():
             )
         """)
         )
+        await conn.execute(
+            text(
+                "CREATE TABLE tenant_syntheticb.messages (LIKE tenant_synthetica.messages INCLUDING ALL)"
+            )
+        )
     assert await apply_status_event(status_rows[0].id, cipher=cipher) == "waiting"
     async with get_engine().begin() as conn:
         await conn.execute(
@@ -150,8 +156,53 @@ async def main():
         """),
             {"id": uuid.uuid4(), "conversation": uuid.uuid4()},
         )
+        await conn.execute(
+            text("""
+            INSERT INTO tenant_syntheticb.messages
+                (id, conversation_id, direction, type, whatsapp_message_id, metadata)
+            VALUES (:id, :conversation, 'outbound', 'text', 'status-wamid', '{"delivery_state":"accepted"}')
+        """),
+            {"id": uuid.uuid4(), "conversation": uuid.uuid4()},
+        )
     assert await apply_status_event(status_rows[0].id, cipher=cipher) == "applied"
     assert await apply_status_event(status_rows[0].id, cipher=cipher) == "applied"
+    async with get_engine().connect() as conn:
+        delivery = (
+            await conn.execute(
+                text(
+                    "SELECT metadata->>'delivery_state' FROM tenant_synthetica.messages"
+                )
+            )
+        ).scalar_one()
+    assert delivery == "delivered"
+    async with get_engine().connect() as conn:
+        other_delivery = (
+            await conn.execute(
+                text(
+                    "SELECT metadata->>'delivery_state' FROM tenant_syntheticb.messages"
+                )
+            )
+        ).scalar_one()
+    assert other_delivery == "accepted"
+    for provider_state, expected in (("sent", "applied"), ("failed", "uncertain")):
+        next_status = StatusInfo(
+            id="status-wamid",
+            status=provider_state,
+            timestamp="124",
+            recipient_id="212600000001",
+        )
+        assert await persist_delivery_status(
+            tenant, "123", next_status, cipher=cipher, fingerprint_key=master
+        )
+        async with get_session_factory()() as session:
+            pending_id = (
+                await session.execute(
+                    select(WhatsAppStatusEvent.id).where(
+                        WhatsAppStatusEvent.state == "pending"
+                    )
+                )
+            ).scalar_one()
+        assert await apply_status_event(pending_id, cipher=cipher) == expected
     async with get_engine().connect() as conn:
         delivery = (
             await conn.execute(

@@ -224,7 +224,7 @@ async def main():
                 slug="syntheticb",
                 region="Test",
                 status=TenantStatus.active,
-                whatsapp_config={"phone_number_id": "456"},
+                whatsapp_config={"phone_number_id": "789"},
                 public_config={},
             )
         )
@@ -232,7 +232,7 @@ async def main():
         session.add(
             WhatsAppStatusEvent(
                 tenant_id=other_tenant_id,
-                phone_number_id="456",
+                phone_number_id="789",
                 fingerprint="b" * 64,
                 ciphertext="synthetic",
                 key_version=1,

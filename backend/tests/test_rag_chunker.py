@@ -287,3 +287,16 @@ def test_faq_containing_a_table_preserves_table_boundaries():
     chunks = ChunkingService(chunk_size=100, overlap=0, max_chunk_size=100).chunk_text(text)
     assert "".join(c.content for c in chunks) == text
     assert any(c.content.startswith("| A | B |") for c in chunks)
+
+
+@pytest.mark.parametrize(
+    "text", ["a" * 12000, "مرحبا بالعالم 🌿 " * 1500], ids=["repetitive", "arabic"]
+)
+def test_long_text_keeps_exact_coverage_and_token_bound(text):
+    service = ChunkingService(chunk_size=80, overlap=12, max_chunk_size=80)
+    chunks = service.chunk_text(text)
+    assert chunks[0].start_char == 0 and chunks[-1].end_char == len(text)
+    assert all(c.token_count <= 80 and text[c.start_char : c.end_char] == c.content for c in chunks)
+    assert all(
+        left.end_char >= right.start_char for left, right in zip(chunks, chunks[1:], strict=False)
+    )

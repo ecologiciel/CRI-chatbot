@@ -186,6 +186,36 @@ class ChunkingService:
             pairs.append((start, len(text)))
         return pairs
 
+    def _bounded_end(self, text: str, start: int, target: int) -> int:
+        """Find a bounded prefix without repeatedly tokenizing the entire tail."""
+        remaining = len(text) - start
+        high = min(remaining, max(256, target * 4))
+        count = self.count_tokens(text[start : start + high])
+        if count <= target:
+            while high < remaining:
+                low = high
+                high = min(remaining, high * 2)
+                if self.count_tokens(text[start : start + high]) > target:
+                    break
+            else:
+                return len(text)
+        else:
+            low = 1
+
+        while low < high:
+            mid = (low + high + 1) // 2
+            if self.count_tokens(text[start : start + mid]) <= target:
+                low = mid
+            else:
+                high = mid - 1
+        end = start + low
+        # BPE token counts are not strictly monotonic; verify the bound.
+        while end > start and self.count_tokens(text[start:end]) > target:
+            end -= 1
+        if end == start:
+            raise ChunkingError(message="Cannot split text within token limit")
+        return end
+
     def _chunk_exact(self, text: str, target: int) -> list[ChunkResult]:
         """Return exact source slices, preferring paragraph and sentence boundaries."""
         chunks: list[ChunkResult] = []
@@ -227,24 +257,7 @@ class ChunkingService:
         start = 0
         length = len(text)
         while start < length:
-            remaining = text[start:]
-            if self.count_tokens(remaining) <= target:
-                end = length
-            else:
-                # Find a bounded prefix on Unicode character boundaries.
-                low, high = 1, length - start
-                while low < high:
-                    mid = (low + high + 1) // 2
-                    if self.count_tokens(text[start : start + mid]) <= target:
-                        low = mid
-                    else:
-                        high = mid - 1
-                end = start + low
-                # BPE token counts are not strictly monotonic; verify the bound.
-                while end > start and self.count_tokens(text[start:end]) > target:
-                    end -= 1
-                if end == start:
-                    raise ChunkingError(message="Cannot split text within token limit")
+            end = self._bounded_end(text, start, target)
 
             # Keep tables separate from prose and prefer whole rows.
             table = next((item for item in tables if item[0] <= start < item[2]), None)

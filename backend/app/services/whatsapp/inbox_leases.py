@@ -48,6 +48,7 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
     )
     statement = (
         update(WhatsAppInboxEvent)
+        .execution_options(synchronize_session=False)
         .where(WhatsAppInboxEvent.id == candidate, WhatsAppInboxEvent.state == "pending")
         .values(
             state="processing",
@@ -71,8 +72,6 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
         await session.commit()
     if row is None:
         return None
-    if not isinstance(row.tenant_id, uuid.UUID):
-        print("INBOX_DEBUG_ROW", tuple(row), list(row._mapping.keys()), flush=True)
     return InboxClaim(
         id=row.id,
         tenant_id=row.tenant_id,
@@ -89,6 +88,7 @@ async def renew_claim(event_id: uuid.UUID, token: uuid.UUID, *, lease_seconds: i
     duration = _lease_duration(lease_seconds)
     statement = (
         update(WhatsAppInboxEvent)
+        .execution_options(synchronize_session=False)
         .where(
             WhatsAppInboxEvent.id == event_id,
             WhatsAppInboxEvent.state == "processing",
@@ -114,6 +114,7 @@ async def finish_claim(event_id: uuid.UUID, token: uuid.UUID, *, uncertain: bool
         predicates.append(WhatsAppInboxEvent.lease_until > func.clock_timestamp())
     statement = (
         update(WhatsAppInboxEvent)
+        .execution_options(synchronize_session=False)
         .where(*predicates)
         .values(
             state="uncertain" if uncertain else "completed",
@@ -145,6 +146,7 @@ async def quarantine_expired(*, limit: int = 100) -> int:
     )
     statement = (
         update(WhatsAppInboxEvent)
+        .execution_options(synchronize_session=False)
         .where(WhatsAppInboxEvent.id.in_(candidates), WhatsAppInboxEvent.state == "processing")
         .values(
             state="uncertain", lease_token=None, lease_until=None, updated_at=func.clock_timestamp()

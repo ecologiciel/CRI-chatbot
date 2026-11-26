@@ -13,6 +13,11 @@ from html import escape
 from app.schemas.rag import ConversationTurn, RetrievedChunk
 
 
+def _escape_prompt_data(value: str) -> str:
+    """Protect XML delimiters without changing ordinary quotes in French text."""
+    return escape(value, quote=False)
+
+
 class PromptTemplates:
     """Centralized prompt templates for RAG generation.
 
@@ -231,17 +236,17 @@ class PromptTemplates:
         # Format chunks with source titles and scores
         chunk_parts: list[str] = []
         for chunk in chunks:
-            title = escape(str(chunk.metadata.get("title") or "Document"))
+            title = _escape_prompt_data(str(chunk.metadata.get("title") or "Document"))
             pages = chunk.metadata.get("page_numbers") or []
-            page_label = f" | pages: {', '.join(escape(str(page)) for page in pages)}" if pages else ""
+            page_label = f" | pages: {', '.join(_escape_prompt_data(str(page)) for page in pages)}" if pages else ""
             header = chunk.metadata.get("table_header")
             header_context = (
-                f"En-tête du tableau, extrait de la même source :\n{escape(header)}\n"
+                f"En-tête du tableau, extrait de la même source :\n{_escape_prompt_data(header)}\n"
                 if isinstance(header, str) and header
                 else ""
             )
             chunk_parts.append(
-                f"[Source: {title}{page_label} | score: {chunk.score:.2f}]\n{header_context}{escape(chunk.content)}"
+                f"[Source: {title}{page_label} | score: {chunk.score:.2f}]\n{header_context}{_escape_prompt_data(chunk.content)}"
             )
         chunks_text = (
             "\n\n---\n\n".join(chunk_parts) if chunk_parts else "Aucun contexte disponible."
@@ -252,7 +257,7 @@ class PromptTemplates:
             history_lines: list[str] = []
             for turn in history:
                 label = cls._ROLE_LABELS.get(turn.role, {}).get(language, turn.role)
-                history_lines.append(f"{escape(label)}: {escape(turn.content)}")
+                history_lines.append(f"{_escape_prompt_data(label)}: {_escape_prompt_data(turn.content)}")
             history_text = "\n".join(history_lines)
         else:
             history_text = "Aucun historique."
@@ -260,7 +265,7 @@ class PromptTemplates:
         return cls.CONTEXT_TEMPLATE.format(
             chunks_text=chunks_text,
             history_text=history_text,
-            query=escape(query),
+            query=_escape_prompt_data(query),
         )
 
     @classmethod

@@ -15,7 +15,10 @@ async def extract_remotely(data: bytes, filename: str, service_url: str) -> Extr
         raise IngestionError("Unsupported document type")
     try:
         async with (
-            httpx.AsyncClient(timeout=60, trust_env=False) as client,
+            # The ingestion worker can run five jobs concurrently while the
+            # isolated service processes one document at a time (45 s limit).
+            # Allow the queue to drain without timing out valid long documents.
+            httpx.AsyncClient(timeout=httpx.Timeout(300, connect=5), trust_env=False) as client,
             client.stream(
                 "POST",
                 f"{service_url.rstrip('/')}/extract",

@@ -143,9 +143,11 @@ async def test_stale_signatures_block_scanning():
 
     server = await asyncio.start_server(handler, "127.0.0.1", 0)
     settings = SimpleNamespace(
-        antivirus_enabled=True, antivirus_host="127.0.0.1",
+        antivirus_enabled=True,
+        antivirus_host="127.0.0.1",
         antivirus_port=server.sockets[0].getsockname()[1],
-        antivirus_timeout=2, antivirus_max_signature_age_days=7,
+        antivirus_timeout=2,
+        antivirus_max_signature_age_days=7,
     )
     try:
         with patch("app.services.antivirus.get_settings", return_value=settings):

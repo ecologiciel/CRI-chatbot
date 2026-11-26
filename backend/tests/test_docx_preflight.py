@@ -31,14 +31,17 @@ def test_normal_docx_passes_and_can_be_extracted():
     assert "Contrôle phytosanitaire" in extract_text(output.getvalue(), "guide.docx")
 
 
-@pytest.mark.parametrize("entries", [
-    [("word/media/large.bin", b"x" * (11 * 1024 * 1024))],
-    [("word/media/archive.bin", b"PK\x03\x04archive")],
-    [("word/embeddings/object.bin", b"object")],
-    [("word/vbaProject.bin", b"macro")],
-    [("../outside", b"data")],
-    [(f"item{i}", b"") for i in range(2047)],
-])
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [("word/media/large.bin", b"x" * (11 * 1024 * 1024))],
+        [("word/media/archive.bin", b"PK\x03\x04archive")],
+        [("word/embeddings/object.bin", b"object")],
+        [("word/vbaProject.bin", b"macro")],
+        [("../outside", b"data")],
+        [(f"item{i}", b"") for i in range(2047)],
+    ],
+)
 def test_unsafe_archives_refused_before_extraction(entries):
     data = make_archive(entries)
     with pytest.raises(ValidationError):

@@ -43,6 +43,7 @@ from app.models.rag_evaluation import RAGEvaluationCase, RAGEvaluationRun
 from app.models.sync import SyncConfig, SyncLog
 from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
+from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.models.whitelist import InternalWhitelist
 
 __all__ = [
@@ -74,6 +75,7 @@ __all__ = [
     "Tenant",
     "TenantKey",
     "UnansweredQuestion",
+    "WhatsAppInboxEvent",
     # Enums
     "AdminRole",
     "AgentType",

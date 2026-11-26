@@ -129,14 +129,6 @@ async def main():
     async with get_engine().begin() as conn:
         await conn.execute(text("CREATE SCHEMA tenant_synthetica"))
         await conn.execute(
-            text("CREATE TYPE public.messagedirection AS ENUM ('inbound', 'outbound')")
-        )
-        await conn.execute(
-            text(
-                "CREATE TYPE public.messagetype AS ENUM ('text', 'image', 'audio', 'document', 'interactive', 'system')"
-            )
-        )
-        await conn.execute(
             text("""
             CREATE TABLE tenant_synthetica.messages (
                 id uuid PRIMARY KEY, conversation_id uuid NOT NULL,

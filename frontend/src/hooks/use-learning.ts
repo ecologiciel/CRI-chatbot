@@ -49,11 +49,12 @@ export function useLearningQuestion(questionId: string | null) {
 // Learning stats
 // ---------------------------------------------------------------------------
 
-export function useLearningStats() {
+export function useLearningStats(enabled = true) {
   const api = useApiClient();
   return useQuery({
     queryKey: ["learning-stats"] as const,
     queryFn: () => api.get<LearningStats>("/learning/stats"),
+    enabled,
   });
 }
 

@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import type { NavItem } from "@/types";
+import { useAuth } from "@/hooks/use-auth";
 
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -45,6 +46,8 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const { admin } = useAuth();
+  const documentOnly = admin?.role === "document_importer" || admin?.role === "document_validator";
 
   return (
     <aside
@@ -70,7 +73,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
-        {navItems.map((item) => {
+        {navItems.filter((item) => !documentOnly || item.href === "/kb").map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
 
@@ -144,6 +147,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 /** Mobile sidebar content — used inside Sheet */
 export function SidebarMobile({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
+  const { admin } = useAuth();
+  const documentOnly = admin?.role === "document_importer" || admin?.role === "document_validator";
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: "hsl(var(--sidebar-bg))" }}>
@@ -159,7 +164,7 @@ export function SidebarMobile({ onClose }: { onClose: () => void }) {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
-        {navItems.map((item) => {
+        {navItems.filter((item) => !documentOnly || item.href === "/kb").map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
 

@@ -17,7 +17,7 @@ export default function KBPage() {
   const { admin } = useAuth();
   const documentOnly = admin?.role === "document_importer" || admin?.role === "document_validator";
   const canImport = admin?.role === "super_admin" || admin?.role === "admin_tenant" || admin?.role === "document_importer";
-  const { data: statsData } = useLearningStats();
+  const { data: statsData } = useLearningStats(!documentOnly);
   const pendingCount = statsData?.by_status?.pending ?? 0;
 
   return (

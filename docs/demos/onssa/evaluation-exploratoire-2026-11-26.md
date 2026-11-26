@@ -81,3 +81,19 @@ Cet essai porte sur une seule question et ne démontre pas la fidélité de tout
 les réponses ni la qualité de l'extraction des tableaux ou des autres PDF. Le
 texte officiel applicable et l'interprétation juridique restent à vérifier
 auprès des sources compétentes avant tout usage institutionnel.
+
+## Premières réponses générées en arabe
+
+Six questions candidates en arabe ayant une source attendue ont été envoyées
+le 26 novembre 2026, chacune dans une nouvelle session web. Les six appels
+ont retourné une réponse en arabe et la source candidate figurait parmi les
+documents consultés. Les durées observées allaient de 2,7 à 18,8 secondes.
+Ces constats ne constituent pas une validation des réponses ou des citations.
+
+Deux nuances à surveiller ont été relevées : pour `candidate-09`, la réponse
+parlait de « garantir » la sécurité des échanges alors que la fiche dit que
+les contrôles y contribuent ; pour `candidate-18`, elle présentait les analyses
+comme nécessaires alors que la fiche indique qu'elles peuvent être nécessaires
+selon le contexte. Les consignes multilingues ont ensuite été renforcées pour
+préserver ce type de modalité. Les réponses doivent encore être évaluées par
+une personne compétente, notamment sur ces formulations et leur traduction.

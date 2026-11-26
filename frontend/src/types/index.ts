@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 
 export type Locale = "fr" | "ar" | "en";
 
-export type AdminRole = "super_admin" | "admin_tenant" | "supervisor" | "viewer";
+export type AdminRole = "super_admin" | "admin_tenant" | "supervisor" | "viewer" | "document_importer" | "document_validator";
 
 export type TenantStatus = "active" | "inactive" | "suspended" | "provisioning";
 

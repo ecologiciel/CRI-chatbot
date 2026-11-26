@@ -63,6 +63,8 @@ class AdminRole(str, Enum):
     admin_tenant = "admin_tenant"
     supervisor = "supervisor"
     viewer = "viewer"
+    document_importer = "document_importer"
+    document_validator = "document_validator"
 
 
 class KBDocumentStatus(str, Enum):

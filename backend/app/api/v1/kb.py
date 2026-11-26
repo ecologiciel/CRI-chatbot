@@ -106,7 +106,9 @@ async def upload_document(
     published_at: date | None = Form(default=None),
     expires_at: date | None = Form(default=None),
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+    admin: AdminTokenPayload = Depends(
+        require_role(AdminRole.super_admin, AdminRole.admin_tenant, AdminRole.document_importer)
+    ),
 ) -> KBDocumentResponse:
     """Upload a file to the knowledge base.
 
@@ -187,6 +189,7 @@ async def upload_document(
         await session.refresh(doc)
         response = KBDocumentResponse.model_validate(doc)
 
+    logger.info("document_uploaded", tenant=tenant.slug, document_id=str(doc_id), admin_id=admin.sub)
     return response
 
 
@@ -199,7 +202,9 @@ async def validate_document(
     document_id: uuid.UUID,
     data: KBDocumentValidationRequest,
     tenant: TenantContext = Depends(get_current_tenant),
-    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+    admin: AdminTokenPayload = Depends(
+        require_role(AdminRole.super_admin, AdminRole.admin_tenant, AdminRole.document_validator)
+    ),
 ) -> KBDocumentResponse:
     """Approve source evidence and enqueue an otherwise quarantined document."""
     async with tenant.db_session() as session:
@@ -227,7 +232,12 @@ async def validate_document(
         response = KBDocumentResponse.model_validate(document)
 
     await _enqueue_ingestion(tenant, document_id, "ingest_document_task")
-    logger.info("document_validated_and_enqueued", tenant=tenant.slug, document_id=str(document_id))
+    logger.info(
+        "document_validated_and_enqueued",
+        tenant=tenant.slug,
+        document_id=str(document_id),
+        admin_id=admin.sub,
+    )
     return response
 
 
@@ -245,6 +255,8 @@ async def list_documents(
             AdminRole.admin_tenant,
             AdminRole.supervisor,
             AdminRole.viewer,
+            AdminRole.document_importer,
+            AdminRole.document_validator,
         )
     ),
     page: int = Query(default=1, ge=1, description="Page number"),
@@ -295,6 +307,8 @@ async def list_document_categories(
             AdminRole.admin_tenant,
             AdminRole.supervisor,
             AdminRole.viewer,
+            AdminRole.document_importer,
+            AdminRole.document_validator,
         )
     ),
 ) -> list[str]:
@@ -319,6 +333,8 @@ async def get_document(
             AdminRole.admin_tenant,
             AdminRole.supervisor,
             AdminRole.viewer,
+            AdminRole.document_importer,
+            AdminRole.document_validator,
         )
     ),
 ) -> KBDocumentDetailResponse:
@@ -350,6 +366,8 @@ async def download_document_file(
             AdminRole.admin_tenant,
             AdminRole.supervisor,
             AdminRole.viewer,
+            AdminRole.document_importer,
+            AdminRole.document_validator,
         )
     ),
 ) -> Response:

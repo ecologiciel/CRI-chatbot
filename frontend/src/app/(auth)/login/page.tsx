@@ -36,14 +36,14 @@ export default function LoginPage() {
   // If already authenticated, redirect to dashboard
   React.useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace(admin?.role === "super_admin" ? "/sa/tenants" : "/dashboard");
+      router.replace(admin?.role === "super_admin" ? "/sa/tenants" : admin?.role === "document_importer" || admin?.role === "document_validator" ? "/kb" : "/dashboard");
     }
   }, [authLoading, isAuthenticated, admin, router]);
 
   async function onSubmit(data: LoginFormValues) {
     try {
       const profile = await login(data);
-      router.push(profile.role === "super_admin" ? "/sa/tenants" : "/dashboard");
+      router.push(profile.role === "super_admin" ? "/sa/tenants" : profile.role === "document_importer" || profile.role === "document_validator" ? "/kb" : "/dashboard");
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 429) {

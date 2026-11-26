@@ -35,7 +35,7 @@ const inviteSchema = z.object({
     .regex(/[A-Z]/, "Au moins une majuscule")
     .regex(/\d/, "Au moins un chiffre")
     .regex(/[!@#$%^&*(),.?":{}|<>\-_=+[\]\\;'/`~]/, "Au moins un caractère spécial"),
-  role: z.enum(["admin_tenant", "supervisor", "viewer"], {
+  role: z.enum(["admin_tenant", "supervisor", "viewer", "document_importer", "document_validator"], {
     message: "Rôle requis",
   }),
 });
@@ -45,6 +45,8 @@ type InviteFormValues = z.infer<typeof inviteSchema>;
 const ROLE_OPTIONS = [
   { value: "admin_tenant", label: "Admin Tenant", desc: "Accès complet au tenant" },
   { value: "supervisor", label: "Superviseur", desc: "KB, conversations, contacts" },
+  { value: "document_importer", label: "Importeur de documents", desc: "Importer et consulter les documents" },
+  { value: "document_validator", label: "Validateur de documents", desc: "Consulter et valider les documents" },
   { value: "viewer", label: "Analyste", desc: "Lecture seule" },
 ] as const;
 

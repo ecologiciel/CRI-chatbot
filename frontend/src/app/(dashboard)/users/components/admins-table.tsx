@@ -66,6 +66,8 @@ function formatRelativeDate(dateStr: string): string {
 const ASSIGNABLE_ROLES: { value: AdminRole; label: string }[] = [
   { value: "admin_tenant", label: "Admin Tenant" },
   { value: "supervisor", label: "Superviseur" },
+  { value: "document_importer", label: "Importeur de documents" },
+  { value: "document_validator", label: "Validateur de documents" },
   { value: "viewer", label: "Analyste" },
 ];
 

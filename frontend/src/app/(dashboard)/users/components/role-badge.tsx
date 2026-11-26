@@ -17,6 +17,14 @@ const roleConfig: Record<AdminRole, { label: string; className: string }> = {
     label: "Superviseur",
     className: "bg-[hsl(var(--info))]/10 text-[hsl(var(--info))] border-0",
   },
+  document_importer: {
+    label: "Importeur de documents",
+    className: "bg-primary/10 text-primary border-0",
+  },
+  document_validator: {
+    label: "Validateur de documents",
+    className: "bg-primary/10 text-primary border-0",
+  },
   viewer: {
     label: "Analyste",
     className: "bg-[hsl(var(--olive))]/10 text-[hsl(var(--olive))] border-0",

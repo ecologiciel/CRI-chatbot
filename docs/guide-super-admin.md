@@ -48,13 +48,13 @@ fichiers scannés, tableaux complexes et sources anciennes demandent un contrôl
 particulier : la présence de passages indexés ne garantit pas une extraction
 fidèle ni des réponses exactes.
 
-La validation est une étape distincte dans l'interface, mais la plateforme
-actuelle autorise le même super-administrateur ou administrateur d'institution
-à importer et à valider un document. Elle ne dispose pas encore de rôles
-distincts d'importeur et de validateur ni d'un contrôle technique imposant
-deux personnes. Si cette séparation est exigée, organisez une revue par une
-autre personne avant validation ; ne la présentez pas comme un contrôle
-automatique de la plateforme.
+Les rôles **Importeur de documents** et **Validateur de documents** permettent
+de répartir ces opérations entre deux comptes rattachés à une institution.
+L'importeur ne peut pas valider ; le validateur ne peut pas importer. Les
+super-administrateurs et administrateurs d'institution conservent les deux
+droits : la plateforme n'impose donc pas automatiquement une revue par une
+deuxième personne pour leurs propres imports. Organisez cette revue si elle est
+exigée par votre procédure.
 
 ## Tester et partager la démo
 

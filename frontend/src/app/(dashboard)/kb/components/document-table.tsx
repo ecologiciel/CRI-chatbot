@@ -47,7 +47,7 @@ import {
 } from "@/hooks/use-documents";
 import type { KBDocumentStatus } from "@/types/kb";
 import type { KBDocument } from "@/types/kb";
-import { useApiClient } from "@/hooks/use-auth";
+import { useApiClient, useAuth } from "@/hooks/use-auth";
 
 const statusConfig: Record<
   KBDocumentStatus,
@@ -138,6 +138,9 @@ function safeSourceUrl(value: string | null): string | null {
 }
 
 export function DocumentTable() {
+  const { admin } = useAuth();
+  const isAdmin = admin?.role === "super_admin" || admin?.role === "admin_tenant";
+  const canValidate = isAdmin || admin?.role === "document_validator";
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -409,13 +412,13 @@ export function DocumentTable() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setSelectedDocument(doc)}
-                            disabled={doc.status !== "pending_validation" || validateDoc.isPending}
+                            disabled={!canValidate || doc.status !== "pending_validation" || validateDoc.isPending}
                           >
                             Valider et indexer
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleReindex(doc.id, doc.title)}
-                            disabled={reindexDoc.isPending}
+                            disabled={!isAdmin || reindexDoc.isPending}
                           >
                             <RefreshCw className="h-4 w-4 me-2" />
                             Réindexer
@@ -423,7 +426,7 @@ export function DocumentTable() {
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
                             onClick={() => handleDelete(doc.id, doc.title)}
-                            disabled={deleteDoc.isPending}
+                            disabled={!isAdmin || deleteDoc.isPending}
                           >
                             <Trash2 className="h-4 w-4 me-2" />
                             Supprimer
@@ -500,6 +503,7 @@ export function DocumentTable() {
                     <div key={field} className="space-y-1">
                       <label htmlFor={`evidence-${field}`} className="text-muted-foreground">{label}</label>
                       <Input id={`evidence-${field}`} type={type} maxLength={maxLength}
+                        disabled={!canValidate}
                         value={selectedDocument[field] || ""}
                         onChange={(event) => updateEvidence(field, event.target.value)} />
                     </div>
@@ -528,7 +532,7 @@ export function DocumentTable() {
                 <Button variant="outline" onClick={() => downloadDocument(selectedDocument)} disabled={!selectedDocument.file_path || downloading}>
                   <Download className="me-2 h-4 w-4" />{downloading ? "Vérification…" : "Télécharger le fichier"}
                 </Button>
-                {selectedDocument.status === "pending_validation" && (
+                {canValidate && selectedDocument.status === "pending_validation" && (
                   <Button onClick={() => handleValidate(selectedDocument)} disabled={validateDoc.isPending}>
                     {validateDoc.isPending ? "Validation…" : "Valider et indexer"}
                   </Button>

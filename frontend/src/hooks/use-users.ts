@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useApiClient } from "@/hooks/use-auth";
+import { useApiClient, useAuth } from "@/hooks/use-auth";
 import type { Admin, AdminRole } from "@/types";
 import type { PaginatedResponse } from "@/types/api";
 
@@ -54,11 +54,17 @@ export function useAdmins(params?: AdminsParams) {
 
 export function useCreateAdmin() {
   const api = useApiClient();
+  const { admin } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: AdminCreatePayload) =>
-      api.post<Admin>("/auth/admins", data),
+    mutationFn: (data: AdminCreatePayload) => {
+      const tenantId = admin?.role === "super_admin"
+        ? sessionStorage.getItem("cri_selected_tenant_id")
+        : admin?.tenant_id;
+      if (!tenantId) throw new Error("Sélectionnez une institution avant de créer un compte.");
+      return api.post<Admin>("/auth/admins", { ...data, tenant_id: tenantId });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admins"] });
     },

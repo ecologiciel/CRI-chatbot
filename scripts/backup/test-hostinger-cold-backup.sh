@@ -105,6 +105,23 @@ mv "$fixture/docker/clamav/clamd.conf.saved" "$fixture/docker/clamav/clamd.conf"
 "${compose[@]}" stop antivirus >/dev/null
 sed -i '/^  antivirus:$/,+2d' "$fixture/docker-compose.hostinger.yml"
 
+# Verify the scheduler refuses insufficient capacity without stopping the
+# stack, and records a successful verified encrypted archive otherwise.
+if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" BACKUP_MIN_FREE_KB=999999999999 bash "$script_dir/hostinger-scheduled-backup.sh"; then
+    echo 'Scheduled backup ignored the disk-space threshold' >&2
+    exit 1
+fi
+grep -Fxq 'status=failed' "$fixture/backups/scheduled-backup.status"
+[[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
+if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" BACKUP_MIN_FREE_KB=1 BACKUP_MAX_ARCHIVES=1 bash "$script_dir/hostinger-scheduled-backup.sh"; then
+    echo 'Scheduled backup ignored the archive limit' >&2
+    exit 1
+fi
+grep -Fxq 'status=failed' "$fixture/backups/scheduled-backup.status"
+DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" BACKUP_MIN_FREE_KB=1 bash "$script_dir/hostinger-scheduled-backup.sh"
+grep -Fxq 'status=success' "$fixture/backups/scheduled-backup.status"
+[[ -z $(find "$fixture/backups" -name '.scheduled-result.*' -o -name '.scheduled-state.*') ]]
+
 # Concurrent archives could otherwise restart writers in the middle of a
 # second capture. The second process must fail before stopping anything.
 mkfifo "$fixture/release-lock"

@@ -204,5 +204,8 @@ docker run --rm --network none --read-only --entrypoint tar \
 test -s "$archive.partial"
 mv -- "$archive.partial" "$archive"
 (cd "$BACKUP_DIR" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
+if [[ -n "${BACKUP_RESULT_FILE:-}" ]]; then
+    printf '%s\n' "$archive" > "$BACKUP_RESULT_FILE"
+fi
 echo "Encrypted data archive created: $archive"
 echo "A separate copy and a tested restore are still required."

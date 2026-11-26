@@ -23,6 +23,12 @@ bash scripts/backup/hostinger-cold-backup.sh --recover
 
 La reprise utilise les mêmes verrous que la sauvegarde, refuse un journal KMS inachevé, redémarre les services enregistrés et conserve le journal si le démarrage ou le contrôle de disponibilité échoue. Vérifier ensuite l'état de la plateforme. Le script `hostinger-backup-recovery-guard.sh` peut être appelé régulièrement par le planificateur de l'hôte ; il ne tente rien tant que le verrou de sauvegarde est occupé. La planification doit être installée et surveillée séparément. Elle ne garantit pas la reprise après une coupure électrique au moment de l'écriture du journal. Les tâches Redis en attente ne sont pas incluses dans l'archive.
 
+## Sauvegarde planifiée sur le VPS
+
+`scripts/backup/hostinger-scheduled-backup.sh` utilise une clé publique `recipient-public.asc` dans le répertoire de sauvegarde et lance la sauvegarde à froid. La plateforme peut être indisponible pendant l'opération. Les workers actifs ont un délai de terminaison, mais une tâche bloquée ou dépassant son délai peut encore être interrompue. Le script refuse de démarrer s'il reste moins de 10 Gio libres ou si 120 archives existent déjà ; il ne supprime aucune archive. Ces seuils ne garantissent pas qu'une archive volumineuse tiendra sur le disque.
+
+Le fichier `scheduled-backup.status` indique le dernier résultat et la date ; le journal de l'exécution doit également être surveillé. Un résultat `success` signifie que l'archive chiffrée et sa somme de contrôle existent et concordent, et que les services ont redémarré ; il ne prouve ni le déchiffrement, ni une restauration complète, ni l'existence d'une copie hors du VPS. Un processus tué brutalement peut laisser un état ancien : vérifier aussi son âge. Le contrôle des sauvegardes ne transmet pas d'alerte externe. Maintenir une copie indépendante, tester régulièrement la restauration et gérer la rétention avant d'atteindre la limite.
+
 Les sauvegardes créées avec la version qui inclut l'antivirus conservent sa
 configuration sous `metadata/runtime/docker/clamav/clamd.conf` dans l'archive
 chiffrée. Pour restaurer la configuration Compose, recopier ce fichier vers

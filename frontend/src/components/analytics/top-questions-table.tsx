@@ -49,7 +49,7 @@ export function TopQuestionsTable({
 }: TopQuestionsTableProps) {
   const [page, setPage] = useState(0);
 
-  const { data, isLoading } = useAnalyticsTopQuestions(
+  const { data, isLoading, isError, refetch } = useAnalyticsTopQuestions(
     period,
     start,
     end,
@@ -57,6 +57,17 @@ export function TopQuestionsTable({
   );
 
   if (isLoading) return <TableSkeleton />;
+  if (isError) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-base font-heading">Questions les plus fréquentes</CardTitle></CardHeader>
+        <CardContent role="alert" className="text-sm">
+          <p>Impossible de charger les questions pour cette période.</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => void refetch()}>Réessayer</Button>
+        </CardContent>
+      </Card>
+    );
+  }
   if (!data || data.length === 0) {
     return (
       <Card>

@@ -13,6 +13,7 @@ import {
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDashboardStats } from "@/hooks/use-dashboard";
@@ -173,7 +174,7 @@ export default function DashboardPage() {
             })}
       </div>
 
-      {/* Chart placeholder */}
+      {/* Analytics navigation */}
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-16">
           <BarChart3
@@ -184,8 +185,11 @@ export default function DashboardPage() {
             Graphiques et analytics
           </h2>
           <p className="text-sm text-muted-foreground/70 mt-1">
-            Disponible prochainement
+            Consultez les statistiques disponibles pour votre institution.
           </p>
+          <Button asChild variant="outline" className="mt-4">
+            <Link href="/analytics">Voir les analytics</Link>
+          </Button>
         </CardContent>
       </Card>
     </div>

@@ -10,6 +10,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { PeriodSelector } from "@/components/analytics/period-selector";
 import { ExportButtons } from "@/components/analytics/export-buttons";
 import { KPICards } from "@/components/analytics/kpi-cards";
@@ -77,14 +78,12 @@ function AnalyticsContent() {
   );
 
   // Data hooks
-  const { data: overview, isLoading: overviewLoading } =
-    useAnalyticsOverview(period, start, end);
-  const { data: timeseries, isLoading: timeseriesLoading } =
-    useAnalyticsTimeSeries(period, start, end);
-  const { data: languages, isLoading: languagesLoading } =
-    useAnalyticsLanguages(period, start, end);
-  const { data: questionTypes, isLoading: questionTypesLoading } =
-    useAnalyticsQuestionTypes(period, start, end);
+  const overviewQuery = useAnalyticsOverview(period, start, end);
+  const timeseriesQuery = useAnalyticsTimeSeries(period, start, end);
+  const languagesQuery = useAnalyticsLanguages(period, start, end);
+  const questionTypesQuery = useAnalyticsQuestionTypes(period, start, end);
+  const queries = [overviewQuery, timeseriesQuery, languagesQuery, questionTypesQuery];
+  const hasError = queries.some((query) => query.isError);
 
   const dateRange =
     start && end ? { from: new Date(start), to: new Date(end) } : undefined;
@@ -121,17 +120,19 @@ function AnalyticsContent() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6 mt-6">
-          <KPICards data={overview} isLoading={overviewLoading} />
-          <ConversationsChart
-            data={timeseries}
-            isLoading={timeseriesLoading}
-          />
+          {hasError && (
+            <div role="alert" className="rounded-lg border border-destructive/30 p-4 text-sm">
+              <p>Une partie des statistiques n&apos;a pas pu être chargée.</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => {
+                void Promise.all(queries.filter((query) => query.isError).map((query) => query.refetch()));
+              }}>Réessayer</Button>
+            </div>
+          )}
+          {!overviewQuery.isError && <KPICards data={overviewQuery.data} isLoading={overviewQuery.isLoading} />}
+          {!timeseriesQuery.isError && <ConversationsChart data={timeseriesQuery.data} isLoading={timeseriesQuery.isLoading} />}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <LanguagesChart data={languages} isLoading={languagesLoading} />
-            <QuestionsDonut
-              data={questionTypes}
-              isLoading={questionTypesLoading}
-            />
+            {!languagesQuery.isError && <LanguagesChart data={languagesQuery.data} isLoading={languagesQuery.isLoading} />}
+            {!questionTypesQuery.isError && <QuestionsDonut data={questionTypesQuery.data} isLoading={questionTypesQuery.isLoading} />}
           </div>
           <TopQuestionsTable period={period} start={start} end={end} />
         </TabsContent>

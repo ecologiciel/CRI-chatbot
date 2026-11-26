@@ -68,7 +68,13 @@ async def receive_whatsapp_webhook(
     a Pydantic body parameter because that would re-serialize the JSON.
     """
     _require_proxy_secret(x_demo_webhook_proxy)
-    raw_body = await request.body()
+    maximum = get_settings().whatsapp_webhook_max_body_bytes
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > maximum:
+            raise HTTPException(status_code=413, detail="Webhook payload too large")
+        body.extend(chunk)
+    raw_body = bytes(body)
     signature = request.headers.get("X-Hub-Signature-256")
 
     try:

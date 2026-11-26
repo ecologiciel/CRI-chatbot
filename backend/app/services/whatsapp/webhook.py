@@ -61,7 +61,11 @@ class WhatsAppWebhookService:
                 details={"mode": mode},
             )
 
-        if not hmac.compare_digest(token, settings.whatsapp_verify_token):
+        if (
+            not settings.whatsapp_verify_token
+            or not token
+            or not hmac.compare_digest(token, settings.whatsapp_verify_token)
+        ):
             raise WhatsAppSignatureError(
                 "Invalid verify token",
                 details={"mode": mode},
@@ -147,6 +151,8 @@ class WhatsAppWebhookService:
             )
 
         settings = get_settings()
+        if not settings.whatsapp_app_secret:
+            raise WhatsAppSignatureError("WhatsApp webhook is not configured")
         expected = hmac.new(
             settings.whatsapp_app_secret.encode("utf-8"),
             raw_body,

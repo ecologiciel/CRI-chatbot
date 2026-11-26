@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     webhook_proxy_shared_secret: str = Field(
         default="", description="Optional shared secret required from the Cloudflare webhook relay"
     )
+    whatsapp_webhook_max_body_bytes: int = Field(
+        default=1_048_576,
+        ge=1024,
+        le=10_485_760,
+        description="Maximum inbound WhatsApp webhook body size in bytes",
+    )
 
     # --- JWT Auth ---
     jwt_secret_key: str = Field(

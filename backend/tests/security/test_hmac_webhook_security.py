@@ -8,11 +8,12 @@ import hashlib
 import hmac as hmac_mod
 import json
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.exceptions import WhatsAppSignatureError
 from app.main import app
 from app.services.whatsapp.webhook import WhatsAppWebhookService
 
@@ -28,6 +29,70 @@ def _sign(payload: bytes, secret: str = TEST_APP_SECRET) -> str:
 
 class TestHmacEdgeCases:
     """HMAC validation edge cases not covered by basic valid/invalid tests."""
+
+    def test_unconfigured_empty_secret_rejects_forged_signature(self):
+        body = b"{}"
+        signature = _sign(body, "")
+        with (
+            patch(
+                "app.services.whatsapp.webhook.get_settings",
+                return_value=MagicMock(whatsapp_app_secret=""),
+            ),
+            pytest.raises(WhatsAppSignatureError),
+        ):
+            WhatsAppWebhookService._validate_hmac_signature(body, signature)
+
+    def test_unconfigured_empty_verify_token_does_not_accept_empty_token(self):
+        with (
+            patch(
+                "app.services.whatsapp.webhook.get_settings",
+                return_value=MagicMock(whatsapp_verify_token=""),
+            ),
+            pytest.raises(WhatsAppSignatureError),
+        ):
+            WhatsAppWebhookService.verify_webhook("subscribe", "", "challenge")
+
+    @pytest.mark.asyncio
+    async def test_streamed_body_over_limit_is_rejected_before_processing(self):
+        async def chunks():
+            yield b"a" * 700
+            yield b"b" * 400
+
+        settings = MagicMock(webhook_proxy_shared_secret="", whatsapp_webhook_max_body_bytes=1024)
+        with (
+            patch("app.api.v1.webhook.get_settings", return_value=settings),
+            patch.object(WhatsAppWebhookService, "process_webhook") as process,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post("/api/v1/webhook/whatsapp", content=chunks())
+        assert response.status_code == 413
+        process.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_streamed_body_within_limit_preserves_signed_bytes(self):
+        async def chunks():
+            yield b'{"x":'
+            yield b"1}"
+
+        settings = MagicMock(webhook_proxy_shared_secret="", whatsapp_webhook_max_body_bytes=1024)
+        with (
+            patch("app.api.v1.webhook.get_settings", return_value=settings),
+            patch.object(
+                WhatsAppWebhookService, "process_webhook", new_callable=AsyncMock
+            ) as process,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/api/v1/webhook/whatsapp",
+                    content=chunks(),
+                    headers={"X-Hub-Signature-256": "sha256=example"},
+                )
+        assert response.status_code == 200
+        process.assert_awaited_once_with(b'{"x":1}', "sha256=example")
 
     @pytest.mark.asyncio
     async def test_hmac_empty_body_valid_signature(self):

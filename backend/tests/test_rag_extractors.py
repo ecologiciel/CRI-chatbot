@@ -43,7 +43,7 @@ class TestExtractCSV:
     """Test CSV extraction."""
 
     def test_extract_csv_basic(self):
-        """CSV rows are joined with pipe separators."""
+        """Each CSV row retains its column labels."""
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(["Nom", "Secteur", "Région"])
@@ -53,9 +53,28 @@ class TestExtractCSV:
 
         result = extract_text(data, "projets.csv")
 
-        assert "Nom | Secteur | Région" in result
-        assert "Projet Alpha | Industrie | Rabat" in result
-        assert "Projet Beta | Tourisme | Tanger" in result
+        assert '"Nom": "Projet Alpha" | "Secteur": "Industrie" | "Région": "Rabat"' in result
+        assert '"Nom": "Projet Beta" | "Secteur": "Tourisme" | "Région": "Tanger"' in result
+
+    def test_csv_empty_cells_do_not_shift_column_values(self):
+        result = extract_text("Produit;Quantité;Unité\nTomate;;kg\n".encode(), "produits.csv")
+        assert '"Produit": "Tomate" | "Quantité": "" | "Unité": "kg"' in result
+
+    def test_csv_quoted_delimiters_and_missing_columns(self):
+        result = extract_text('Nom;Valeur;Unité\n"Tomate; verte";3\n'.encode(), "produits.csv")
+        assert '"Nom": "Tomate; verte" | "Valeur": "3" | "Unité": [colonne absente]' in result
+
+    def test_csv_rows_retain_headers_across_chunks(self):
+        from app.services.rag.chunker import ChunkingService
+
+        data = "Produit,Condition\n" + "".join(f"Produit{i},Condition{i}\n" for i in range(25))
+        text = extract_text(data.encode(), "produits.csv")
+        chunks = ChunkingService(chunk_size=55, overlap=0, max_chunk_size=60).chunk_text(text)
+        assert len(chunks) > 1
+        assert all(text[c.start_char : c.end_char] == c.content for c in chunks)
+        for i in range(25):
+            expected = f'"Produit": "Produit{i}" | "Condition": "Condition{i}"'
+            assert any(expected in chunk.content for chunk in chunks)
 
     def test_extract_csv_empty_raises(self):
         """Empty CSV raises IngestionError."""

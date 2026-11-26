@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
@@ -210,11 +211,30 @@ def _extract_csv(data: bytes) -> str:
     except UnicodeDecodeError:
         text = data.decode("latin-1")
 
-    reader = csv.reader(io.StringIO(text))
-    lines: list[str] = []
-    for row in reader:
-        line = " | ".join(cell.strip() for cell in row if cell.strip())
-        if line:
-            lines.append(line)
+    # Common exports use commas, semicolons or tabs. Sniffer respects quoted
+    # delimiters; ambiguous or single-column input falls back to standard CSV.
+    try:
+        dialect = csv.Sniffer().sniff(text[:8192], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.reader(io.StringIO(text), dialect)
+    rows = [row for row in reader if any(cell.strip() for cell in row)]
+    if not rows:
+        return ""
 
-    return "\n".join(lines)
+    header = [cell.strip() for cell in rows[0]]
+    quote = lambda value: json.dumps(value.strip(), ensure_ascii=False)  # noqa: E731
+    lines = ["Première ligne du CSV (intitulés supposés) : " + " | ".join(map(quote, header))]
+    for number, row in enumerate(rows[1:], start=2):
+        cells = []
+        for index in range(max(len(header), len(row))):
+            label = (
+                quote(header[index])
+                if index < len(header) and header[index]
+                else f"Colonne {index + 1} sans intitulé"
+            )
+            value = quote(row[index]) if index < len(row) else "[colonne absente]"
+            cells.append(f"{label}: {value}")
+        # Each row is a separate paragraph so it can stay together.
+        lines.append(f"Enregistrement CSV {number} : " + " | ".join(cells))
+    return "\n\n".join(lines)

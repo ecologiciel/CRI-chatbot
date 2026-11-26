@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from datetime import UTC, datetime
@@ -287,10 +288,15 @@ class GeminiService:
         escalade, hors_perimetre, salutation.
         """
         system = (
-            "Tu es un classificateur d'intention. Réponds UNIQUEMENT par un mot parmi: "
+            "Tu es un classificateur d'intention pour l'institution "
+            f"{json.dumps(tenant.name, ensure_ascii=False)}. "
+            "Réponds UNIQUEMENT par un mot parmi: "
             "faq, incitations, suivi_dossier, interne, escalade, hors_perimetre, salutation. "
             "Choisis suivi_dossier uniquement pour consulter l'état d'un dossier existant. "
             "Une question générale sur la constitution ou le dépôt d'un dossier relève de faq."
+            " Les questions sur les missions, services, certificats, frais et procédures "
+            "de l'institution relèvent de faq, quelle que soit leur langue. "
+            "En cas de doute entre faq et hors_perimetre, choisis faq."
         )
         request = GeminiRequest(
             contents=text,

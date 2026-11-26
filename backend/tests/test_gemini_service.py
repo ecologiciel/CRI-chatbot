@@ -161,6 +161,18 @@ async def test_provider_masks_patterns_in_prompt_and_system_instruction(gemini_s
 
 
 @pytest.mark.asyncio
+async def test_intent_classifier_uses_current_institution_context(gemini_service, mock_redis):
+    service, mock_client = gemini_service
+    mock_client.aio.models.generate_content = AsyncMock(return_value=_make_mock_response("faq"))
+
+    assert await service.classify_intent("ما رسوم الشهادة؟", TEST_TENANT) == "faq"
+
+    config = mock_client.aio.models.generate_content.await_args.kwargs["config"]
+    assert TEST_TENANT.name in config.system_instruction
+    assert "quelle que soit leur langue" in config.system_instruction
+
+
+@pytest.mark.asyncio
 async def test_generate_retries_on_rate_limit(gemini_service, mock_redis):
     """ResourceExhausted 2x then success → retry works."""
     service, mock_client = gemini_service

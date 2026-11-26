@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -44,6 +45,7 @@ from app.services.whatsapp.inbox_leases import (
     renew_claim,
 )
 from app.services.whatsapp.inbox_payload import decrypt_claim
+from app.services.whatsapp.inbox_retention import _redact_tenant
 from app.services.whatsapp.status_batch import run_status_batch
 from app.services.whatsapp.status_inbox import persist_delivery_status
 from app.services.whatsapp.status_projection import apply_status_event
@@ -262,6 +264,7 @@ async def main():
         "attempts",
         "created_at",
         "updated_at",
+        "redacted_at",
     }
     review_id = uuid.UUID(operations["events"][0]["id"])
     admin = AdminTokenPayload(
@@ -626,6 +629,157 @@ async def main():
         finally:
             await redis.aclose()
         print("ISOLATED_INBOX_ARQ_OK", flush=True)
+    now = datetime.now(UTC)
+    old = now - timedelta(days=91)
+    pending_id, expired_id, live_id, old_status_id = (uuid.uuid4() for _ in range(4))
+    async with get_session_factory()() as session:
+        await session.execute(
+            update(WhatsAppStatusEvent)
+            .where(WhatsAppStatusEvent.id == other_id)
+            .values(created_at=old, ciphertext="other-tenant-sensitive")
+        )
+        for event_id, state, lease_until in (
+            (pending_id, "pending", None),
+            (expired_id, "processing", now - timedelta(seconds=1)),
+            (live_id, "processing", now + timedelta(minutes=5)),
+        ):
+            session.add(
+                WhatsAppInboxEvent(
+                    id=event_id,
+                    tenant_id=tenant_id,
+                    phone_number_id="123",
+                    provider_message_id="retention-" + str(event_id),
+                    ciphertext="synthetic-sensitive",
+                    key_version=1,
+                    state=state,
+                    created_at=old,
+                    lease_until=lease_until,
+                    lease_token=uuid.uuid4() if lease_until else None,
+                )
+            )
+        session.add(
+            WhatsAppStatusEvent(
+                id=old_status_id,
+                tenant_id=tenant_id,
+                phone_number_id="123",
+                fingerprint="c" * 64,
+                ciphertext="synthetic-sensitive",
+                key_version=1,
+                state="pending",
+                created_at=old,
+            )
+        )
+        await session.commit()
+    counts = await _redact_tenant(tenant_id, tenant.slug, 90, now)
+    assert counts == {"messages": 2, "statuses": 1}
+    async with get_session_factory()() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(WhatsAppInboxEvent).where(
+                        WhatsAppInboxEvent.id.in_([pending_id, expired_id, live_id])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_id = {row.id: row for row in rows}
+        old_status = (
+            await session.execute(
+                select(WhatsAppStatusEvent).where(
+                    WhatsAppStatusEvent.id == old_status_id
+                )
+            )
+        ).scalar_one()
+        other_status = (
+            await session.execute(
+                select(WhatsAppStatusEvent).where(WhatsAppStatusEvent.id == other_id)
+            )
+        ).scalar_one()
+        purge_audit = (
+            (
+                await session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "wa_payload_purge",
+                        AuditLog.tenant_slug == tenant.slug,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    for event_id in (pending_id, expired_id):
+        assert by_id[event_id].state == "uncertain" and by_id[event_id].ciphertext == ""
+        assert (
+            by_id[event_id].redacted_at is not None
+            and by_id[event_id].lease_token is None
+        )
+    assert (
+        by_id[live_id].state == "processing"
+        and by_id[live_id].ciphertext == "synthetic-sensitive"
+    )
+    assert old_status.state == "uncertain" and old_status.ciphertext == ""
+    assert (
+        other_status.ciphertext == "other-tenant-sensitive"
+        and other_status.redacted_at is None
+    )
+    assert len(purge_audit) == 1
+    try:
+        await event_detail(pending_id, kind="message", tenant=tenant, admin=admin)
+        raise AssertionError("Redacted payload was disclosed")
+    except HTTPException as exc:
+        assert exc.status_code == 410
+    audit_failure_id = uuid.uuid4()
+    async with get_session_factory()() as session:
+        session.add(
+            WhatsAppInboxEvent(
+                id=audit_failure_id,
+                tenant_id=tenant_id,
+                phone_number_id="123",
+                provider_message_id="retention-" + str(audit_failure_id),
+                ciphertext="synthetic-sensitive",
+                key_version=1,
+                state="pending",
+                created_at=old,
+            )
+        )
+        await session.commit()
+    async with get_engine().begin() as conn:
+        await conn.execute(
+            text("""
+            CREATE FUNCTION public.reject_synthetic_purge_audit() RETURNS trigger
+            LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic audit failure'; END $$
+        """)
+        )
+        await conn.execute(
+            text("""
+            CREATE TRIGGER synthetic_purge_audit_failure BEFORE INSERT ON public.audit_logs
+            FOR EACH ROW EXECUTE FUNCTION public.reject_synthetic_purge_audit()
+        """)
+        )
+    try:
+        await _redact_tenant(tenant_id, tenant.slug, 90, now)
+        raise AssertionError("Retention unexpectedly committed without audit")
+    except Exception as exc:
+        if isinstance(exc, AssertionError):
+            raise
+    async with get_engine().begin() as conn:
+        await conn.execute(
+            text("DROP TRIGGER synthetic_purge_audit_failure ON public.audit_logs")
+        )
+        await conn.execute(text("DROP FUNCTION public.reject_synthetic_purge_audit()"))
+    async with get_session_factory()() as session:
+        row = (
+            await session.execute(
+                select(WhatsAppInboxEvent).where(
+                    WhatsAppInboxEvent.id == audit_failure_id
+                )
+            )
+        ).scalar_one()
+        assert row.state == "pending" and row.ciphertext == "synthetic-sensitive"
+    assert (await _redact_tenant(tenant_id, tenant.slug, 90, now))["messages"] == 1
+    print("ISOLATED_INBOX_RETENTION_OK", flush=True)
     await close_engine()
     print("ISOLATED_INBOX_POSTGRES_OK", flush=True)
 

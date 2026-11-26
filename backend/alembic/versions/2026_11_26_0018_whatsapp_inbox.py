@@ -24,6 +24,7 @@ def upgrade() -> None:
         sa.Column("provider_message_id", sa.String(255), nullable=False),
         sa.Column("phone_number_id", sa.String(32), nullable=False),
         sa.Column("ciphertext", sa.Text(), nullable=False),
+        sa.Column("redacted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("key_version", sa.Integer(), nullable=False),
         sa.Column("state", sa.String(16), nullable=False, server_default="pending"),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
@@ -58,6 +59,13 @@ def upgrade() -> None:
     )
     op.create_index(
         "ix_wa_inbox_pending", "whatsapp_inbox_events", ["state", "created_at"], schema="public"
+    )
+    op.create_index(
+        "ix_wa_inbox_retention",
+        "whatsapp_inbox_events",
+        ["tenant_id", "created_at"],
+        postgresql_where=sa.text("redacted_at IS NULL"),
+        schema="public",
     )
 
 

@@ -12,7 +12,7 @@ import {
 
 type Kind = "message" | "status";
 type ReviewState = "uncertain" | "follow_up";
-type Event = { id: string; state: string; attempts: number; created_at: string };
+type Event = { id: string; state: string; attempts: number; created_at: string; redacted_at: string | null };
 type Detail = { id: string; provider_message_id: string; recipient_masked: string; event_type: string; view: string };
 
 export function WhatsAppReview() {
@@ -75,9 +75,9 @@ export function WhatsAppReview() {
       {events.data?.events.length === 0 && <p>Aucun événement dans cette page.</p>}
       {events.data?.events.map((event) => (
         <div key={event.id} className="flex flex-wrap items-center justify-between gap-3 border rounded-md p-3">
-          <div className="text-sm"><p>Événement {event.id}</p><p className="text-muted-foreground">{new Date(event.created_at).toLocaleString("fr-FR")} · {event.attempts} tentative(s)</p></div>
+          <div className="text-sm"><p>Événement {event.id}</p><p className="text-muted-foreground">{new Date(event.created_at).toLocaleString("fr-FR")} · {event.attempts} tentative(s)</p>{event.redacted_at && <p>Détails expirés selon la durée de conservation.</p>}</div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={details.isPending} onClick={() => details.mutate(event.id)}>Voir les détails</Button>
+            <Button variant="outline" disabled={details.isPending || !!event.redacted_at} onClick={() => details.mutate(event.id)}>Voir les détails</Button>
             {state === "uncertain" && <Button variant="outline" disabled={review.isPending} onClick={() => setSelected({ id: event.id, action: "follow_up" })}>À suivre</Button>}
             <Button variant="outline" disabled={review.isPending} onClick={() => setSelected({ id: event.id, action: "resolve" })}>Clôturer le suivi</Button>
           </div>

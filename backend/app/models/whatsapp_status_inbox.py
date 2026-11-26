@@ -5,7 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,6 +33,12 @@ class WhatsAppStatusEvent(UUIDMixin, Base):
         CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_status_counters"),
         Index("uq_wa_status_fingerprint", "tenant_id", "fingerprint", unique=True),
         Index("ix_wa_status_pending", "state", "next_attempt_at"),
+        Index(
+            "ix_wa_status_retention",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("redacted_at IS NULL"),
+        ),
         {"schema": "public"},
     )
 
@@ -32,6 +48,7 @@ class WhatsAppStatusEvent(UUIDMixin, Base):
     phone_number_id: Mapped[str] = mapped_column(String(32), nullable=False)
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

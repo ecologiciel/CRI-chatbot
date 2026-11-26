@@ -57,7 +57,14 @@ async def list_events(
     async with get_session_factory()() as session:
         rows = (
             await session.execute(
-                select(model.id, model.state, model.attempts, model.created_at, model.updated_at)
+                select(
+                    model.id,
+                    model.state,
+                    model.attempts,
+                    model.created_at,
+                    model.updated_at,
+                    model.redacted_at,
+                )
                 .where(model.tenant_id == tenant.id, model.state == state)
                 .order_by(model.created_at, model.id)
                 .limit(limit)
@@ -75,6 +82,7 @@ async def list_events(
                 "attempts": row.attempts,
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
+                "redacted_at": row.redacted_at,
             }
             for row in rows
         ],
@@ -98,11 +106,17 @@ async def event_detail(
     async with factory() as session:
         event = (
             await session.execute(
-                select(model).where(model.id == event_id, model.tenant_id == tenant.id)
+                select(model)
+                .where(model.id == event_id, model.tenant_id == tenant.id)
+                .with_for_update(read=True)
             )
         ).scalar_one_or_none()
         if event is None:
             raise HTTPException(status_code=404, detail="Événement introuvable")
+        if event.redacted_at is not None:
+            raise HTTPException(
+                status_code=410, detail="Détails expirés selon la durée de conservation"
+            )
         cipher = VersionedEnvelopeService(factory, get_settings().kms_master_key)
         plaintext = await cipher.decrypt(
             VersionedEnvelope(event.key_version, event.ciphertext),

@@ -183,7 +183,7 @@ class RotationOperator:
         return image
 
     def assert_no_unmanaged_key_writers(self) -> None:
-        """Refuse other live/restarting containers on the tenant data network with a KMS key."""
+        """Refuse any other container holding a KMS key on the data network."""
         command("docker", "network", "inspect", self.network, capture=True)
         allowed = set(self.writer_ids(require_one=False))
         all_ids = command(
@@ -199,10 +199,7 @@ class RotationOperator:
                 value.startswith("KMS_MASTER_KEY=")
                 for value in (item["Config"].get("Env") or [])
             )
-            policy = item["HostConfig"]["RestartPolicy"]["Name"]
-            if has_key and (
-                item["State"]["Running"] or policy in {"always", "unless-stopped"}
-            ):
+            if has_key:
                 raise RuntimeError(
                     "Another possible KMS writer is connected to the data network"
                 )

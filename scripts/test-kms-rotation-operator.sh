@@ -139,6 +139,14 @@ if timeout 90s python3 "$script_dir/kms_rotation_operator.py" rotate --deploymen
 fi
 grep -q 'Another possible KMS writer' "$fixture/unmanaged.log"
 [[ ! -e "$fixture/.kms-maintenance" ]]
+docker stop --time 10 "${project}-unmanaged-writer" >/dev/null
+if timeout 90s python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" \
+    --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg" >"$fixture/unmanaged.log" 2>&1; then
+    echo 'A stopped unmanaged KMS container was unexpectedly accepted.' >&2
+    exit 1
+fi
+grep -q 'Another possible KMS writer' "$fixture/unmanaged.log"
+[[ ! -e "$fixture/.kms-maintenance" ]]
 for service in backend ingestion-worker learning-worker purge-worker; do
     id=$("${compose[@]}" ps -aq "$service")
     [[ $(docker inspect -f '{{.State.Running}}' "$id") == true ]]

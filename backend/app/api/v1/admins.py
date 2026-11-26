@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func, select
 
@@ -217,6 +217,52 @@ async def update_admin(
         # Non-super-admins cannot change tenant_id
         if admin.role != AdminRole.super_admin.value:
             update_fields.pop("tenant_id", None)
+
+        for field in ("full_name", "role", "is_active"):
+            if field in update_fields and update_fields[field] is None:
+                raise ValidationError(f"{field} ne peut pas être vide.")
+
+        # Lock tenant rows before the admin row, in the same order as tenant
+        # deprovisioning. Then re-read the account to avoid acting on stale
+        # role, ownership or active-state data acquired before the locks.
+        original = (target.role, target.tenant_id, target.is_active)
+        new_tenant_id = update_fields.get("tenant_id", target.tenant_id)
+        tenant_ids = sorted(
+            {value for value in (target.tenant_id, new_tenant_id) if value is not None},
+            key=str,
+        )
+        statuses = {}
+        if tenant_ids:
+            rows = await session.execute(
+                select(Tenant.id, Tenant.status)
+                .where(Tenant.id.in_(tenant_ids))
+                .order_by(Tenant.id)
+                .with_for_update()
+            )
+            statuses = {row.id: row.status for row in rows.all()}
+        await session.refresh(target, with_for_update=True)
+        if (target.role, target.tenant_id, target.is_active) != original:
+            raise HTTPException(status_code=409, detail="Ce compte a changé. Réessayez.")
+
+        effective_role = update_fields.get("role", target.role)
+        effective_tenant_id = update_fields.get("tenant_id", target.tenant_id)
+        effective_active = update_fields.get("is_active", target.is_active)
+        if effective_role == AdminRole.super_admin and effective_tenant_id is not None:
+            raise ValidationError(
+                "Un super-administrateur ne peut pas être rattaché à une institution."
+            )
+        if (
+            effective_role != AdminRole.super_admin
+            and effective_active
+            and effective_tenant_id is None
+        ):
+            raise ValidationError("Un compte actif doit être rattaché à une institution.")
+        if (
+            effective_role != AdminRole.super_admin
+            and effective_active
+            and statuses.get(effective_tenant_id) != TenantStatus.active
+        ):
+            raise ValidationError("Impossible d'activer un compte pour une institution inactive.")
 
         for field, value in update_fields.items():
             setattr(target, field, value)

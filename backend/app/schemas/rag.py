@@ -22,6 +22,9 @@ class ChunkResult:
     end_char: int
     section_path: tuple[str, ...] = ()
     page_numbers: tuple[int, ...] = ()
+    table_header: str | None = None
+    table_header_start: int | None = None
+    table_header_end: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -226,8 +226,14 @@ class PromptTemplates:
             title = chunk.metadata.get("title", "Document")
             pages = chunk.metadata.get("page_numbers") or []
             page_label = f" | pages: {', '.join(str(page) for page in pages)}" if pages else ""
+            header = chunk.metadata.get("table_header")
+            header_context = (
+                f"En-tête du tableau, extrait de la même source :\n{header}\n"
+                if isinstance(header, str) and header
+                else ""
+            )
             chunk_parts.append(
-                f"[Source: {title}{page_label} | score: {chunk.score:.2f}]\n{chunk.content}"
+                f"[Source: {title}{page_label} | score: {chunk.score:.2f}]\n{header_context}{chunk.content}"
             )
         chunks_text = (
             "\n\n---\n\n".join(chunk_parts) if chunk_parts else "Aucun contexte disponible."

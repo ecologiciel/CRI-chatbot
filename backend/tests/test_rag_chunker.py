@@ -221,3 +221,37 @@ def test_oversized_legal_article_still_respects_token_limit():
     assert all(c.token_count <= 40 for c in chunks)
     assert all(text[c.start_char : c.end_char] == c.content for c in chunks)
     assert any(c.section_path == ("ARTICLE 2",) for c in chunks)
+
+
+class TestMarkdownTables:
+    def test_long_table_keeps_rows_and_separate_source_header(self):
+        service = ChunkingService(chunk_size=70, overlap=8, max_chunk_size=100)
+        header = "| Produit | Condition |\n| --- | --- |\n"
+        rows = [f"| Produit{i} | Condition{i} |\n" for i in range(30)]
+        text = "# Tableau\nIntroduction\n\n" + header + "".join(rows) + "\nFin."
+        chunks = service.chunk_text(text)
+        assert all(text[c.start_char : c.end_char] == c.content for c in chunks)
+        assert all(c.token_count <= 100 for c in chunks)
+        for row in rows:
+            assert any(row in chunk.content for chunk in chunks)
+        continuations = [c for c in chunks if c.table_header is not None]
+        assert continuations
+        for chunk in continuations:
+            assert chunk.table_header == header
+            assert text[chunk.table_header_start : chunk.table_header_end] == header
+            assert (
+                service.count_tokens("En-tête du tableau :\n" + header + "\n" + chunk.content)
+                <= 100
+            )
+
+    def test_fenced_table_is_not_given_header_context(self):
+        text = "```\n| A | B |\n| --- | --- |\n" + "| x | y |\n" * 60 + "```\n"
+        chunks = ChunkingService(chunk_size=60, overlap=0, max_chunk_size=100).chunk_text(text)
+        assert all(chunk.table_header is None for chunk in chunks)
+
+    def test_oversized_table_row_respects_limit_without_losing_content(self):
+        service = ChunkingService(chunk_size=60, overlap=0, max_chunk_size=100)
+        text = "| A | B |\n| --- | --- |\n| " + ("mot " * 400) + "| fin |\n"
+        chunks = service.chunk_text(text)
+        assert "".join(chunk.content for chunk in chunks) == text
+        assert all(chunk.token_count <= 100 for chunk in chunks)

@@ -274,7 +274,12 @@ class GenerationService:
                 document_id=c.document_id,
                 content=self._anonymize_text(c.content),
                 score=c.score,
-                metadata=c.metadata,
+                metadata={
+                    **c.metadata,
+                    "table_header": self._anonymize_text(c.metadata["table_header"])
+                    if isinstance(c.metadata.get("table_header"), str)
+                    else None,
+                },
             )
             for c in chunks
         ]

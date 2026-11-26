@@ -272,3 +272,18 @@ class TestRetrieveErrors:
 
         with pytest.raises(RetrievalError, match="Retrieval failed"):
             await service.retrieve(tenant_context, "test")
+
+
+@pytest.mark.asyncio
+async def test_table_header_comes_only_from_authoritative_database(tenant_context):
+    point = _make_qdrant_point("p1", 0.9, "row")
+    point.payload["table_header"] = "forged header"
+    service, _, _ = _make_service(qdrant_results=[point])
+    service._load_published_chunks.return_value = {
+        "p1": {"content": "row", "document_id": "doc", "table_header": "trusted header"}
+    }
+    result = await service.retrieve(tenant_context, "query")
+    assert result.chunks[0].metadata["table_header"] == "trusted header"
+    service._load_published_chunks.return_value["p1"].pop("table_header")
+    result = await service.retrieve(tenant_context, "query")
+    assert result.chunks[0].metadata["table_header"] is None

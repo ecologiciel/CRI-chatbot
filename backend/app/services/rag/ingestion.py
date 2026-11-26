@@ -46,7 +46,13 @@ def _attach_pages(chunks: list[ChunkResult], pages: tuple[PageSpan, ...]) -> lis
             page_numbers=tuple(
                 page.number
                 for page in pages
-                if page.start < chunk.end_char and chunk.start_char < page.end
+                if (page.start < chunk.end_char and chunk.start_char < page.end)
+                or (
+                    chunk.table_header_start is not None
+                    and chunk.table_header_end is not None
+                    and page.start < chunk.table_header_end
+                    and chunk.table_header_start < page.end
+                )
             ),
         )
         for chunk in chunks
@@ -188,7 +194,17 @@ class IngestionService:
 
             # 5. Enrich metadata via Gemini (best-effort)
             safe_chunk_contents = [
-                get_pii_masker().mask(chunk.content).masked_text for chunk in chunk_results
+                get_pii_masker()
+                .mask(
+                    (
+                        "En-tête du tableau :\n" + chunk.table_header + "\n"
+                        if chunk.table_header
+                        else ""
+                    )
+                    + chunk.content
+                )
+                .masked_text
+                for chunk in chunk_results
             ]
             metadata_list = await self._enrich_metadata(
                 safe_chunk_contents,
@@ -702,6 +718,9 @@ class IngestionService:
                     "end_char": chunk.end_char,
                     "section_path": list(chunk.section_path),
                     "page_numbers": list(chunk.page_numbers),
+                    "table_header": chunk.table_header,
+                    "table_header_start": chunk.table_header_start,
+                    "table_header_end": chunk.table_header_end,
                 }
                 db_chunk = KBChunk(
                     document_id=document_id,

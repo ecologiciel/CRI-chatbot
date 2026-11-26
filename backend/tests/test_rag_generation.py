@@ -463,3 +463,23 @@ def test_public_source_only_renders_safe_web_urls():
     ):
         assert PublicSource(url=url).url is None
     assert PublicSource(url=None).url is None
+
+
+def test_table_context_is_masked_and_identified_separately():
+    from app.schemas.rag import RetrievedChunk
+    from app.services.rag.generation import GenerationService
+    from app.services.rag.prompts import PromptTemplates
+
+    chunk = RetrievedChunk(
+        chunk_id="1",
+        document_id="1",
+        content="| Valeur |",
+        score=0.9,
+        metadata={"title": "Tableau", "table_header": "| Contact test@example.com |"},
+    )
+    safe = object.__new__(GenerationService)._anonymize_chunks([chunk])
+    prompt = PromptTemplates.build_context(safe, [], "Question")
+    assert "test@example.com" not in prompt
+    assert "En-tête du tableau, extrait de la même source" in prompt
+    assert "| Valeur |" in prompt
+    assert chunk.metadata["table_header"] == "| Contact test@example.com |"

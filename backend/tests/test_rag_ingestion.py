@@ -430,3 +430,16 @@ class TestEnrichMetadata:
 
         assert len(result) == 1
         assert result[0] == {}
+
+
+def test_table_header_pages_are_included_in_provenance():
+    from app.schemas.rag import ChunkResult
+    from app.services.rag.extractors import PageSpan
+
+    chunk = ChunkResult(
+        "row", 0, 1, 20, 23, table_header="header", table_header_start=0, table_header_end=6
+    )
+    pages = (PageSpan(1, 0, 10), PageSpan(2, 10, 30))
+    annotated = _attach_pages([chunk], pages)[0]
+    assert annotated.page_numbers == (1, 2)
+    assert annotated.table_header == "header"

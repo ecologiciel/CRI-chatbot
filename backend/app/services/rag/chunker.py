@@ -108,6 +108,41 @@ class ChunkingService:
                 details={"text_length": len(text)},
             ) from exc
 
+    @staticmethod
+    def _markdown_tables(text: str) -> list[tuple[int, int, int, str]]:
+        """Find explicit Markdown tables outside fenced code, with source offsets."""
+        lines = text.splitlines(keepends=True)
+        offsets: list[int] = []
+        offset = 0
+        for line in lines:
+            offsets.append(offset)
+            offset += len(line)
+        tables: list[tuple[int, int, int, str]] = []
+        separator = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+        fence: str | None = None
+        i = 0
+        while i + 1 < len(lines):
+            marker = re.match(r"^\s{0,3}(`{3,}|~{3,})", lines[i])
+            if marker:
+                if fence is None:
+                    fence = marker.group(1)[0]
+                elif marker.group(1)[0] == fence:
+                    fence = None
+                i += 1
+                continue
+            if fence is None and "|" in lines[i] and separator.fullmatch(lines[i + 1].strip()):
+                start = offsets[i]
+                header_end = offsets[i + 1] + len(lines[i + 1])
+                j = i + 2
+                while j < len(lines) and "|" in lines[j] and lines[j].strip():
+                    j += 1
+                end = offsets[j] if j < len(lines) else len(text)
+                tables.append((start, header_end, end, text[start:header_end]))
+                i = j
+            else:
+                i += 1
+        return tables
+
     def _chunk_exact(self, text: str, target: int) -> list[ChunkResult]:
         """Return exact source slices, preferring paragraph and sentence boundaries."""
         chunks: list[ChunkResult] = []
@@ -139,6 +174,7 @@ class ChunkingService:
                     if article:
                         headings.append((offset, (*path, line.strip())))
             offset += len(line)
+        tables = self._markdown_tables(text)
         start = 0
         length = len(text)
         while start < length:
@@ -161,11 +197,21 @@ class ChunkingService:
                 if end == start:
                     raise ChunkingError(message="Cannot split text within token limit")
 
-            # If the whole section fits, preserve it before considering a
-            # paragraph or sentence boundary inside the section.
+            # Keep tables separate from prose and prefer whole rows.
+            table = next((item for item in tables if item[0] <= start < item[2]), None)
+            next_table = next((item[0] for item in tables if start < item[0] <= end), None)
             next_heading = next((pos for pos, _ in headings if start < pos <= end), None)
-            if next_heading is not None:
-                end = next_heading
+            boundary = min(
+                (pos for pos in (next_heading, next_table) if pos is not None), default=None
+            )
+            if table is not None:
+                end = min(end, table[2])
+                if end < table[2]:
+                    newline = text.rfind("\n", start, end)
+                    if newline >= start:
+                        end = newline + 1
+            elif boundary is not None:
+                end = boundary
             elif end < length:
                 prefix = text[start:end]
                 paragraphs = list(re.finditer(r"\n\s*\n", prefix))
@@ -176,13 +222,35 @@ class ChunkingService:
                         break
             section = next((p for pos, p in reversed(headings) if pos <= start), ())
             content = text[start:end]
+            header = None
+            header_start = None
+            header_end = None
+            if table is not None and start >= table[1]:
+                candidate = table[3]
+                # Additional context must fit the hard token budget.
+                if (
+                    self.count_tokens(candidate) <= target // 4
+                    and self.count_tokens("En-tête du tableau :\n" + candidate + "\n" + content)
+                    <= self._max_chunk_size
+                ):
+                    header, header_start, header_end = candidate, table[0], table[1]
             chunks.append(
-                ChunkResult(content, len(chunks), self.count_tokens(content), start, end, section)
+                ChunkResult(
+                    content,
+                    len(chunks),
+                    self.count_tokens(content),
+                    start,
+                    end,
+                    section,
+                    table_header=header,
+                    table_header_start=header_start,
+                    table_header_end=header_end,
+                )
             )
             if end == length:
                 break
             next_start = end
-            if self._overlap and next_heading is None:
+            if self._overlap and table is None and boundary is None:
                 # Walk backwards by words while respecting the overlap budget.
                 for match in reversed(list(re.finditer(r"\S+\s*", content))):
                     candidate = start + match.start()

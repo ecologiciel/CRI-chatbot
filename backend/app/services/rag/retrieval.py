@@ -380,6 +380,9 @@ class RetrievalService:
                             "end_char": payload.get("end_char"),
                             "section_path": payload.get("section_path", []),
                             "page_numbers": payload.get("page_numbers", []),
+                            # Context must come from the authoritative DB,
+                            # not from an untrusted or stale vector payload.
+                            "table_header": source.get("table_header"),
                         },
                     )
                 )

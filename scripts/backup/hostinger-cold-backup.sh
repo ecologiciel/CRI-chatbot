@@ -74,6 +74,18 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' INT TERM
 
+# Compose refers to this bind-mounted configuration outside the data volumes.
+# Preserve it in the encrypted archive; signatures can be downloaded again.
+antivirus_config="$DEPLOY_DIR/docker/clamav/clamd.conf"
+if grep -Eq '^[[:space:]]*antivirus:[[:space:]]*$' "$DEPLOY_DIR/docker-compose.hostinger.yml"; then
+    [[ -f "$antivirus_config" && ! -L "$antivirus_config" && -r "$antivirus_config" ]] || {
+        echo "Antivirus configuration is missing or unreadable; refusing an incomplete backup." >&2
+        exit 1
+    }
+    mkdir -m 700 -p "$workdir/metadata/runtime/docker/clamav"
+    cp -- "$antivirus_config" "$workdir/metadata/runtime/docker/clamav/clamd.conf"
+fi
+
 export GNUPGHOME="$keydir"
 if ! gpg --batch --import "$RECIPIENT" >/dev/null 2>&1; then
     echo "Could not import the public backup key." >&2

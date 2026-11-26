@@ -52,6 +52,8 @@ volumes:
 YAML
 printf 'services: {}\n' > "$fixture/docker-compose.hostinger.local.yml"
 printf 'SECRET=fixture-only\n' > "$fixture/.env.demo"
+mkdir -p "$fixture/docker/clamav"
+printf 'TCPSocket 3310\n' > "$fixture/docker/clamav/clamd.conf"
 git -C "$fixture" init -q
 git -C "$fixture" -c user.name=Fixture -c user.email=fixture@example.com -c commit.gpgsign=false commit --allow-empty -qm fixture
 mkdir -m 700 "$fixture/keys" "$fixture/backups" "$fixture/extracted"
@@ -81,6 +83,24 @@ grep -Fxq qdrant-fixture "$fixture/extracted/qdrant/marker"
 grep -Fxq SECRET=fixture-only "$fixture/extracted/env.demo"
 test -f "$fixture/extracted/metadata/manifest.txt"
 [[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
+
+# A production-like antivirus bind mount must be captured inside encryption.
+# Disabling its Docker service for this synthetic test keeps the fixture small.
+sed -i '/^services:/a\  antivirus:\n    image: redis:7-alpine\n    entrypoint: [sleep, "600"]' "$fixture/docker-compose.hostinger.yml"
+"${compose[@]}" up -d antivirus >/dev/null
+DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"
+archive_with_av=$(find "$fixture/backups" -maxdepth 1 -name '*.tar.gz.gpg' -type f ! -samefile "$archive" -print)
+[[ -n "$archive_with_av" && $(printf '%s\n' "$archive_with_av" | wc -l) -eq 1 ]]
+gpg --batch --pinentry-mode loopback --passphrase '' --decrypt "$archive_with_av" | tar -xzf - -C "$fixture/extracted"
+grep -Fxq 'TCPSocket 3310' "$fixture/extracted/metadata/runtime/docker/clamav/clamd.conf"
+mv "$fixture/docker/clamav/clamd.conf" "$fixture/docker/clamav/clamd.conf.saved"
+if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"; then
+    echo 'Backup without required antivirus configuration was unexpectedly accepted' >&2
+    exit 1
+fi
+mv "$fixture/docker/clamav/clamd.conf.saved" "$fixture/docker/clamav/clamd.conf"
+"${compose[@]}" stop antivirus >/dev/null
+sed -i '/^  antivirus:$/,+2d' "$fixture/docker-compose.hostinger.yml"
 
 # Concurrent archives could otherwise restart writers in the middle of a
 # second capture. The second process must fail before stopping anything.

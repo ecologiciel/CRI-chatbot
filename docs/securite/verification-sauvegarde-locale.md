@@ -12,6 +12,15 @@ La commande `scripts/backup/test-local-real-restore.sh` exige les variables `BAC
 
 Sur cet ordinateur, la phrase de passe est protégée par DPAPI pour le compte Windows actuel. La copie du dossier sans ce compte ou sans une procédure de récupération portable peut être inutilisable ailleurs. Conserver une seconde copie indépendante ainsi qu’un moyen de récupération séparé et testé ; la sauvegarde n’est pas encore planifiée automatiquement.
 
+Les sauvegardes créées avec la version qui inclut l'antivirus conservent sa
+configuration sous `metadata/runtime/docker/clamav/clamd.conf` dans l'archive
+chiffrée. Pour restaurer la configuration Compose, recopier ce fichier vers
+`docker/clamav/clamd.conf` dans le répertoire de déploiement avant de démarrer
+les services. Les signatures antivirus ne sont pas sauvegardées : leur
+téléchargement et leur fraîcheur doivent être vérifiés après restauration. Les
+archives plus anciennes ne contiennent pas ce fichier et nécessitent la
+configuration correspondant à leur version du dépôt.
+
 ## Copie actualisée
 
 La capture du 25 novembre à 23 h 54 UTC a également été transférée, contrôlée et restaurée en local le 26 novembre. Les services restaurés sont sains, les six documents ONSSA indexés sont présents, et un objet MinIO et son point Qdrant ont été vérifiés sur un échantillon. L’archive s’appelle `donnees-hostinger-20261125T235444Z.tar.gz.gpg` ; choisir ce nom avec `BACKUP_ARCHIVE_NAME` pour la contrôler. Les deux archives restent sur le même ordinateur et partagent le même trousseau : une copie indépendante et une récupération portable restent nécessaires.

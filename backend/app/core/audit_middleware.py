@@ -154,13 +154,21 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
             # Resource info from path
             resource_type = _extract_resource_type(path)
-            resource_id = _extract_resource_id(path)
+            resource_id = getattr(request.state, "audit_resource_id", None) or _extract_resource_id(
+                path
+            )
 
             # Action — override for auth endpoints
             if "/auth/login" in path:
                 action = "login"
             elif "/auth/logout" in path:
                 action = "logout"
+            elif (
+                path.startswith("/api/v1/kb/documents/")
+                and path.endswith("/validate")
+                and request.method == "POST"
+            ):
+                action = "validate"
             else:
                 action = _METHOD_ACTION_MAP.get(request.method, request.method.lower())
 
@@ -173,6 +181,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 resource_id=resource_id,
                 ip_address=request.client.host if request.client else None,
                 user_agent=(request.headers.get("user-agent") or "")[:512] or None,
+                details={"http_status": response.status_code},
             )
 
             # Fire-and-forget — do not await, do not block the response

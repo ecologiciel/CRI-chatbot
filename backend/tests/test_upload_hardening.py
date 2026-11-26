@@ -27,7 +27,7 @@ async def test_kb_upload_reads_only_limit_plus_one():
     settings = MagicMock(kb_max_file_size_bytes=8, kb_max_file_size_mb=1)
     with patch("app.api.v1.kb.get_settings", return_value=settings):
         with pytest.raises(ValidationError, match="too large"):
-            await upload_document(file=file, title="Guide")
+            await upload_document(request=MagicMock(), file=file, title="Guide")
     file.read.assert_awaited_once_with(9)
 
 

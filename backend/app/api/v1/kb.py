@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime
 from pathlib import PurePosixPath
 
 import structlog
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import selectinload
@@ -95,6 +95,7 @@ async def _enqueue_ingestion(tenant: TenantContext, document_id: uuid.UUID, task
 
 @router.post("/documents", status_code=202, response_model=KBDocumentResponse)
 async def upload_document(
+    request: Request,
     file: UploadFile,
     title: str = Form(..., min_length=1, max_length=500),
     category: str | None = Form(default=None, max_length=100),
@@ -189,7 +190,10 @@ async def upload_document(
         await session.refresh(doc)
         response = KBDocumentResponse.model_validate(doc)
 
-    logger.info("document_uploaded", tenant=tenant.slug, document_id=str(doc_id), admin_id=admin.sub)
+    request.state.audit_resource_id = str(doc_id)
+    logger.info(
+        "document_uploaded", tenant=tenant.slug, document_id=str(doc_id), admin_id=admin.sub
+    )
     return response
 
 

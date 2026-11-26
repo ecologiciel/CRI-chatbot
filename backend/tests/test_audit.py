@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from fastapi import Request
 
 # ---------------------------------------------------------------------------
 # 1. Model imports and structure
@@ -261,6 +262,66 @@ class TestAuditMiddleware:
         assert _METHOD_ACTION_MAP["PUT"] == "update"
         assert _METHOD_ACTION_MAP["PATCH"] == "update"
         assert _METHOD_ACTION_MAP["DELETE"] == "delete"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [202, 403])
+    async def test_document_validation_records_outcome(self, status):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from fastapi import FastAPI, Response
+        from httpx import ASGITransport, AsyncClient
+
+        from app.core.audit_middleware import AuditMiddleware
+
+        application = FastAPI()
+        application.add_middleware(AuditMiddleware)
+        document_id = str(uuid.uuid4())
+
+        @application.post("/api/v1/kb/documents/{document_id}/validate")
+        async def validate(document_id: str):
+            return Response(status_code=status)
+
+        with patch("app.core.audit_middleware._fire_audit", new_callable=AsyncMock) as audit:
+            async with AsyncClient(
+                transport=ASGITransport(app=application), base_url="http://test"
+            ) as client:
+                await client.post(f"/api/v1/kb/documents/{document_id}/validate")
+                await asyncio.sleep(0)
+            entry = audit.await_args.args[0]
+        assert entry.action == "validate"
+        assert entry.resource_id == document_id
+        assert entry.details == {"http_status": status}
+
+    @pytest.mark.asyncio
+    async def test_upload_audit_records_created_document_id(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from fastapi import FastAPI, Response
+        from httpx import ASGITransport, AsyncClient
+
+        from app.core.audit_middleware import AuditMiddleware
+
+        application = FastAPI()
+        application.add_middleware(AuditMiddleware)
+        document_id = str(uuid.uuid4())
+
+        @application.post("/api/v1/kb/documents")
+        async def upload(request: Request):
+            request.state.audit_resource_id = document_id
+            return Response(status_code=202)
+
+        with patch("app.core.audit_middleware._fire_audit", new_callable=AsyncMock) as audit:
+            async with AsyncClient(
+                transport=ASGITransport(app=application), base_url="http://test"
+            ) as client:
+                await client.post("/api/v1/kb/documents")
+                await asyncio.sleep(0)
+            entry = audit.await_args.args[0]
+        assert entry.action == "create"
+        assert entry.resource_id == document_id
+        assert entry.details == {"http_status": 202}
 
 
 # ---------------------------------------------------------------------------

@@ -112,7 +112,7 @@ async def test_upload_refuses_before_storage(failure, status):
         patch("app.api.v1.kb.get_minio") as minio,
         pytest.raises(HTTPException) as error,
     ):
-        await upload_document(file=file, title="Guide", tenant=tenant)
+        await upload_document(request=MagicMock(), file=file, title="Guide", tenant=tenant)
     assert error.value.status_code == status
     tenant.db_session.assert_not_called()
     minio.assert_not_called()

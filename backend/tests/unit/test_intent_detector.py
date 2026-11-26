@@ -1,6 +1,6 @@
 """Unit tests for IntentDetector — language detection, guard, intent classification."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -32,15 +32,17 @@ def _make_detector(
     )
 
     mock_guard = AsyncMock()
-    mock_guard.check = AsyncMock(
-        return_value=guard_result
-        or InputGuardResult(
-            is_safe=True,
-            action="allow",
-            reason="All checks passed",
-            category="safe",
-        ),
+    accepted = InputGuardResult(
+        is_safe=True,
+        action="allow",
+        reason="All checks passed",
+        category="safe",
     )
+    mock_guard.check = AsyncMock(return_value=guard_result or accepted)
+    mock_guard.check_local = MagicMock(
+        return_value=guard_result if guard_result and guard_result.category != "off_topic" else None
+    )
+    mock_guard.check_topic_after_local = AsyncMock(return_value=guard_result or accepted)
 
     return IntentDetector(
         gemini=mock_gemini,

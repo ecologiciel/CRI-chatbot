@@ -1,5 +1,6 @@
 """Tests for IntentDetector, InputGuardService, and Router."""
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -184,6 +185,116 @@ class TestIntentDetector:
         assert result["intent"] == "faq"
         assert result["is_safe"] is True
         assert result["language"] == "fr"
+
+    @pytest.mark.asyncio
+    async def test_topic_and_intent_run_concurrently_after_local_checks(
+        self, intent_detector, input_guard, mock_gemini
+    ):
+        topic_started = asyncio.Event()
+        intent_started = asyncio.Event()
+
+        async def topic(*_args):
+            topic_started.set()
+            await intent_started.wait()
+            return None
+
+        async def classify(*_args):
+            intent_started.set()
+            await topic_started.wait()
+            return "faq"
+
+        input_guard._check_topic = AsyncMock(side_effect=topic)
+        mock_gemini.classify_intent.side_effect = classify
+        result = await asyncio.wait_for(
+            intent_detector.detect(
+                _make_state(query="Quels sont les services disponibles ?"), TEST_TENANT
+            ),
+            timeout=2,
+        )
+        assert result["is_safe"] is True
+        assert result["intent"] == "faq"
+
+    @pytest.mark.asyncio
+    async def test_off_topic_blocks_and_cancels_speculative_intent(
+        self, intent_detector, input_guard, mock_gemini
+    ):
+        from app.services.guardrails.input_guard import InputGuardResult
+
+        intent_started = asyncio.Event()
+        intent_cancelled = asyncio.Event()
+
+        async def classify(*_args):
+            intent_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                intent_cancelled.set()
+
+        async def topic(*_args):
+            await intent_started.wait()
+            return InputGuardResult(False, "warn", "off topic", "off_topic")
+
+        input_guard._check_topic = AsyncMock(side_effect=topic)
+        mock_gemini.classify_intent.side_effect = classify
+        result = await asyncio.wait_for(
+            intent_detector.detect(_make_state(query="Quel est le score du match ?"), TEST_TENANT),
+            timeout=2,
+        )
+        assert result["is_safe"] is False
+        assert result["intent"] == "hors_perimetre"
+        assert intent_cancelled.is_set()
+
+    @pytest.mark.asyncio
+    async def test_cancellation_cleans_up_speculative_classification(
+        self, intent_detector, input_guard, mock_gemini
+    ):
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def classify(*_args):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        async def topic(*_args):
+            await asyncio.Event().wait()
+
+        input_guard._check_topic = AsyncMock(side_effect=topic)
+        mock_gemini.classify_intent.side_effect = classify
+        task = asyncio.create_task(
+            intent_detector.detect(_make_state(query="Quels sont les services ?"), TEST_TENANT)
+        )
+        await asyncio.wait_for(started.wait(), timeout=2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert cancelled.is_set()
+
+    @pytest.mark.asyncio
+    async def test_off_topic_verdict_wins_even_if_speculative_classifier_fails(
+        self, intent_detector, input_guard, mock_gemini
+    ):
+        from app.services.guardrails.input_guard import InputGuardResult
+
+        attempted = asyncio.Event()
+
+        async def classify(*_args):
+            attempted.set()
+            raise RuntimeError("provider failure")
+
+        async def topic(*_args):
+            await attempted.wait()
+            return InputGuardResult(False, "warn", "off topic", "off_topic")
+
+        input_guard._check_topic = AsyncMock(side_effect=topic)
+        mock_gemini.classify_intent.side_effect = classify
+        result = await intent_detector.detect(
+            _make_state(query="Quel est le score du match ?"), TEST_TENANT
+        )
+        assert result["is_safe"] is False
+        assert result["intent"] == "hors_perimetre"
 
     @pytest.mark.asyncio
     async def test_detect_incitations(self, intent_detector, mock_gemini):

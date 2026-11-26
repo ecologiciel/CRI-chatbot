@@ -174,6 +174,20 @@ class InputGuardService:
         Returns:
             InputGuardResult with safety verdict and reason.
         """
+        local_result = self.check_local(text, tenant)
+        if local_result is not None:
+            return local_result
+
+        if not local_only:
+            return await self.check_topic_after_local(text.strip(), tenant, language)
+
+        GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result="allow").inc()
+        return InputGuardResult(
+            is_safe=True, action="allow", reason="Local checks passed", category="safe"
+        )
+
+    def check_local(self, text: str, tenant: TenantContext) -> InputGuardResult | None:
+        """Run local checks before any speculative provider call."""
         if not text or not text.strip():
             GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result="allow").inc()
             return InputGuardResult(
@@ -208,8 +222,13 @@ class InputGuardService:
             )
             return injection_result
 
-        # 3. Topic classification via Gemini (~20 tokens)
-        topic_result = None if local_only else await self._check_topic(stripped, tenant, language)
+        return None
+
+    async def check_topic_after_local(
+        self, text: str, tenant: TenantContext, language: str
+    ) -> InputGuardResult:
+        """Run topic classification after the caller has passed local checks."""
+        topic_result = await self._check_topic(text, tenant, language)
         if topic_result is not None:
             GUARDRAIL_INPUT_CHECKS.labels(tenant=tenant.slug, result=topic_result.action).inc()
             self._logger.info(

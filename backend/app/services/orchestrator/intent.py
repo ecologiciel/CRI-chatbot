@@ -9,6 +9,7 @@ Blocked messages skip Gemini entirely (cost saving + security).
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 import structlog
@@ -122,11 +123,33 @@ class IntentDetector:
             lang_result = await self._language.detect(query, tenant)
         updates["language"] = lang_result.language.value
 
-        # Step 2: Input guardrails
-        guard_kwargs = {"local_only": True} if tracking_active else {}
-        guard_result = await self._guard.check(
-            query, tenant=tenant, language=lang_result.language.value, **guard_kwargs
-        )
+        # For ordinary questions, run the two independent provider checks in
+        # parallel only after local length and injection checks have passed.
+        # An off-topic verdict always wins, and the speculative task is
+        # cancelled when it is no longer needed.
+        quick = None if tracking_active else quick_intent_detect(query)
+        intent_raw: str | None = None
+        if not tracking_active and quick is None:
+            local_result = self._guard.check_local(query, tenant)
+            if local_result is None:
+                intent_task = asyncio.create_task(self._gemini.classify_intent(query, tenant))
+                try:
+                    guard_result = await self._guard.check_topic_after_local(
+                        query.strip(), tenant, lang_result.language.value
+                    )
+                    if guard_result.is_safe:
+                        intent_raw = await intent_task
+                finally:
+                    if not intent_task.done():
+                        intent_task.cancel()
+                    await asyncio.gather(intent_task, return_exceptions=True)
+            else:
+                guard_result = local_result
+        else:
+            guard_kwargs = {"local_only": True} if tracking_active else {}
+            guard_result = await self._guard.check(
+                query, tenant=tenant, language=lang_result.language.value, **guard_kwargs
+            )
 
         if not guard_result.is_safe:
             updates["is_safe"] = False
@@ -157,7 +180,6 @@ class IntentDetector:
             return updates  # type: ignore[return-value]
 
         # Step 2.6: Quick heuristic (save ~50 Gemini tokens)
-        quick = quick_intent_detect(query)
         if quick:
             updates["intent"] = quick
             self._logger.info(
@@ -168,7 +190,8 @@ class IntentDetector:
             return updates  # type: ignore[return-value]
 
         # Step 3: Classify intent via Gemini (~50 tokens)
-        intent_raw = await self._gemini.classify_intent(query, tenant)
+        if intent_raw is None:
+            intent_raw = await self._gemini.classify_intent(query, tenant)
         intent = intent_raw.strip().lower()
 
         # Validate against known intents, fallback to FAQ

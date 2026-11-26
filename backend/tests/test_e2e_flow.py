@@ -307,6 +307,105 @@ class TestHappyPath:
         assert outbound.kwargs["whatsapp_message_id"] is None
         mocks["session_mgr"].increment_quota.assert_not_awaited()
 
+    @pytest.mark.asyncio()
+    async def test_durable_mode_reports_provider_acceptance_and_skips_redis_dedup(
+        self, handler_env
+    ):
+        from app.services.whatsapp.handler import HandlingOutcome
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.accepted
+        tracking = AsyncMock()
+        tracking.get_state.return_value = MagicMock(step=MagicMock(value="idle"))
+        with (
+            patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()),
+            patch(
+                "app.services.orchestrator.tracking_state.TrackingStateManager",
+                return_value=tracking,
+            ),
+        ):
+            outcome = await handler.handle_message(
+                TEST_TENANT, _make_text_message(), None, durable=True
+            )
+        assert outcome == HandlingOutcome.accepted
+        mocks["session_mgr"].is_duplicate_message.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_durable_failure_never_sends_an_extra_error_response(self, handler_env):
+        from app.services.whatsapp.handler import HandlingOutcome
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.accepted
+        mocks["sender"].send_text.side_effect = TimeoutError("ambiguous outcome")
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()):
+            outcome = await handler.handle_message(
+                TEST_TENANT, _make_text_message(), None, durable=True
+            )
+        assert outcome == HandlingOutcome.uncertain
+        mocks["sender"].send_text.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    async def test_durable_failure_before_response_does_not_send_fallback(self, handler_env):
+        from app.services.whatsapp.handler import HandlingOutcome
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        mocks["contact_svc"].get_or_create.side_effect = RuntimeError("db unavailable")
+        outcome = await handler.handle_message(
+            TEST_TENANT, _make_text_message(), None, durable=True
+        )
+        assert outcome == HandlingOutcome.uncertain
+        mocks["sender"].send_text.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_durable_pending_privacy_notice_requires_review(self, handler_env):
+        from app.services.whatsapp.handler import HandlingOutcome
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.pending
+        tracking = AsyncMock()
+        tracking.get_state.return_value = MagicMock(step=MagicMock(value="idle"))
+        with (
+            patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()),
+            patch(
+                "app.services.orchestrator.tracking_state.TrackingStateManager",
+                return_value=tracking,
+            ),
+        ):
+            outcome = await handler.handle_message(
+                TEST_TENANT, _make_text_message(), None, durable=True
+            )
+        assert outcome == HandlingOutcome.uncertain
+
+    @pytest.mark.asyncio()
+    async def test_durable_stop_with_unconfirmed_opt_out_is_uncertain(self, handler_env):
+        from app.services.whatsapp.handler import HandlingOutcome
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.accepted
+        segmentation = AsyncMock()
+        segmentation.process_stop_command.return_value = False
+        with patch(
+            "app.services.whatsapp.handler.get_segmentation_service", return_value=segmentation
+        ):
+            outcome = await handler.handle_message(
+                TEST_TENANT, _make_text_message(body="STOP"), None, durable=True
+            )
+        assert outcome == HandlingOutcome.uncertain
+        mocks["sender"].send_text.assert_not_awaited()
+
 
 class TestMediaMessages:
     """Image and audio processing via WhatsAppMediaHandler."""

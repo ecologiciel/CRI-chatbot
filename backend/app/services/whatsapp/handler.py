@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import unicodedata
 import uuid
+from enum import Enum
 
 import structlog
 
@@ -34,7 +35,7 @@ from app.services.conversation.service import get_conversation_service
 from app.services.feedback.service import get_feedback_service
 from app.services.rag.prompts import PromptTemplates
 from app.services.whatsapp.media import WhatsAppMediaHandler
-from app.services.whatsapp.privacy import get_privacy_notice_service
+from app.services.whatsapp.privacy import NoticeResult, get_privacy_notice_service
 from app.services.whatsapp.sender import WhatsAppSenderService
 from app.services.whatsapp.session import WhatsAppSessionManager
 
@@ -59,6 +60,11 @@ FEEDBACK_ACK_KEYS: dict[FeedbackRating, str] = {
 }
 
 
+class HandlingOutcome(str, Enum):
+    accepted = "accepted"
+    uncertain = "uncertain"
+
+
 class MessageHandler:
     """End-to-end message processing: webhook → LangGraph → WhatsApp response."""
 
@@ -77,12 +83,15 @@ class MessageHandler:
         tenant: TenantContext,
         msg: IncomingMessage,
         contacts: list[ContactInfo] | None,
-    ) -> None:
+        *,
+        durable: bool = False,
+    ) -> HandlingOutcome:
         """Process a single inbound WhatsApp message end-to-end.
 
-        The webhook always returns 200 to Meta regardless of what happens
-        here. All errors are caught, logged, and a best-effort error message
-        is sent to the user.
+        The durable mode bypasses the legacy Redis deduplicator because its
+        caller must already hold a fenced database claim. It reports ambiguous
+        outcomes for operator review and never sends a second error message.
+        Provider acceptance is not a delivery receipt.
 
         Args:
             tenant: Resolved tenant context.
@@ -91,12 +100,13 @@ class MessageHandler:
         """
         phone = msg.from_
         wamid = msg.id
+        uncertain = False
 
         try:
             # 1. Dedup — already-processed messages are silently skipped
-            if await self._session_manager.is_duplicate_message(tenant, wamid):
+            if not durable and await self._session_manager.is_duplicate_message(tenant, wamid):
                 self._logger.debug("message_duplicate_skipped", wamid=wamid, tenant=tenant.slug)
-                return
+                return HandlingOutcome.uncertain
 
             # 2. Per-user rate limit (10 msg/min)
             if await self._check_user_rate_limit(tenant, phone):
@@ -106,23 +116,23 @@ class MessageHandler:
                     tenant=tenant.slug,
                     phone_last4=_mask_phone(phone),
                 )
-                await self._sender.send_text(
+                sent = await self._sender.send_text(
                     tenant,
                     phone,
                     PromptTemplates.get_message("rate_limit_user", "fr"),
                 )
-                return
+                return HandlingOutcome.accepted if sent else HandlingOutcome.uncertain
 
             # 3. Quota check
             quota = await self._session_manager.check_quota(tenant)
             if quota.is_exhausted:
                 self._logger.warning("tenant_quota_exhausted", tenant=tenant.slug)
-                await self._sender.send_text(
+                sent = await self._sender.send_text(
                     tenant,
                     phone,
                     PromptTemplates.get_message("quota_exhausted", "fr"),
                 )
-                return
+                return HandlingOutcome.accepted if sent else HandlingOutcome.uncertain
 
             # 4. Get or create contact
             sender_name = _extract_sender_name(contacts, phone)
@@ -133,12 +143,16 @@ class MessageHandler:
             )
 
             # 4.5 CNDP privacy notice — first contact (loi 09-08, Art. 9)
-            with contextlib.suppress(Exception):
-                await self._privacy_service.send_privacy_notice(
+            try:
+                notice = await self._privacy_service.send_privacy_notice(
                     tenant,
                     phone,
                     language=contact.language.value,
                 )
+                if durable and notice != NoticeResult.accepted:
+                    uncertain = True
+            except Exception:
+                uncertain = True
 
             # 5. Get or create conversation (30min inactivity timeout)
             conversation = await self._conversation_service.get_or_create(
@@ -161,21 +175,30 @@ class MessageHandler:
                         "ar": "تم إلغاء اشتراكك. لن تتلقى المزيد من الرسائل.",
                         "en": "You have been unsubscribed. You will no longer receive messages.",
                     }
-                    await self._sender.send_text(
+                    sent = await self._sender.send_text(
                         tenant,
                         phone,
                         stop_msgs.get(lang, stop_msgs["fr"]),
                     )
-                return
+                    if not sent:
+                        uncertain = True
+                elif durable:
+                    # False also means the contact was not found; do not
+                    # silently claim that the request was fulfilled.
+                    uncertain = True
+                return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
 
             # 7. Feedback routing — interactive buttons starting with "feedback_"
             if self._is_feedback_reply(msg):
                 await self._handle_feedback(tenant, msg, conversation.id, phone)
-                return
+                # The legacy feedback helper suppresses some failures; the
+                # durable worker must not treat that as confirmed processing.
+                return HandlingOutcome.uncertain
 
             if self._is_source_command(content):
                 await self._handle_source_command(tenant, conversation.id, phone, content, wamid)
-                return
+                # The legacy source helper does not report every delivery state.
+                return HandlingOutcome.uncertain
 
             # 8. Mark as read (blue ticks) — non-critical
             try:
@@ -204,6 +227,7 @@ class MessageHandler:
                 await self._session_manager.get_or_create_session(tenant, phone)
             except Exception:
                 self._logger.warning("session_update_failed", tenant=tenant.slug)
+                uncertain = True
 
             # 11. Get conversation history for LangGraph context
             try:
@@ -214,6 +238,7 @@ class MessageHandler:
                 )
             except Exception:
                 history = []
+                uncertain = True
 
             # 12. Run LangGraph orchestrator
             conv_metadata = conversation.metadata_ or {}
@@ -229,6 +254,7 @@ class MessageHandler:
                     tracking_state_str = ts.step.value
             except Exception:
                 self._logger.warning("tracking_state_prefetch_failed", tenant=tenant.slug)
+                uncertain = True
 
             from app.services.orchestrator.graph import run_conversation
 
@@ -241,19 +267,23 @@ class MessageHandler:
                 conversation_id=str(conversation.id),
                 tracking_state=tracking_state_str,
             )
+            if result.get("error"):
+                uncertain = True
 
             response_text = result.get("response", "")
             if not response_text:
                 response_text = PromptTemplates.get_message("no_answer", "fr")
+                uncertain = True
 
             # 13. Send response via WhatsApp
             out_wamid = None
             try:
                 out_wamid = await self._sender.send_text(tenant, phone, response_text)
             except Exception as send_err:
+                uncertain = True
                 self._logger.error(
                     "send_response_failed",
-                    error=str(send_err),
+                    error_type=type(send_err).__name__,
                     tenant=tenant.slug,
                 )
 
@@ -278,9 +308,10 @@ class MessageHandler:
                     },
                 )
             except Exception as persist_err:
+                uncertain = True
                 self._logger.error(
                     "persist_outbound_failed",
-                    error=str(persist_err),
+                    error_type=type(persist_err).__name__,
                     tenant=tenant.slug,
                 )
 
@@ -295,6 +326,7 @@ class MessageHandler:
                     await self._session_manager.increment_quota(tenant)
                 except Exception:
                     self._logger.warning("quota_increment_failed", tenant=tenant.slug)
+                    uncertain = True
 
             # 16. Update conversation metadata
             try:
@@ -309,6 +341,7 @@ class MessageHandler:
                 )
             except Exception:
                 self._logger.warning("metadata_update_failed", tenant=tenant.slug)
+                uncertain = True
 
             # 17. Update contact language if detected differs
             detected_lang = result.get("language")
@@ -321,7 +354,7 @@ class MessageHandler:
                         lang_enum,
                     )
                 except (ValueError, Exception):
-                    pass  # Unknown language value or DB error
+                    uncertain = True
 
             self._logger.info(
                 "message_processed_e2e",
@@ -331,21 +364,26 @@ class MessageHandler:
                 language=result.get("language"),
                 confidence=result.get("confidence"),
             )
+            if not out_wamid:
+                uncertain = True
+            return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
 
         except Exception as exc:
             self._logger.error(
                 "e2e_processing_failed",
-                error=str(exc),
+                error_type=type(exc).__name__,
                 tenant=tenant.slug,
                 phone_last4=_mask_phone(phone),
             )
             # Best-effort error message to user
-            with contextlib.suppress(Exception):
-                await self._sender.send_text(
-                    tenant,
-                    phone,
-                    PromptTemplates.get_message("error_generic", "fr"),
-                )
+            if not durable:
+                with contextlib.suppress(Exception):
+                    await self._sender.send_text(
+                        tenant,
+                        phone,
+                        PromptTemplates.get_message("error_generic", "fr"),
+                    )
+            return HandlingOutcome.uncertain
 
     # ── Content extraction ──
 

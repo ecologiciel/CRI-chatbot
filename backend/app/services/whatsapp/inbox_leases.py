@@ -22,6 +22,7 @@ class InboxClaim:
     id: uuid.UUID
     tenant_id: uuid.UUID
     phone_number_id: str
+    provider_message_id: str
     key_version: int
     ciphertext: str
     lease_token: uuid.UUID
@@ -59,6 +60,7 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
             WhatsAppInboxEvent.id,
             WhatsAppInboxEvent.tenant_id,
             WhatsAppInboxEvent.phone_number_id,
+            WhatsAppInboxEvent.provider_message_id,
             WhatsAppInboxEvent.key_version,
             WhatsAppInboxEvent.ciphertext,
             WhatsAppInboxEvent.lease_until,
@@ -73,6 +75,7 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
         id=row.id,
         tenant_id=row.tenant_id,
         phone_number_id=row.phone_number_id,
+        provider_message_id=row.provider_message_id,
         key_version=row.key_version,
         ciphertext=row.ciphertext,
         lease_token=token,

@@ -32,6 +32,17 @@ _REDIS_PATCH = "app.services.whatsapp.privacy.get_redis"
 _AUDIT_PATCH = "app.services.whatsapp.privacy.get_audit_service"
 
 
+def test_fallback_does_not_invent_institution_specific_commitments():
+    for text in PRIVACY_FALLBACK_TEXT.values():
+        assert "dpo@cri.ma" not in text.lower()
+        assert "09-08" not in text
+        assert "MES DONNÉES" not in text
+        assert "MY DATA" not in text
+    assert "hébergées au Maroc" not in PRIVACY_FALLBACK_TEXT["fr"]
+    assert "hosted in Morocco" not in PRIVACY_FALLBACK_TEXT["en"]
+    assert "مستضافة في المغرب" not in PRIVACY_FALLBACK_TEXT["ar"]
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 
@@ -327,7 +338,7 @@ class TestSendPrivacyNotice:
         mock_sender: AsyncMock,
         mock_audit: AsyncMock,
     ) -> None:
-        """Audit log contains all required CNDP fields."""
+        """Audit log records the send without claiming legal compliance."""
         with (
             patch(_REDIS_PATCH, return_value=mock_redis),
             patch(_AUDIT_PATCH, return_value=mock_audit),
@@ -341,8 +352,8 @@ class TestSendPrivacyNotice:
         assert data.action == "privacy_notice"
         assert data.resource_type == "contact"
         assert data.resource_id == TEST_PHONE
-        assert data.details["law"] == "09-08"
-        assert data.details["article"] == "9"
+        assert "law" not in data.details
+        assert "article" not in data.details
 
 
 # ── TestPipelineIntegration ──────────────────────────────────────────────────

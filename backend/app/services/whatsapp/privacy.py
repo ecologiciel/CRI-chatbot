@@ -1,4 +1,4 @@
-"""PrivacyNoticeService --- CNDP loi 09-08 Art. 9 compliance.
+"""PrivacyNoticeService — basic notice for WhatsApp contacts.
 
 Sends a one-time privacy notice to every new WhatsApp contact on their
 first message.  Uses Redis SET NX for atomic idempotency (same pattern
@@ -27,36 +27,20 @@ PRIVACY_TEMPLATE_NAME = "cndp_privacy_notice"
 
 PRIVACY_FALLBACK_TEXT: dict[str, str] = {
     "fr": (
-        "\U0001f512 *Protection de vos donn\u00e9es*\n\n"
-        "Conform\u00e9ment \u00e0 la loi 09-08 (Art. 9), vos donn\u00e9es "
-        "(t\u00e9l\u00e9phone, messages) sont trait\u00e9es pour l\u2019assistance "
-        "automatis\u00e9e aux investisseurs. Donn\u00e9es h\u00e9berg\u00e9es au Maroc.\n\n"
-        "Vos droits : envoyez *MES DONN\u00c9ES* pour consulter, "
-        "ou *STOP* pour vous d\u00e9sinscrire.\n\n"
-        "Plus d\u2019infos : dpo@cri.ma"
+        "Vos messages sont traités dans le cadre de ce service d’assistance automatisé. "
+        "Évitez de transmettre des données sensibles. Pour connaître les modalités de "
+        "traitement et exercer vos droits, consultez les informations de confidentialité "
+        "de l’institution."
     ),
     "ar": (
-        "\U0001f512 *\u062d\u0645\u0627\u064a\u0629 \u0628\u064a\u0627\u0646\u0627\u062a\u0643*\n\n"
-        "\u0648\u0641\u0642\u0627\u064b \u0644\u0644\u0642\u0627\u0646\u0648\u0646 09-08 "
-        "(\u0627\u0644\u0645\u0627\u062f\u0629 9)\u060c \u062a\u062a\u0645 "
-        "\u0645\u0639\u0627\u0644\u062c\u0629 \u0628\u064a\u0627\u0646\u0627\u062a\u0643\u0645 "
-        "(\u0627\u0644\u0647\u0627\u062a\u0641\u060c \u0627\u0644\u0631\u0633\u0627\u0626\u0644) "
-        "\u0644\u062e\u062f\u0645\u0629 \u0627\u0644\u0645\u0633\u0627\u0639\u062f\u0629 "
-        "\u0627\u0644\u0622\u0644\u064a\u0629 \u0644\u0644\u0645\u0633\u062a\u062b\u0645\u0631\u064a\u0646. "
-        "\u0628\u064a\u0627\u0646\u0627\u062a\u0643\u0645 \u0645\u0633\u062a\u0636\u0627\u0641\u0629 "
-        "\u0628\u0627\u0644\u0645\u063a\u0631\u0628.\n\n"
-        "\u062d\u0642\u0648\u0642\u0643\u0645: \u0623\u0631\u0633\u0644\u0648\u0627 "
-        "*\u0628\u064a\u0627\u0646\u0627\u062a\u064a* \u0644\u0644\u0627\u0637\u0644\u0627\u0639\u060c "
-        "\u0623\u0648 *\u062a\u0648\u0642\u0641* \u0644\u0625\u0644\u063a\u0627\u0621 "
-        "\u0627\u0644\u0627\u0634\u062a\u0631\u0627\u0643.\n\n"
-        "\u0644\u0644\u0645\u0632\u064a\u062f: dpo@cri.ma"
+        "تُعالج رسائلك في إطار خدمة المساعدة الآلية هذه. تجنّب إرسال بيانات حساسة. "
+        "للاطلاع على كيفية معالجة البيانات وممارسة حقوقك، راجع معلومات الخصوصية "
+        "الخاصة بالمؤسسة."
     ),
     "en": (
-        "\U0001f512 *Data Protection Notice*\n\n"
-        "Per Law 09-08 (Art. 9), your data (phone, messages) is processed "
-        "for automated investor assistance. Data hosted in Morocco.\n\n"
-        "Your rights: send *MY DATA* to access, or *STOP* to unsubscribe.\n\n"
-        "More info: dpo@cri.ma"
+        "Your messages are processed as part of this automated assistance service. "
+        "Avoid sending sensitive information. For details about processing and how "
+        "to exercise your rights, consult the institution’s privacy information."
     ),
 }
 
@@ -65,7 +49,7 @@ PRIVACY_FALLBACK_TEXT: dict[str, str] = {
 
 
 class PrivacyNoticeService:
-    """Sends a one-time CNDP privacy notice to new WhatsApp contacts."""
+    """Send a basic notice; institutional wording requires independent review."""
 
     def __init__(self) -> None:
         self._logger = logger.bind(service="privacy_notice")
@@ -136,8 +120,6 @@ class PrivacyNoticeService:
                     details={
                         "language": language,
                         "method": method,
-                        "law": "09-08",
-                        "article": "9",
                     },
                 ),
             )

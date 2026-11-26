@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import select, text, update
 
 from app.core.config import get_settings
+from app.api.v1.whatsapp_operations import list_events
 from app.core.database import Base, close_engine, get_engine, get_session_factory
 from app.core.exceptions import CRIDecryptionError, TenantInactiveError
 from app.core.tenant import TenantContext
@@ -214,6 +215,42 @@ async def main():
         assert isinstance(pending_id, uuid.UUID)
         counts = await run_status_batch(cipher=cipher)
         assert counts.get(expected) == 1
+    other_tenant_id = uuid.uuid4()
+    async with get_session_factory()() as session:
+        session.add(
+            Tenant(
+                id=other_tenant_id,
+                name="Other",
+                slug="syntheticb",
+                region="Test",
+                status=TenantStatus.active,
+                whatsapp_config={"phone_number_id": "456"},
+                public_config={},
+            )
+        )
+        await session.flush()
+        session.add(
+            WhatsAppStatusEvent(
+                tenant_id=other_tenant_id,
+                phone_number_id="456",
+                fingerprint="b" * 64,
+                ciphertext="synthetic",
+                key_version=1,
+                state="uncertain",
+            )
+        )
+        await session.commit()
+    operations = await list_events(
+        kind="status", state="uncertain", limit=50, tenant=tenant, _admin=None
+    )
+    assert len(operations["events"]) == 1
+    assert set(operations["events"][0]) == {
+        "id",
+        "state",
+        "attempts",
+        "created_at",
+        "updated_at",
+    }
     async with get_engine().connect() as conn:
         delivery = (
             await conn.execute(

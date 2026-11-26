@@ -33,6 +33,7 @@ from app.api.v1.public_chat import router as public_chat_router
 from app.api.v1.rag_evaluations import router as rag_evaluations_router
 from app.api.v1.tenant import router as tenant_router
 from app.api.v1.webhook import router as webhook_router
+from app.api.v1.whatsapp_operations import router as whatsapp_operations_router
 from app.api.v1.whitelist import router as whitelist_router
 from app.api.ws.escalation_ws import escalation_ws_endpoint
 from app.core.arq import close_arq_pool, init_arq_pool
@@ -194,6 +195,7 @@ def create_app() -> FastAPI:
     app.include_router(rag_evaluations_router, prefix="/api/v1")
     app.include_router(tenant_router, prefix="/api/v1")
     app.include_router(webhook_router, prefix="/api/v1")
+    app.include_router(whatsapp_operations_router, prefix="/api/v1")
     app.include_router(whitelist_router, prefix="/api/v1")
 
     # --- WebSocket routes ---

@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -77,6 +78,22 @@ def verify_backup(path: Path) -> None:
         raise ValueError("Invalid backup checksum record")
     if checksum(path) != expected[:64]:
         raise ValueError("Backup checksum does not match")
+    # This only verifies the OpenPGP packet structure, not decryptability or a
+    # successful restore; those must be checked independently on another host.
+    with tempfile.TemporaryDirectory(prefix="kms-backup-packets-") as keydir:
+        env = {**os.environ, "GNUPGHOME": keydir}
+        result = subprocess.run(
+            ["gpg", "--batch", "--no-options", "--list-packets", str(path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+            env=env,
+        )
+    if (
+        b":pubkey enc packet:" not in result.stdout
+        or b":encrypted data packet:" not in result.stdout
+    ):
+        raise ValueError("Backup does not contain expected encrypted OpenPGP packets")
 
 
 class RotationOperator:

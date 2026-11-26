@@ -17,6 +17,7 @@ cleanup() {
     trap - EXIT
     # Refuse to delete anything outside the freshly created fixture namespace.
     if [[ "$project" =~ ^test_codexkmsoperator[a-z0-9]+$ && "$fixture" == "$test_root"/codex-kms-operator.* ]]; then
+        docker rm -f "${project}-unmanaged-writer" >/dev/null 2>&1 || true
         "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || result=1
         rm -rf -- "$fixture"
     else
@@ -117,11 +118,32 @@ async def run():
 asyncio.run(run())
 PY
 
-# A synthetic file exercises backup selection and checksum checks only.
-printf 'synthetic fixture; no real secrets\n' > "$fixture/test.tar.gz.gpg"
+# Encrypt synthetic data with a disposable test key; no production key is used.
+mkdir -m 700 "$fixture/keys"
+export GNUPGHOME="$fixture/keys"
+gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'KMS Fixture <kms-fixture@example.com>' rsa2048 encr 1d >/dev/null 2>&1
+printf 'synthetic fixture; no real secrets\n' | gpg --batch --yes --trust-model always --recipient kms-fixture@example.com --encrypt --output "$fixture/test.tar.gz.gpg"
 (cd "$fixture" && sha256sum test.tar.gz.gpg > test.tar.gz.gpg.sha256)
 original_hash=$(printf '%s' "$master" | sha256sum | cut -d' ' -f1)
 unset master
+
+# An untracked container with a KMS key on the data network must block
+# maintenance before the real fixture writers are touched.
+docker run -d --name "${project}-unmanaged-writer" --network "$network" \
+    --env KMS_MASTER_KEY=synthetic-only --entrypoint python "$image" \
+    -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:sys.exit(0)); time.sleep(1800)' >/dev/null
+if timeout 90s python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" \
+    --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg" >/dev/null 2>&1; then
+    echo 'An unmanaged writer was unexpectedly accepted.' >&2
+    exit 1
+fi
+[[ ! -e "$fixture/.kms-maintenance" ]]
+for service in backend ingestion-worker learning-worker purge-worker; do
+    id=$("${compose[@]}" ps -aq "$service")
+    [[ $(docker inspect -f '{{.State.Running}}' "$id") == true ]]
+done
+docker rm -f "${project}-unmanaged-writer" >/dev/null
+echo 'Unmanaged KMS writer correctly blocked the rotation.'
 
 # Proxy only this test's Docker CLI, and kill the operator after a successful
 # database/configuration switch but before it can restart the writers.
@@ -150,6 +172,10 @@ for service in backend ingestion-worker learning-worker purge-worker; do
     [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == false/no ]]
 done
 echo 'Interrupted rotation kept all fixture writers stopped with restart disabled.'
+
+# Recovery also recreates a writer container lost after the crash.
+missing=$("${compose[@]}" ps -aq learning-worker)
+docker rm "$missing" >/dev/null
 
 timeout 180s python3 "$script_dir/kms_rotation_operator.py" recover --deployment-dir "$fixture" --project "$project" --network "$network"
 [[ ! -e "$fixture/.kms-maintenance" ]]

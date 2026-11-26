@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,7 +28,46 @@ def deployment(tmp_path):
     for name in (".env.demo", "docker-compose.hostinger.yml", "docker-compose.hostinger.local.yml"):
         (tmp_path / name).write_text("fixture", encoding="utf-8")
     backup = tmp_path / "backup.tar.gz.gpg"
-    backup.write_bytes(b"encrypted fixture")
+    keydir = tmp_path / "keys"
+    keydir.mkdir(mode=0o700)
+    env = {**os.environ, "GNUPGHOME": str(keydir)}
+    subprocess.run(
+        [
+            "gpg",
+            "--batch",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase",
+            "",
+            "--quick-generate-key",
+            "Fixture <fixture@example.com>",
+            "rsa2048",
+            "encr",
+            "1d",
+        ],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=True,
+    )
+    subprocess.run(
+        [
+            "gpg",
+            "--batch",
+            "--trust-model",
+            "always",
+            "--recipient",
+            "fixture@example.com",
+            "--encrypt",
+            "--output",
+            str(backup),
+        ],
+        input=b"synthetic data",
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=True,
+    )
     digest = hashlib.sha256(backup.read_bytes()).hexdigest()
     backup.with_name(backup.name + ".sha256").write_text(f"{digest}  {backup.name}\n")
     return tmp_path, backup
@@ -36,6 +76,7 @@ def deployment(tmp_path):
 def test_backup_rejects_missing_bad_stale_or_symlink(operator_module, deployment, tmp_path):
     _, backup = deployment
     operator_module.verify_backup(backup)
+    original = backup.read_bytes()
     backup.write_bytes(b"tampered")
     with pytest.raises(ValueError):
         operator_module.verify_backup(backup)
@@ -43,14 +84,19 @@ def test_backup_rejects_missing_bad_stale_or_symlink(operator_module, deployment
     with pytest.raises(ValueError):
         operator_module.verify_backup(backup)
     target = tmp_path / "other"
-    target.write_bytes(b"encrypted fixture")
+    target.write_bytes(original)
     backup.symlink_to(target)
     with pytest.raises(ValueError):
         operator_module.verify_backup(backup)
     backup.unlink()
-    backup.write_bytes(b"encrypted fixture")
+    backup.write_bytes(original)
     os.utime(backup, (1, 1))
     with pytest.raises(ValueError):
+        operator_module.verify_backup(backup)
+    backup.write_bytes(b"not an encrypted archive")
+    digest = hashlib.sha256(backup.read_bytes()).hexdigest()
+    backup.with_name(backup.name + ".sha256").write_text(f"{digest}  {backup.name}\n")
+    with pytest.raises(ValueError, match="OpenPGP"):
         operator_module.verify_backup(backup)
 
 

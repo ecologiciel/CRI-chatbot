@@ -136,6 +136,18 @@ async def test_embed_single(embedding_service, mock_redis):
 
 
 @pytest.mark.asyncio
+async def test_embedding_provider_masks_known_patterns(embedding_service, mock_redis):
+    service, mock_client = embedding_service
+    mock_client.aio.models.embed_content = AsyncMock(return_value=_make_mock_embed_response(1))
+
+    await service.embed_single("Contact test.person@example.com et CIN AB123456", TEST_TENANT)
+
+    sent = mock_client.aio.models.embed_content.await_args.kwargs["contents"][0]
+    assert "test.person@example.com" not in sent
+    assert "AB123456" not in sent
+
+
+@pytest.mark.asyncio
 async def test_embed_batch_auto_splits(small_batch_service, mock_redis):
     """With batch_size=2, 5 texts should produce 3 API calls (2+2+1)."""
     service, mock_client = small_batch_service

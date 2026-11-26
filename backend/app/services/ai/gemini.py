@@ -188,11 +188,23 @@ class GeminiService:
     ) -> GeminiResponse:
         """Internal method with tenacity retry. Raises raw SDK exceptions."""
         output_limit = request.max_output_tokens or self._max_output_tokens
+        # Apply the pattern-based mask at the provider boundary as a final
+        # safeguard, including calls that do not go through RAG generation.
+        # Pattern matching is not complete anonymisation.
+        from app.services.guardrails.pii_masker import get_pii_masker
+
+        masker = get_pii_masker()
+        safe_contents = masker.mask(request.contents).masked_text
+        safe_instruction = (
+            masker.mask(request.system_instruction).masked_text
+            if request.system_instruction is not None
+            else None
+        )
         # Gemini 3 Flash Preview defaults to high thinking, which can consume
         # a small classification budget without leaving any answer tokens.
         preview_fallback = model == "gemini-3-flash-preview"
         config = types.GenerateContentConfig(
-            system_instruction=request.system_instruction,
+            system_instruction=safe_instruction,
             temperature=request.temperature
             if request.temperature is not None
             else self._temperature,
@@ -204,7 +216,7 @@ class GeminiService:
 
         response = await self._client.aio.models.generate_content(
             model=model,
-            contents=request.contents,
+            contents=safe_contents,
             config=config,
         )
 

@@ -6,11 +6,11 @@ from pydantic import BaseModel, Field
 class GeminiRequest(BaseModel):
     """Input schema for GeminiService.generate().
 
-    The `contents` field should contain the full prompt text,
-    already anonymized by the caller (no PII).
+    Callers should minimize sensitive content. The provider boundary applies
+    pattern-based masking, which does not guarantee complete anonymization.
     """
 
-    contents: str = Field(..., min_length=1, description="Prompt text (already anonymized)")
+    contents: str = Field(..., min_length=1, description="Prompt text, minimized before sending")
     system_instruction: str | None = Field(default=None, description="System-level instruction")
     temperature: float | None = Field(
         default=None, ge=0.0, le=2.0, description="Override default temperature"

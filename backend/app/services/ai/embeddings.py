@@ -114,6 +114,11 @@ class EmbeddingService:
         This is the low-level method with retry logic. Callers should use
         embed() or embed_batch() instead.
         """
+        # This is a final pattern-based safeguard, not complete anonymity.
+        from app.services.guardrails.pii_masker import get_pii_masker
+
+        masker = get_pii_masker()
+        texts = [masker.mask(text).masked_text for text in texts]
         config = types.EmbedContentConfig(
             task_type=task_type,
             output_dimensionality=self._dimension,

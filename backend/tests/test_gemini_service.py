@@ -137,6 +137,30 @@ async def test_generate_with_overrides(gemini_service, mock_redis):
 
 
 @pytest.mark.asyncio
+async def test_provider_masks_patterns_in_prompt_and_system_instruction(gemini_service, mock_redis):
+    service, mock_client = gemini_service
+    mock_client.aio.models.generate_content = AsyncMock(return_value=_make_mock_response())
+    request = GeminiRequest(
+        contents="Contact test.person@example.com, CIN AB123456, téléphone 0612345678",
+        system_instruction="Référence dossier DOS-123456 et test.system@example.com",
+    )
+
+    await service.generate(request, TEST_TENANT)
+
+    kwargs = mock_client.aio.models.generate_content.await_args.kwargs
+    transmitted = kwargs["contents"] + kwargs["config"].system_instruction
+    for original in (
+        "test.person@example.com",
+        "AB123456",
+        "0612345678",
+        "DOS-123456",
+        "test.system@example.com",
+    ):
+        assert original not in transmitted
+    assert "[EMAIL_1]" in transmitted
+
+
+@pytest.mark.asyncio
 async def test_generate_retries_on_rate_limit(gemini_service, mock_redis):
     """ResourceExhausted 2x then success → retry works."""
     service, mock_client = gemini_service

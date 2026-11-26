@@ -1,5 +1,10 @@
 # Rapport d'Audit de Conformité CNDP
 
+> **Document historique non validé.** Les affirmations et conclusions de ce
+> document doivent être réexaminées sur le déploiement réel avec les personnes
+> compétentes. Il ne constitue ni une attestation de conformité, ni une preuve
+> de localisation des données, ni un avis juridique.
+
 > **Plateforme CRI Chatbot Multi-Tenant RAG**
 > Appel d'Offres N° 02/2026/CRI RSK — Client initial : CRI Rabat-Salé-Kénitra
 > **Date de l'audit** : 2 avril 2026
@@ -100,7 +105,7 @@ Chaque CRI régional constitue un tenant isolé avec :
 
 ### 3.1 Anonymisation des prompts Gemini
 
-**Objectif** : Vérifier qu'aucune donnée personnelle identifiable ne transite vers l'API Google Gemini.
+**Objectif** : examiner les mesures qui limitent les données personnelles transmises à Gemini.
 
 **Vérification** :
 
@@ -119,7 +124,7 @@ Le pipeline d'anonymisation opère en deux couches :
 **Couche 2 — Masquage PII étendu (PIIMasker)** :
 - **Fichier** : `backend/app/services/guardrails/pii_masker.py`
 - **Patterns supplémentaires** : IBAN marocain (`MA\d{2}...`), numéros de dossier (`RC/INV/DOS/DSR/D-`préfixés)
-- **Utilisation** : Module guardrails post-LLM pour vérifier qu'aucun PII n'a fuité dans la réponse générée
+- **Utilisation** : masquage des motifs détectés ; les autres données peuvent subsister.
 
 **Couche 3 — Output Guard** :
 - **Fichier** : `backend/app/services/guardrails/output_guard.py`
@@ -128,11 +133,13 @@ Le pipeline d'anonymisation opère en deux couches :
 **Tests** :
 - `backend/tests/test_pii_masker.py` — ~10 tests de détection de patterns marocains
 - `backend/tests/unit/test_pii_masker.py` — ~10 tests unitaires complémentaires
-- `backend/tests/test_gemini_service.py:211-229` — test `test_no_pii_in_logs` vérifiant qu'aucun PII n'apparaît dans les logs Gemini
+- `backend/tests/test_gemini_service.py` — tests ciblés sur les journaux et les motifs masqués ; ils ne prouvent pas l'absence de toutes les données personnelles.
 
-**Note sur le suivi de dossier** : Le module TrackingAgent consulte les données de dossier directement dans PostgreSQL (local). **Aucun appel LLM n'est effectué** pour l'accès aux données de dossier — seules les réponses textuelles de navigation sont générées.
+**Note sur le suivi de dossier** : le module TrackingAgent consulte PostgreSQL. Les autres étapes de la conversation et leurs flux vers les services externes doivent aussi être examinés.
 
-**Résultat** : ✅ VÉRIFIÉ — Anonymisation systématique vérifiée dans le code et les tests.
+**Résultat actuel** : le masquage repose sur des motifs et ne garantit pas
+l'absence de données personnelles dans les requêtes, les réponses ou les
+journaux. Les affirmations absolues de cette section doivent être révisées.
 
 ---
 
@@ -150,18 +157,18 @@ Le pipeline d'anonymisation opère en deux couches :
 | MinIO (fichiers, archives audit) | Nindohost, Maroc | `docker-compose.prod.yml` — service `minio` sur réseau interne |
 | API Gemini | Google Cloud (hors Maroc) | Uniquement prompts anonymisés (voir §3.1) |
 
-**Données transitant hors du Maroc** :
-- **Uniquement** : Prompts textuels anonymisés vers l'API Gemini 2.5 Flash
-- **Jamais** : CIN, numéros de téléphone, noms, montants, numéros de dossier, messages bruts
-
-**Garantie Google** : L'API Gemini payante (modèle 2.5 Flash) dispose d'une politique de non-utilisation des données pour l'entraînement des modèles.
+**Données transitant hors du Maroc** : à établir pour le déploiement et le
+compte fournisseur effectivement utilisés. Un masquage par motifs ne prouve
+pas que les données transmises sont anonymes. Les conditions fournisseur
+doivent être vérifiées pour la configuration réelle.
 
 **Hébergeur Nindohost** :
 - Datacenter situé au Maroc
 - Certification ISO 9001:2015
 - Accès : SSH/VPN uniquement, firewall whitelist IP admin
 
-**Résultat** : ✅ VÉRIFIÉ avec réserve — Toutes les données personnelles sont hébergées au Maroc. Seuls des prompts anonymisés transitent hors Maroc via l'API Gemini.
+**Résultat actuel** : localisation et transferts non vérifiés pour le VPS
+Hostinger et les services utilisés par la démonstration.
 
 ---
 
@@ -521,30 +528,28 @@ La plateforme envoie des requêtes textuelles à l'API Google Gemini 2.5 Flash p
 
 | Donnée transmise | Contient du PII ? | Justification |
 |-----------------|-------------------|---------------|
-| Instructions système (prompt) | ❌ | Texte statique, instructions CRI |
-| Chunks RAG anonymisés | ❌ | PII remplacé par `[CIN]`, `[TELEPHONE]`, `[EMAIL]`, `[MONTANT]` |
-| Message utilisateur (intention) | ⚠️ Possible | L'utilisateur peut mentionner son CIN/téléphone dans le message |
-| Historique conversation (3-5 échanges) | ⚠️ Possible | Les messages précédents peuvent contenir du PII |
+| Instructions système (prompt) | ⚠️ Possible | Certaines instructions peuvent contenir du contenu propre à l'institution ; le masquage par motifs ne couvre pas tous les cas. |
+| Chunks RAG | ⚠️ Possible | Le masquage couvre certains motifs, sans détecter toutes les données personnelles. |
+| Message utilisateur (intention) | ⚠️ Possible | Le masquage couvre certains identifiants, mais pas tous les noms ou renseignements sensibles. |
+| Historique conversation | ⚠️ Possible | Des informations personnelles peuvent subsister après masquage par motifs. |
 
 ### 5.3 Mesures de mitigation
 
-1. **Anonymisation pré-envoi** : `_anonymize_text()` appliqué systématiquement sur les chunks (vérifié §3.1)
+1. **Masquage pré-envoi** : des motifs sont masqués dans le texte et les instructions transmis à Gemini. Cette mesure ne constitue pas une anonymisation complète.
 2. **Input guard** : `InputGuardService` détecte et filtre les contenus problématiques avant Gemini
-3. **Output guard** : `OutputGuardService` masque tout PII résiduel dans la réponse
-4. **No-training policy** : API Gemini payante — données non utilisées pour l'entraînement
-5. **Suivi dossier local** : Consultation des données de dossier 100% locale (PostgreSQL), pas d'appel LLM
+3. **Output guard** : `OutputGuardService` masque certains motifs détectés dans la réponse ; des données peuvent lui échapper.
+4. **Conditions fournisseur** : vérifier les conditions applicables au compte, au modèle et à la configuration effectivement utilisés.
+5. **Suivi dossier** : vérifier les flux effectifs avant d'affirmer qu'aucune donnée de dossier ne sort du système.
 
 ### 5.4 Évaluation juridique
 
-**Argument principal** : L'article 15 de la loi 09-08 s'applique au transfert de « données à caractère personnel ». Or, les données transmises à Gemini sont systématiquement anonymisées avant envoi. Des données anonymisées ne constituent pas des données à caractère personnel au sens de l'article 1er de la loi. Le transfert ne relève donc pas de l'article 15.
-
-**Réserve** : Les messages bruts de l'utilisateur peuvent contenir du PII non encore anonymisé au moment de la classification d'intention. Bien que l'`InputGuardService` filtre les contenus, un utilisateur pourrait mentionner son CIN dans une question. Ce cas est atténué par l'anonymisation pré-envoi des chunks et la nature éphémère du traitement Gemini (pas de stockage côté Google).
+**À évaluer** : le masquage par motifs ne prouve pas l'absence de données personnelles ni la conformité d'un transfert international. Faire examiner les flux réels, les conditions du fournisseur et les obligations applicables par le responsable compétent avant tout usage institutionnel.
 
 ### 5.5 Recommandations
 
 1. **Mentionner Gemini dans la déclaration CNDP** (transparence envers la CNDP)
 2. **Signer un DPA avec Google** pour encadrer contractuellement l'usage des données
-3. **Anonymiser les messages utilisateur** avant la classification d'intention (amélioration possible)
+3. **Évaluer et renforcer le masquage** des messages, des documents et des autres entrées, y compris les cas non couverts par les motifs actuels.
 4. **Documenter le pipeline d'anonymisation** dans le registre des traitements
 
 ---
@@ -580,10 +585,12 @@ La plateforme envoie des requêtes textuelles à l'API Google Gemini 2.5 Flash p
 
 ## 7. Conclusion
 
-La plateforme CRI Chatbot présente un **niveau de conformité satisfaisant** au regard de la loi 09-08. Les mesures techniques de sécurité (chiffrement, isolation, audit, RBAC, rate limiting) sont robustes et vérifiées par une couverture de tests extensive (~220 tests de sécurité).
+Cette conclusion historique ne constitue pas une évaluation de conformité du
+déploiement actuel. Les mesures techniques et les obligations applicables
+doivent être vérifiées avec les responsables compétents.
 
 **Points forts** :
-- Anonymisation systématique des données avant envoi à Gemini (aucun PII en transit hors Maroc)
+- Masquage par motifs avant certains appels ; il ne garantit pas l'absence de données personnelles en transit.
 - Isolation multi-tenant à 5 niveaux
 - Audit trail immuable avec politique SQL INSERT ONLY
 - Chiffrement enveloppe AES-256-GCM par tenant
@@ -595,7 +602,8 @@ La plateforme CRI Chatbot présente un **niveau de conformité satisfaisant** au
 - L'information des personnes au premier contact WhatsApp doit être implémentée (⚠️ Art. 9)
 - L'absence de mots-clés arabes dans le mécanisme STOP constitue une lacune fonctionnelle (⚠️ Art. 9)
 
-**Avis** : **Partiellement conforme** — la plateforme est techniquement prête pour une mise en conformité complète. Les 4 actions critiques (R1-R4) doivent être réalisées avant la mise en production. Les recommandations R5-R7 peuvent être traitées dans le sprint suivant.
+**Avis actuel** : aucune conclusion de conformité ne peut être tirée de ce
+document historique sans revue juridique et technique du déploiement réel.
 
 ---
 

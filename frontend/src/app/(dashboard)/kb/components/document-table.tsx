@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   useDocuments,
+  useDocumentCategories,
   useDeleteDocument,
   useReindexDocument,
   useValidateDocument,
@@ -86,8 +87,6 @@ const languageLabels: Record<string, string> = {
   en: "EN",
 };
 
-const categories = ["Procédures", "Incitations", "Juridique", "Général"];
-
 const safeIngestionMessages = new Set([
   "La génération des représentations a échoué. Vérifiez le service d’IA et réessayez.",
   "Le découpage du document a échoué. Vérifiez son contenu et réessayez.",
@@ -127,12 +126,13 @@ export function DocumentTable() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
+  const { data: categories = [] } = useDocumentCategories();
 
   const { data, isLoading, isError, refetch } = useDocuments({
     page,
     page_size: 20,
     status: statusFilter !== "all" ? (statusFilter as KBDocumentStatus) : undefined,
-    category: categoryFilter !== "all" ? categoryFilter : undefined,
+    category: categoryFilter !== "all" ? categoryFilter.slice(4) : undefined,
   });
 
   const deleteDoc = useDeleteDocument();
@@ -211,7 +211,7 @@ export function DocumentTable() {
           <SelectContent>
             <SelectItem value="all">Toutes catégories</SelectItem>
             {categories.map((cat) => (
-              <SelectItem key={cat} value={cat}>
+              <SelectItem key={cat} value={`cat:${cat}`}>
                 {cat}
               </SelectItem>
             ))}

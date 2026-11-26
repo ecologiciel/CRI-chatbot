@@ -285,6 +285,29 @@ async def list_documents(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/documents/categories", response_model=list[str])
+async def list_document_categories(
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(
+        require_role(
+            AdminRole.super_admin,
+            AdminRole.admin_tenant,
+            AdminRole.supervisor,
+            AdminRole.viewer,
+        )
+    ),
+) -> list[str]:
+    """List categories from all documents in the selected tenant."""
+    async with tenant.db_session() as session:
+        result = await session.execute(
+            select(KBDocument.category)
+            .where(KBDocument.category.is_not(None), KBDocument.category != "")
+            .distinct()
+            .order_by(KBDocument.category)
+        )
+        return [value for value in result.scalars().all() if value is not None]
+
+
 @router.get("/documents/{document_id}", response_model=KBDocumentDetailResponse)
 async def get_document(
     document_id: uuid.UUID,

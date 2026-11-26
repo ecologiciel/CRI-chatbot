@@ -35,6 +35,14 @@ export function useDocuments(params?: DocumentsParams) {
   });
 }
 
+export function useDocumentCategories() {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: ["documents", "categories"] as const,
+    queryFn: () => api.get<string[]>("/kb/documents/categories"),
+  });
+}
+
 export function useDocument(documentId: string | null) {
   const api = useApiClient();
   return useQuery({

@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useUploadDocument } from "@/hooks/use-documents";
+import { useDocumentCategories, useUploadDocument } from "@/hooks/use-documents";
 
 interface UploadModalProps {
   open: boolean;
@@ -42,6 +42,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
   const [sourceUrl, setSourceUrl] = useState("");
 
   const uploadMutation = useUploadDocument();
+  const { data: categories = [] } = useDocumentCategories();
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -97,7 +98,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
       {
         file,
         title,
-        category: category || undefined,
+        category: category.trim() || undefined,
         language: language || undefined,
         source_authority: sourceAuthority || undefined,
         source_reference: sourceReference || undefined,
@@ -220,18 +221,13 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
           {/* Category + Language */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Catégorie</Label>
-              <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Procédures">Procédures</SelectItem>
-                  <SelectItem value="Incitations">Incitations</SelectItem>
-                  <SelectItem value="Juridique">Juridique</SelectItem>
-                  <SelectItem value="Général">Général</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="document-category">Catégorie</Label>
+              <Input id="document-category" list="existing-document-categories" maxLength={100}
+                placeholder="Ex. Santé végétale" value={category}
+                onChange={(event) => setCategory(event.target.value)} />
+              <datalist id="existing-document-categories">
+                {categories.map((item) => <option key={item} value={item} />)}
+              </datalist>
             </div>
             <div className="space-y-2">
               <Label>Langue</Label>

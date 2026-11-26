@@ -296,6 +296,31 @@ class TestUploadDocument:
 
 class TestListDocuments:
     @pytest.mark.asyncio
+    async def test_categories_are_loaded_from_selected_tenant(self):
+        _setup_overrides()
+        mock_session = _mock_tenant_db_session(
+            scalars_all=["controle-import-export", "sante-vegetale"]
+        )
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as MockResolver,
+                patch.object(TenantContext, "db_session", return_value=mock_session),
+            ):
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.get(
+                        "/api/v1/kb/documents/categories", headers=_headers()
+                    )
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        assert response.json() == ["controle-import-export", "sante-vegetale"]
+        assert mock_session.execute.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_list_paginated(self):
         """GET /kb/documents returns paginated list."""
         _setup_overrides()

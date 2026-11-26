@@ -143,6 +143,49 @@ class ChunkingService:
                 i += 1
         return tables
 
+    @staticmethod
+    def _labelled_faq_pairs(text: str) -> list[tuple[int, int]]:
+        """Find explicitly labelled Q/R blocks outside fenced code.
+
+        Keep source offsets intact. Ambiguous or unlabelled prose is left to
+        the ordinary structural splitter.
+        """
+        question = re.compile(r"^[ \t]*(?:question|q|سؤال|سوال)[ \t]*[:：][ \t]*\S", re.I)
+        answer = re.compile(
+            r"^[ \t]*(?:réponse|reponse|answer|r|a|جواب|إجابة)[ \t]*[:：][ \t]*\S", re.I
+        )
+        heading = re.compile(r"^ {0,3}#{1,6}[ \t]+")
+        pairs: list[tuple[int, int]] = []
+        start: int | None = None
+        has_answer = False
+        offset = 0
+        fence: str | None = None
+        for line in text.splitlines(keepends=True):
+            marker = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+            if marker:
+                if fence is None:
+                    if start is not None and has_answer:
+                        pairs.append((start, offset))
+                    start, has_answer = None, False
+                    fence = marker.group(1)[0]
+                elif marker.group(1)[0] == fence:
+                    fence = None
+            elif fence is None:
+                if question.match(line):
+                    if start is not None and has_answer:
+                        pairs.append((start, offset))
+                    start, has_answer = offset, False
+                elif heading.match(line):
+                    if start is not None and has_answer:
+                        pairs.append((start, offset))
+                    start, has_answer = None, False
+                elif start is not None and answer.match(line):
+                    has_answer = True
+            offset += len(line)
+        if start is not None and has_answer:
+            pairs.append((start, len(text)))
+        return pairs
+
     def _chunk_exact(self, text: str, target: int) -> list[ChunkResult]:
         """Return exact source slices, preferring paragraph and sentence boundaries."""
         chunks: list[ChunkResult] = []
@@ -175,6 +218,12 @@ class ChunkingService:
                         headings.append((offset, (*path, line.strip())))
             offset += len(line)
         tables = self._markdown_tables(text)
+        faq_pairs = [
+            (begin, end)
+            for begin, end in self._labelled_faq_pairs(text)
+            if self.count_tokens(text[begin:end]) <= target
+            and not any(table[0] < end and table[2] > begin for table in tables)
+        ]
         start = 0
         length = len(text)
         while start < length:
@@ -199,10 +248,13 @@ class ChunkingService:
 
             # Keep tables separate from prose and prefer whole rows.
             table = next((item for item in tables if item[0] <= start < item[2]), None)
+            faq = next((item for item in faq_pairs if item[0] <= start < item[1]), None)
             next_table = next((item[0] for item in tables if start < item[0] <= end), None)
+            next_faq = next((item[0] for item in faq_pairs if start < item[0] <= end), None)
             next_heading = next((pos for pos, _ in headings if start < pos <= end), None)
             boundary = min(
-                (pos for pos in (next_heading, next_table) if pos is not None), default=None
+                (pos for pos in (next_heading, next_table, next_faq) if pos is not None),
+                default=None,
             )
             if table is not None:
                 end = min(end, table[2])
@@ -210,6 +262,8 @@ class ChunkingService:
                     newline = text.rfind("\n", start, end)
                     if newline >= start:
                         end = newline + 1
+            elif faq is not None:
+                end = min(end, faq[1])
             elif boundary is not None:
                 end = boundary
             elif end < length:
@@ -250,7 +304,7 @@ class ChunkingService:
             if end == length:
                 break
             next_start = end
-            if self._overlap and table is None and boundary is None:
+            if self._overlap and table is None and faq is None and boundary is None:
                 # Walk backwards by words while respecting the overlap budget.
                 for match in reversed(list(re.finditer(r"\S+\s*", content))):
                     candidate = start + match.start()

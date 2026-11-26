@@ -255,3 +255,35 @@ class TestMarkdownTables:
         chunks = service.chunk_text(text)
         assert "".join(chunk.content for chunk in chunks) == text
         assert all(chunk.token_count <= 100 for chunk in chunks)
+
+
+def test_labelled_faq_questions_and_answers_remain_together():
+    service = ChunkingService(chunk_size=45, overlap=8, max_chunk_size=45)
+    first = "Question : Quel document faut-il ?\nRéponse : Un formulaire signé.\n\n"
+    second = "سؤال: أين يودع الطلب؟\nجواب: لدى المصلحة المختصة.\n"
+    text = "# Guide\nIntroduction.\n\n" + first + second + "# Suite\nFin."
+    chunks = service.chunk_text(text)
+    assert any(first in chunk.content for chunk in chunks)
+    assert any(second in chunk.content for chunk in chunks)
+    assert all(text[c.start_char : c.end_char] == c.content for c in chunks)
+    assert all(c.token_count <= 45 for c in chunks)
+
+
+def test_faq_detection_ignores_fenced_code_and_unanswered_questions():
+    text = "```\nQ: un exemple\nR: ne pas interpréter\n```\nQ: sans réponse\n# Fin\nTexte."
+    assert ChunkingService._labelled_faq_pairs(text) == []
+
+
+def test_oversized_faq_still_respects_hard_limit():
+    text = "Q: Question longue ?\nR: " + "réponse détaillée. " * 150
+    service = ChunkingService(chunk_size=35, overlap=4, max_chunk_size=35)
+    chunks = service.chunk_text(text)
+    assert len(chunks) > 1
+    assert all(c.token_count <= 35 and text[c.start_char : c.end_char] == c.content for c in chunks)
+
+
+def test_faq_containing_a_table_preserves_table_boundaries():
+    text = "Q: Quelles valeurs ?\nR: Voir le tableau.\n| A | B |\n| --- | --- |\n| x | y |\n"
+    chunks = ChunkingService(chunk_size=100, overlap=0, max_chunk_size=100).chunk_text(text)
+    assert "".join(c.content for c in chunks) == text
+    assert any(c.content.startswith("| A | B |") for c in chunks)

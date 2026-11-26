@@ -567,6 +567,11 @@ jobs:
           BACKEND_IMAGE: ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
         run: bash scripts/test-isolated-extraction.sh
 
+      - name: Test KMS rotation crash recovery
+        env:
+          BACKEND_TEST_IMAGE: ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
+        run: bash scripts/test-kms-rotation-operator.sh
+
       - name: Build and push frontend image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:

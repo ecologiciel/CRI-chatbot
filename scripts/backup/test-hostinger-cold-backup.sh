@@ -143,4 +143,39 @@ if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$pr
 fi
 [[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
 [[ -z $(find "$fixture/backups" -name '*.partial' -print -quit) ]]
-echo 'Isolated encrypted backup, decryption, locking and failure recovery: OK'
+
+# Simulate the operating system killing the backup immediately after stopping
+# its services. A shell EXIT trap cannot run after SIGKILL.
+mkdir "$fixture/docker-wrapper"
+real_docker=$(command -v docker)
+cat > "$fixture/docker-wrapper/docker" <<'SH'
+#!/usr/bin/env bash
+"$REAL_DOCKER" "$@"
+result=$?
+if [[ "$*" == *' stop '* && $result -eq 0 ]]; then
+    kill -KILL "$PPID"
+fi
+exit "$result"
+SH
+chmod +x "$fixture/docker-wrapper/docker"
+if PATH="$fixture/docker-wrapper:$PATH" REAL_DOCKER="$real_docker" DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"; then
+    echo 'The injected interruption did not occur' >&2
+    exit 1
+fi
+test -f "$fixture/backups/.cold-backup-services"
+[[ -z $("${compose[@]}" ps --status running --services) ]]
+if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"; then
+    echo 'A new backup ignored an incomplete recovery' >&2
+    exit 1
+fi
+mkdir -p "$fixture/.kms-maintenance"
+touch "$fixture/.kms-maintenance/journal"
+if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-cold-backup.sh" --recover; then
+    echo 'Backup recovery ignored incomplete KMS maintenance' >&2
+    exit 1
+fi
+rm "$fixture/.kms-maintenance/journal"
+DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-cold-backup.sh" --recover
+[[ ! -e "$fixture/backups/.cold-backup-services" ]]
+[[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
+echo 'Isolated encrypted backup, decryption, locking and interruption recovery: OK'

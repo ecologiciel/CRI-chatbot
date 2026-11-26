@@ -9,16 +9,14 @@ umask 077
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/chatbot-demo}"
 BACKUP_DIR="${BACKUP_DIR:-/root/chatbot-backups}"
 PROJECT="${COMPOSE_PROJECT_NAME:-chatbot-demo}"
-RECIPIENT="${BACKUP_RECIPIENT_FILE:?Set BACKUP_RECIPIENT_FILE to a public OpenPGP key}"
+RECIPIENT="${BACKUP_RECIPIENT_FILE:-}"
+MODE="${1:-backup}"
+[[ "$MODE" == backup || "$MODE" == --recover ]] || { echo "Usage: $0 [--recover]" >&2; exit 2; }
 COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$DEPLOY_DIR/.env.demo" -f "$DEPLOY_DIR/docker-compose.hostinger.yml" -f "$DEPLOY_DIR/docker-compose.hostinger.local.yml")
 
 command -v docker >/dev/null
-command -v gpg >/dev/null
-command -v sha256sum >/dev/null
 command -v flock >/dev/null
-test -r "$RECIPIENT"
 test -f "$DEPLOY_DIR/.env.demo"
-docker image inspect redis:7-alpine >/dev/null
 # A shared lock prevents the KMS database/configuration switch from racing a
 # backup. Rotation holds the same lock exclusively for the whole operation.
 if [[ -L "$DEPLOY_DIR/.kms-rotation.lock" ]]; then
@@ -31,6 +29,10 @@ if ! flock -s -n 8; then
     echo "KMS maintenance is in progress; backup postponed." >&2
     exit 1
 fi
+if [[ -e "$DEPLOY_DIR/.kms-maintenance/journal" ]]; then
+    echo "Unfinished KMS maintenance: recover it before running a backup or restarting services." >&2
+    exit 1
+fi
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 exec 9> "$BACKUP_DIR/.cold-backup.lock"
@@ -38,6 +40,35 @@ if ! flock -n 9; then
     echo "Another cold backup is already running." >&2
     exit 1
 fi
+journal="$BACKUP_DIR/.cold-backup-services"
+if [[ "$MODE" == --recover ]]; then
+    [[ -f "$journal" && ! -L "$journal" ]] || { echo "No safe backup recovery journal exists." >&2; exit 1; }
+    mapfile -t recovery_services < "$journal"
+    mapfile -t known_services < <("${COMPOSE[@]}" config --services)
+    (( ${#recovery_services[@]} > 0 && ${#recovery_services[@]} <= ${#known_services[@]} )) || { echo "Invalid recovery journal." >&2; exit 1; }
+    for service in "${recovery_services[@]}"; do
+        [[ "$service" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] && printf '%s\n' "${known_services[@]}" | grep -Fxq -- "$service" || { echo "Invalid service in recovery journal." >&2; exit 1; }
+    done
+    "${COMPOSE[@]}" start "${recovery_services[@]}"
+    for service in "${recovery_services[@]}"; do
+        container=$("${COMPOSE[@]}" ps -q "$service")
+        [[ -n "$container" ]] || { echo "Missing recovered service: $service" >&2; exit 1; }
+        for attempt in $(seq 1 150); do
+            state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container")
+            [[ "$state" == healthy || "$state" == running ]] && break
+            sleep 2
+        done
+        [[ "$state" == healthy || "$state" == running ]] || { echo "Recovered service is not ready: $service ($state)" >&2; exit 1; }
+    done
+    rm -f -- "$journal"
+    echo "Previously running services restarted and ready."
+    exit 0
+fi
+[[ ! -e "$journal" && ! -L "$journal" ]] || { echo "Unfinished backup: inspect and run $0 --recover before another backup." >&2; exit 1; }
+command -v gpg >/dev/null
+command -v sha256sum >/dev/null
+docker image inspect redis:7-alpine >/dev/null
+[[ -n "$RECIPIENT" && -r "$RECIPIENT" ]] || { echo "Set BACKUP_RECIPIENT_FILE to a readable public OpenPGP key." >&2; exit 1; }
 workdir=$(mktemp -d "$BACKUP_DIR/.cold-backup.XXXXXXXX")
 chmod 700 "$workdir"
 mkdir -m 700 "$workdir/metadata"
@@ -76,6 +107,8 @@ cleanup() {
         elif ! services_ready; then
             echo "ERROR: one or more services did not become ready after the backup." >&2
             result=1
+        else
+            rm -f -- "$journal"
         fi
     fi
     if [[ -n "$archive" && -f "$archive.partial" ]]; then rm -f -- "$archive.partial"; fi
@@ -148,6 +181,8 @@ done
 archive="$BACKUP_DIR/hostinger-data-$(date -u +%Y%m%dT%H%M%SZ)-$$.tar.gz.gpg"
 [[ ! -e "$archive" && ! -e "$archive.partial" ]] || { echo "Backup already exists" >&2; exit 1; }
 echo "Stopping the stack for a consistent encrypted data backup..." >&2
+printf '%s\n' "${running[@]}" > "$workdir/running-services"
+mv -- "$workdir/running-services" "$journal"
 stopped=1
 "${COMPOSE[@]}" stop "${running[@]}"
 

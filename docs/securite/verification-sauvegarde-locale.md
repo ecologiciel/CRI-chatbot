@@ -12,6 +12,17 @@ La commande `scripts/backup/test-local-real-restore.sh` exige les variables `BAC
 
 Sur cet ordinateur, la phrase de passe est protégée par DPAPI pour le compte Windows actuel. La copie du dossier sans ce compte ou sans une procédure de récupération portable peut être inutilisable ailleurs. Conserver une seconde copie indépendante ainsi qu’un moyen de récupération séparé et testé ; la sauvegarde n’est pas encore planifiée automatiquement.
 
+## Reprise après interruption de la sauvegarde à froid
+
+Avant d'arrêter les services, le script enregistre leur liste dans `.cold-backup-services`, dans le répertoire de sauvegarde. En cas d'arrêt brutal du processus, ce journal reste en place et toute nouvelle sauvegarde est refusée. Après avoir vérifié qu'aucune sauvegarde ni maintenance KMS n'est active et que la configuration Compose n'a pas changé, exécuter sur le VPS :
+
+```bash
+cd /opt/chatbot-demo
+bash scripts/backup/hostinger-cold-backup.sh --recover
+```
+
+La reprise utilise les mêmes verrous que la sauvegarde, refuse un journal KMS inachevé, redémarre les services enregistrés et conserve le journal si le démarrage ou le contrôle de disponibilité échoue. Vérifier ensuite l'état de la plateforme. Ce mécanisme est manuel : il ne constitue ni une reprise automatique ni une garantie en cas de coupure électrique au moment de l'écriture du journal. Les tâches Redis en attente ne sont pas incluses dans l'archive.
+
 Les sauvegardes créées avec la version qui inclut l'antivirus conservent sa
 configuration sous `metadata/runtime/docker/clamav/clamd.conf` dans l'archive
 chiffrée. Pour restaurer la configuration Compose, recopier ce fichier vers

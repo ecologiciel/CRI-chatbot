@@ -92,6 +92,7 @@ export class ApiClient {
     path: string,
     options: RequestInit = {},
     skipAuth = false,
+    asBlob = false,
   ): Promise<T> {
     const url = `${this.config.baseUrl}${API_PREFIX}${path}`;
 
@@ -142,6 +143,7 @@ export class ApiClient {
           await this.handleErrorResponse(retryResponse);
         }
         if (retryResponse.status === 204) return undefined as T;
+        if (asBlob) return retryResponse.blob() as Promise<T>;
         return retryResponse.json() as Promise<T>;
       }
       // Refresh failed — force logout
@@ -154,6 +156,7 @@ export class ApiClient {
     }
 
     if (response.status === 204) return undefined as T;
+    if (asBlob) return response.blob() as Promise<T>;
     return response.json() as Promise<T>;
   }
 
@@ -273,23 +276,7 @@ export class ApiClient {
           ).toString();
       }
     }
-    const url = `${this.config.baseUrl}${API_PREFIX}${path}${queryString}`;
-    const headers: Record<string, string> = {};
-    const token = this.config.getAccessToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-      const tenantId = requestTenantId(token);
-      if (tenantId) headers["X-Tenant-ID"] = tenantId;
-    }
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      throw new ApiError(
-        response.status,
-        "DownloadError",
-        `Download failed with status ${response.status}`,
-      );
-    }
-    return response.blob();
+    return this.request<Blob>(`${path}${queryString}`, { method: "GET" }, false, true);
   }
 
   async upload<T>(path: string, formData: FormData): Promise<T> {

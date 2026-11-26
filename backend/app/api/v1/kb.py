@@ -20,7 +20,7 @@ from sqlalchemy.orm import selectinload
 from app.core.arq import get_arq_pool
 from app.core.config import get_settings
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.minio import get_minio
+from app.core.minio import get_minio, get_object_bytes
 from app.core.rbac import require_role
 from app.core.tenant import TenantContext, get_current_tenant
 from app.core.uploads import validate_docx_archive, validate_upload_filename
@@ -338,6 +338,58 @@ async def get_document(
         )
 
     return KBDocumentDetailResponse.model_validate(doc)
+
+
+@router.get("/documents/{document_id}/file", response_class=Response)
+async def download_document_file(
+    document_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(
+        require_role(
+            AdminRole.super_admin,
+            AdminRole.admin_tenant,
+            AdminRole.supervisor,
+            AdminRole.viewer,
+        )
+    ),
+) -> Response:
+    """Download a tenant document after checking its size and scanning again."""
+    async with tenant.db_session() as session:
+        result = await session.execute(select(KBDocument).where(KBDocument.id == document_id))
+        doc = result.scalar_one_or_none()
+        if doc is None or not doc.file_path or doc.status == KBDocumentStatus.rejected:
+            raise ResourceNotFoundError("Fichier indisponible.")
+        object_name = doc.file_path
+
+    obj = await get_minio().stat_object(tenant.minio_bucket, object_name)
+    max_size = get_settings().kb_max_file_size_bytes
+    if obj.size > max_size:
+        raise ValidationError("Le fichier dépasse la taille autorisée.")
+    content = await get_object_bytes(tenant.minio_bucket, object_name)
+    if len(content) > max_size:
+        raise ValidationError("Le fichier dépasse la taille autorisée.")
+    try:
+        await scan_document(content)
+    except MalwareDetectedError as exc:
+        raise HTTPException(
+            status_code=422, detail="Document refusé par le contrôle antivirus."
+        ) from exc
+    except AntivirusUnavailableError as exc:
+        raise HTTPException(
+            status_code=503, detail="Contrôle antivirus indisponible. Réessayez."
+        ) from exc
+    extension = PurePosixPath(object_name).suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        extension = ""
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="document-{document_id}{extension}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

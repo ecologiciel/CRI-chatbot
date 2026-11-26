@@ -9,12 +9,14 @@ import {
   Trash2,
   Loader2,
   AlertCircle,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -44,6 +46,8 @@ import {
   useValidateDocument,
 } from "@/hooks/use-documents";
 import type { KBDocumentStatus } from "@/types/kb";
+import type { KBDocument } from "@/types/kb";
+import { useApiClient } from "@/hooks/use-auth";
 
 const statusConfig: Record<
   KBDocumentStatus,
@@ -121,12 +125,27 @@ function formatRelativeDate(dateStr: string): string {
   });
 }
 
+function safeSourceUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function DocumentTable() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
+  const [selectedDocument, setSelectedDocument] = useState<KBDocument | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const api = useApiClient();
   const { data: categories = [] } = useDocumentCategories();
 
   useEffect(() => {
@@ -167,9 +186,36 @@ export function DocumentTable() {
 
   function handleValidate(doc: (typeof documents)[number]) {
     validateDoc.mutate(doc, {
-      onSuccess: () => toast.success(`Document "${doc.title}" validé et envoyé à l'indexation`),
+      onSuccess: () => { toast.success(`Document "${doc.title}" validé et envoyé à l'indexation`); setSelectedDocument(null); },
       onError: () => toast.error("Les métadonnées de preuve sont incomplètes"),
     });
+  }
+
+  async function downloadDocument(doc: KBDocument) {
+    setDownloading(true);
+    try {
+      const file = await api.download(`/kb/documents/${doc.id}/file`);
+      const objectUrl = URL.createObjectURL(file);
+      const extension = doc.file_path?.match(/\.(pdf|docx|txt|md|csv)$/i)?.[0] || "";
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `document-${doc.id}${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      toast.error("Téléchargement impossible", { description: "Vérifiez la disponibilité du fichier et du contrôle antivirus." });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  function updateEvidence(
+    field: "source_authority" | "source_reference" | "source_version" | "source_url" | "published_at" | "expires_at",
+    value: string,
+  ) {
+    setSelectedDocument((doc) => doc ? { ...doc, [field]: value || null } : null);
   }
 
   if (isError) {
@@ -349,12 +395,12 @@ export function DocumentTable() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setSelectedDocument(doc)}>
                             <Eye className="h-4 w-4 me-2" />
                             Voir
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => handleValidate(doc)}
+                            onClick={() => setSelectedDocument(doc)}
                             disabled={doc.status !== "pending_validation" || validateDoc.isPending}
                           >
                             Valider et indexer
@@ -415,6 +461,75 @@ export function DocumentTable() {
           </div>
         )}
       </div>
+
+      <Dialog open={selectedDocument !== null} onOpenChange={(open) => { if (!open) setSelectedDocument(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{selectedDocument?.title || "Document"}</DialogTitle>
+            <DialogDescription>Consultez le fichier et vérifiez les informations de source avant validation.</DialogDescription>
+          </DialogHeader>
+          {selectedDocument && (
+            <div className="space-y-4 text-sm">
+              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {[
+                  ["Catégorie", selectedDocument.category],
+                  ["Langue", languageLabels[selectedDocument.language] ?? selectedDocument.language],
+                  ["Statut", statusConfig[selectedDocument.status].label],
+                ].map(([label, value]) => (
+                  <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="break-words">{value || "—"}</dd></div>
+                ))}
+              </dl>
+              {selectedDocument.status === "pending_validation" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {([
+                    ["source_authority", "Autorité source", "text", 300],
+                    ["source_reference", "Référence", "text", 500],
+                    ["source_version", "Version", "text", 100],
+                    ["published_at", "Date de publication", "date", undefined],
+                    ["expires_at", "Date d'expiration", "date", undefined],
+                    ["source_url", "URL de la source", "url", 1000],
+                  ] as const).map(([field, label, type, maxLength]) => (
+                    <div key={field} className="space-y-1">
+                      <label htmlFor={`evidence-${field}`} className="text-muted-foreground">{label}</label>
+                      <Input id={`evidence-${field}`} type={type} maxLength={maxLength}
+                        value={selectedDocument[field] || ""}
+                        onChange={(event) => updateEvidence(field, event.target.value)} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {[
+                    ["Autorité source", selectedDocument.source_authority],
+                    ["Référence", selectedDocument.source_reference],
+                    ["Version", selectedDocument.source_version],
+                    ["Date de publication", selectedDocument.published_at],
+                    ["Date d'expiration", selectedDocument.expires_at],
+                  ].map(([label, value]) => (
+                    <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="break-words">{value || "—"}</dd></div>
+                  ))}
+                </dl>
+              )}
+              <div>
+                <span className="text-muted-foreground">Source en ligne : </span>
+                {safeSourceUrl(selectedDocument.source_url) ? (
+                  <a className="break-all underline" href={safeSourceUrl(selectedDocument.source_url) || undefined} target="_blank" rel="noopener noreferrer">{selectedDocument.source_url}</a>
+                ) : <span>—</span>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => downloadDocument(selectedDocument)} disabled={!selectedDocument.file_path || downloading}>
+                  <Download className="me-2 h-4 w-4" />{downloading ? "Vérification…" : "Télécharger le fichier"}
+                </Button>
+                {selectedDocument.status === "pending_validation" && (
+                  <Button onClick={() => handleValidate(selectedDocument)} disabled={validateDoc.isPending}>
+                    {validateDoc.isPending ? "Validation…" : "Valider et indexer"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

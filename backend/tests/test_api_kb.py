@@ -18,6 +18,7 @@ from app.core.tenant import TenantContext
 from app.main import app
 from app.models.enums import AdminRole, KBDocumentStatus
 from app.schemas.auth import AdminTokenPayload
+from app.services.antivirus import AntivirusUnavailableError, MalwareDetectedError
 
 # ---------------------------------------------------------------------------
 # Factories
@@ -295,6 +296,76 @@ class TestUploadDocument:
 
 
 class TestListDocuments:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("scan_error", "expected_status"),
+        [
+            (None, 200),
+            (MalwareDetectedError("test"), 422),
+            (AntivirusUnavailableError("test"), 503),
+        ],
+    )
+    async def test_download_requires_successful_antivirus_scan(self, scan_error, expected_status):
+        _setup_overrides()
+        doc_id = uuid.uuid4()
+        doc = _make_document_orm(doc_id=doc_id, status=KBDocumentStatus.pending_validation)
+        mock_session = _mock_tenant_db_session(scalar_one_or_none=doc)
+        storage = MagicMock()
+        storage.stat_object = AsyncMock(return_value=MagicMock(size=4))
+        scan = AsyncMock(side_effect=scan_error)
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as MockResolver,
+                patch.object(TenantContext, "db_session", return_value=mock_session),
+                patch("app.api.v1.kb.get_minio", return_value=storage),
+                patch("app.api.v1.kb.get_object_bytes", AsyncMock(return_value=b"test")) as fetch,
+                patch("app.api.v1.kb.scan_document", scan),
+            ):
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.get(
+                        f"/api/v1/kb/documents/{doc_id}/file", headers=_headers()
+                    )
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == expected_status
+        fetch.assert_awaited_once_with(TEST_TENANT.minio_bucket, doc.file_path)
+        scan.assert_awaited_once_with(b"test")
+        if expected_status == 200:
+            assert response.content == b"test"
+            assert response.headers["content-disposition"].startswith("attachment;")
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["cache-control"] == "no-store"
+
+    @pytest.mark.asyncio
+    async def test_download_rejects_oversized_object_before_reading_it(self):
+        _setup_overrides()
+        doc_id = uuid.uuid4()
+        mock_session = _mock_tenant_db_session(scalar_one_or_none=_make_document_orm(doc_id=doc_id))
+        storage = MagicMock()
+        storage.stat_object = AsyncMock(return_value=MagicMock(size=10**12))
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as MockResolver,
+                patch.object(TenantContext, "db_session", return_value=mock_session),
+                patch("app.api.v1.kb.get_minio", return_value=storage),
+                patch("app.api.v1.kb.get_object_bytes", AsyncMock()) as fetch,
+            ):
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.get(
+                        f"/api/v1/kb/documents/{doc_id}/file", headers=_headers()
+                    )
+        finally:
+            _clear_overrides()
+        assert response.status_code == 422
+        fetch.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_search_applies_to_count_and_paginated_results_with_literal_wildcards(self):
         _setup_overrides()

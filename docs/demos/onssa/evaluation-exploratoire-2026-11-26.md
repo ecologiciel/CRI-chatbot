@@ -104,6 +104,15 @@ la réponse à `candidate-18` ne mentionnait plus les analyses, tandis que celle
 des échanges. Le renforcement du prompt n'a donc pas suffi à corriger ce cas.
 Il faut poursuivre l'évaluation et ne pas présenter cette réponse comme validée.
 
+## Vérification ponctuelle des coordonnées
+
+Le 26 novembre 2026, une question sur le numéro du centre de relation a été
+envoyée au chat public. La réponse indiquait **080 100 36 37** et citait
+l'[accueil officiel de l'ONSSA](https://www.onssa.gov.ma/), qui affichait le
+même numéro lors de la consultation. Cet essai vérifie une réponse ponctuelle
+et une source consultée ; il ne valide pas l'ensemble des réponses, la
+disponibilité future du numéro ou les autres coordonnées.
+
 Un exemple explicite distinguant « contribuer » et « garantir » a ensuite été
 ajouté à la consigne arabe. Dans deux nouveaux appels indépendants sur
 `candidate-09`, les réponses employaient une formulation de contribution plutôt

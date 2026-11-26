@@ -17,14 +17,19 @@ from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.schemas.whatsapp import IncomingMessage
-from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
+from app.services.crypto.versioned_envelope import (
+    VersionedEnvelope,
+    VersionedEnvelopeService,
+)
 from app.services.whatsapp.inbox import persist_incoming_message
+from app.services.whatsapp.inbox_channel import protect_claim_channel
 from app.services.whatsapp.inbox_leases import (
     claim_next,
     finish_claim,
     quarantine_expired,
     renew_claim,
 )
+from app.services.whatsapp.inbox_payload import decrypt_claim
 
 
 async def main():
@@ -34,11 +39,18 @@ async def main():
         or settings.postgres_host != "wa-inbox-pg"
         or settings.postgres_db != "wa_inbox_test"
     ):
-        raise RuntimeError("Refusing to run outside the disposable WhatsApp test database")
+        raise RuntimeError(
+            "Refusing to run outside the disposable WhatsApp test database"
+        )
     async with get_engine().begin() as conn:
         await conn.run_sync(
             lambda sync: Base.metadata.create_all(
-                sync, tables=[Tenant.__table__, TenantKey.__table__, WhatsAppInboxEvent.__table__]
+                sync,
+                tables=[
+                    Tenant.__table__,
+                    TenantKey.__table__,
+                    WhatsAppInboxEvent.__table__,
+                ],
             )
         )
 
@@ -83,7 +95,10 @@ async def main():
         }
     )
     results = await asyncio.gather(
-        *(persist_incoming_message(tenant, "123", message, None, cipher=cipher) for _ in range(4))
+        *(
+            persist_incoming_message(tenant, "123", message, None, cipher=cipher)
+            for _ in range(4)
+        )
     )
     assert results.count(True) == 1 and results.count(False) == 3
     async with get_session_factory()() as session:
@@ -121,6 +136,40 @@ async def main():
     assert len(active) == 1
     claim = active[0]
     assert claim.id == event.id
+    decoded = await decrypt_claim(claim, cipher)
+    assert decoded.message.id == message.id
+
+    update_started = asyncio.Event()
+
+    async def change_channel():
+        async with get_session_factory()() as session:
+            update_started.set()
+            await session.execute(
+                update(Tenant)
+                .where(Tenant.id == tenant_id)
+                .values(whatsapp_config={"phone_number_id": "456"})
+            )
+            await session.commit()
+
+    async with protect_claim_channel(claim) as protected:
+        assert protected.id == tenant_id
+        updater = asyncio.create_task(change_channel())
+        await update_started.wait()
+        await asyncio.sleep(0.3)
+        assert not updater.done(), "Channel update bypassed the tenant lock"
+    await asyncio.wait_for(updater, timeout=5)
+    try:
+        async with protect_claim_channel(claim):
+            raise AssertionError("Reassigned channel was accepted")
+    except TenantInactiveError:
+        pass
+    async with get_session_factory()() as session:
+        await session.execute(
+            update(Tenant)
+            .where(Tenant.id == tenant_id)
+            .values(whatsapp_config={"phone_number_id": "123"})
+        )
+        await session.commit()
     assert await renew_claim(claim.id, uuid.uuid4(), lease_seconds=30) is False
     assert await renew_claim(claim.id, claim.lease_token, lease_seconds=30) is True
     assert await finish_claim(claim.id, uuid.uuid4(), uncertain=False) is False
@@ -138,7 +187,9 @@ async def main():
     async with get_session_factory()() as session:
         state = (
             await session.execute(
-                select(WhatsAppInboxEvent.state).where(WhatsAppInboxEvent.id == claim.id)
+                select(WhatsAppInboxEvent.state).where(
+                    WhatsAppInboxEvent.id == claim.id
+                )
             )
         ).scalar_one()
     assert state == "uncertain"

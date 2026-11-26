@@ -26,6 +26,13 @@ def upgrade() -> None:
         sa.Column("ciphertext", sa.Text(), nullable=False),
         sa.Column("key_version", sa.Integer(), nullable=False),
         sa.Column("state", sa.String(16), nullable=False, server_default="pending"),
+        sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "next_attempt_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -37,7 +44,7 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "state IN ('pending', 'applied', 'uncertain')", name="ck_wa_status_state"
         ),
-        sa.CheckConstraint("key_version > 0", name="ck_wa_status_key_version"),
+        sa.CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_status_counters"),
         schema="public",
     )
     op.create_index(
@@ -48,7 +55,10 @@ def upgrade() -> None:
         schema="public",
     )
     op.create_index(
-        "ix_wa_status_pending", "whatsapp_status_events", ["state", "created_at"], schema="public"
+        "ix_wa_status_pending",
+        "whatsapp_status_events",
+        ["state", "next_attempt_at"],
+        schema="public",
     )
 
 

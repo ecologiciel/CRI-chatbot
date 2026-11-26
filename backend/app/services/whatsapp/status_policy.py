@@ -17,6 +17,8 @@ class StatusDecision:
 
 
 def decide_status(current: str | None, incoming: str) -> StatusDecision:
+    if current is not None and not isinstance(current, str):
+        return StatusDecision(None, True)
     if current not in {None, "failed", *_PROGRESS}:
         return StatusDecision(current, True)
     if incoming not in {"sent", "delivered", "read", "failed"}:

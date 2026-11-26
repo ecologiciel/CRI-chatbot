@@ -17,9 +17,9 @@ class WhatsAppStatusEvent(UUIDMixin, Base):
     __tablename__ = "whatsapp_status_events"
     __table_args__ = (
         CheckConstraint("state IN ('pending', 'applied', 'uncertain')", name="ck_wa_status_state"),
-        CheckConstraint("key_version > 0", name="ck_wa_status_key_version"),
+        CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_status_counters"),
         Index("uq_wa_status_fingerprint", "tenant_id", "fingerprint", unique=True),
-        Index("ix_wa_status_pending", "state", "created_at"),
+        Index("ix_wa_status_pending", "state", "next_attempt_at"),
         {"schema": "public"},
     )
 
@@ -31,6 +31,10 @@ class WhatsAppStatusEvent(UUIDMixin, Base):
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

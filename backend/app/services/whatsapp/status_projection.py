@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import timedelta
 
 from sqlalchemy import func, select, text
 
@@ -54,6 +55,9 @@ async def apply_status_event(event_id: uuid.UUID, *, cipher: VersionedEnvelopeSe
             return "missing"
         if event.state != "pending":
             return event.state
+        database_now = (await session.execute(select(func.clock_timestamp()))).scalar_one()
+        if event.next_attempt_at > database_now:
+            return "deferred"
         if (
             tenant is None
             or tenant.slug != initial.slug
@@ -86,7 +90,16 @@ async def apply_status_event(event_id: uuid.UUID, *, cipher: VersionedEnvelopeSe
             )
         ).scalar_one_or_none()
         if message is None:
-            return "waiting"
+            event.attempts += 1
+            event.updated_at = database_now
+            if event.attempts >= 288:
+                event.state = "uncertain"
+                result = "uncertain"
+            else:
+                event.next_attempt_at = database_now + timedelta(minutes=5)
+                result = "waiting"
+            await session.commit()
+            return result
         metadata = dict(message.metadata_ or {})
         decision = decide_status(metadata.get("delivery_state"), status.status)
         if decision.uncertain:

@@ -32,6 +32,7 @@ from app.services.whatsapp.inbox_leases import (
     renew_claim,
 )
 from app.services.whatsapp.inbox_payload import decrypt_claim
+from app.services.whatsapp.status_batch import run_status_batch
 from app.services.whatsapp.status_inbox import persist_delivery_status
 from app.services.whatsapp.status_projection import apply_status_event
 
@@ -147,6 +148,7 @@ async def main():
             )
         )
     assert await apply_status_event(status_rows[0].id, cipher=cipher) == "waiting"
+    assert await apply_status_event(status_rows[0].id, cipher=cipher) == "deferred"
     async with get_engine().begin() as conn:
         await conn.execute(
             text("""
@@ -164,6 +166,13 @@ async def main():
         """),
             {"id": uuid.uuid4(), "conversation": uuid.uuid4()},
         )
+    async with get_session_factory()() as session:
+        await session.execute(
+            update(WhatsAppStatusEvent)
+            .where(WhatsAppStatusEvent.id == status_rows[0].id)
+            .values(next_attempt_at=text("clock_timestamp() - interval '1 second'"))
+        )
+        await session.commit()
     assert await apply_status_event(status_rows[0].id, cipher=cipher) == "applied"
     assert await apply_status_event(status_rows[0].id, cipher=cipher) == "applied"
     async with get_engine().connect() as conn:
@@ -202,7 +211,9 @@ async def main():
                     )
                 )
             ).scalar_one()
-        assert await apply_status_event(pending_id, cipher=cipher) == expected
+        assert isinstance(pending_id, uuid.UUID)
+        counts = await run_status_batch(cipher=cipher)
+        assert counts.get(expected) == 1
     async with get_engine().connect() as conn:
         delivery = (
             await conn.execute(

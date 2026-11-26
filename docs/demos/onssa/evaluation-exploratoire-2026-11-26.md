@@ -60,3 +60,24 @@ temps inclut d'autres étapes et les échanges réseau. Cet échantillon ne suff
 pas à établir un percentile ni à attribuer tout le délai à un seul composant.
 Les formulations et affirmations accessoires doivent également être examinées
 par une personne compétente avant usage institutionnel.
+
+## Essai d'un PDF ONSSA de 19 pages
+
+Le 26 novembre 2026, une institution temporaire isolée a été créée sur le VPS
+pour importer la [loi 76-17 diffusée par l'ONSSA](https://www.onssa.gov.ma/wp-content/uploads/2023/01/LOI.76-17.FR_.pdf).
+Son empreinte SHA-256 correspondait à celle indiquée dans
+`comparaison-decoupage.md`. Après validation, le document a été indexé en
+68 passages. L'institution temporaire a ensuite été supprimée par l'API (204) ;
+le corpus de la démonstration ONSSA n'a pas été modifié.
+
+À la question « Selon l'article 4, quel type de veille l'autorité compétente
+assure-t-elle sur le territoire national ? », le chatbot a répondu qu'elle
+assure une veille phytosanitaire permanente, ce qui correspond au texte de la
+page physique 2 du PDF. Les pages retournées pour le document étaient 2, 3, 7,
+8, 10 et 14 : elles représentent les pages des passages consultés, pas une
+attribution vérifiée de chaque affirmation à une page précise.
+
+Cet essai porte sur une seule question et ne démontre pas la fidélité de toutes
+les réponses ni la qualité de l'extraction des tableaux ou des autres PDF. Le
+texte officiel applicable et l'interprétation juridique restent à vérifier
+auprès des sources compétentes avant tout usage institutionnel.

@@ -92,6 +92,23 @@ class MessageHandler:
         phone = msg.from_
         wamid = msg.id
 
+        # Opt-out must not be blocked by Redis deduplication, rate limits,
+        # quotas, privacy-notice delivery or conversation creation.
+        if msg.type == "text" and msg.text and SegmentationService.is_stop_command(msg.text.body):
+            try:
+                contact = await self._contact_service.get_or_create(
+                    tenant, phone, _extract_sender_name(contacts, phone)
+                )
+                await self._handle_stop_request(tenant, phone, contact)
+            except Exception as exc:
+                self._logger.error(
+                    "stop_command_failed",
+                    tenant=tenant.slug,
+                    phone_last4=_mask_phone(phone),
+                    error_type=type(exc).__name__,
+                )
+            return
+
         try:
             # 1. Dedup — already-processed messages are silently skipped
             if await self._session_manager.is_duplicate_message(tenant, wamid):
@@ -152,20 +169,7 @@ class MessageHandler:
 
             # 6.5 STOP command opt-out (CNDP §9.9)
             if content and SegmentationService.is_stop_command(content):
-                seg = get_segmentation_service()
-                opted_out = await seg.process_stop_command(tenant, phone)
-                if opted_out:
-                    lang = contact.language.value if contact.language else "fr"
-                    stop_msgs = {
-                        "fr": "Vous avez été désinscrit. Vous ne recevrez plus de messages.",
-                        "ar": "تم إلغاء اشتراكك. لن تتلقى المزيد من الرسائل.",
-                        "en": "You have been unsubscribed. You will no longer receive messages.",
-                    }
-                    await self._sender.send_text(
-                        tenant,
-                        phone,
-                        stop_msgs.get(lang, stop_msgs["fr"]),
-                    )
+                await self._handle_stop_request(tenant, phone, contact)
                 return
 
             # 7. Feedback routing — interactive buttons starting with "feedback_"
@@ -346,6 +350,18 @@ class MessageHandler:
                     phone,
                     PromptTemplates.get_message("error_generic", "fr"),
                 )
+
+    async def _handle_stop_request(self, tenant: TenantContext, phone: str, contact) -> None:
+        opted_out = await get_segmentation_service().process_stop_command(tenant, phone)
+        if not opted_out:
+            return
+        lang = contact.language.value if contact.language else "fr"
+        messages = {
+            "fr": "Votre demande de désinscription a été enregistrée.",
+            "ar": "تم تسجيل طلب إلغاء الاشتراك الخاص بك.",
+            "en": "Your unsubscribe request has been recorded.",
+        }
+        await self._sender.send_text(tenant, phone, messages.get(lang, messages["fr"]))
 
     # ── Content extraction ──
 

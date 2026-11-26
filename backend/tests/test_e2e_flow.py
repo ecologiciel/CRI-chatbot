@@ -308,6 +308,41 @@ class TestHappyPath:
         mocks["session_mgr"].increment_quota.assert_not_awaited()
 
 
+class TestStopPriority:
+    @pytest.mark.asyncio()
+    async def test_stop_bypasses_dedup_rate_quota_and_privacy_notice(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        mocks["session_mgr"].is_duplicate_message.side_effect = RuntimeError("redis down")
+        mocks["session_mgr"].check_quota.return_value = _make_quota(is_exhausted=True)
+        handler._privacy_service = AsyncMock()
+        segmentation = AsyncMock()
+        segmentation.process_stop_command.return_value = True
+        with patch(
+            "app.services.whatsapp.handler.get_segmentation_service", return_value=segmentation
+        ):
+            await handler.handle_message(TEST_TENANT, _make_text_message(body=" STOP "), None)
+        segmentation.process_stop_command.assert_awaited_once_with(TEST_TENANT, TEST_PHONE)
+        mocks["session_mgr"].is_duplicate_message.assert_not_awaited()
+        mocks["session_mgr"].check_quota.assert_not_awaited()
+        handler._privacy_service.send_privacy_notice.assert_not_awaited()
+        mocks["conv_svc"].get_or_create.assert_not_awaited()
+        mocks["sender"].send_text.assert_awaited_once()
+        assert "enregistrée" in mocks["sender"].send_text.await_args.args[2]
+
+    @pytest.mark.asyncio()
+    async def test_stop_database_failure_never_confirms_unsubscribe(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        segmentation = AsyncMock()
+        segmentation.process_stop_command.side_effect = RuntimeError("db down")
+        with patch(
+            "app.services.whatsapp.handler.get_segmentation_service", return_value=segmentation
+        ):
+            await handler.handle_message(TEST_TENANT, _make_text_message(body="STOP"), None)
+        mocks["sender"].send_text.assert_not_awaited()
+
+
 class TestMediaMessages:
     """Image and audio processing via WhatsAppMediaHandler."""
 

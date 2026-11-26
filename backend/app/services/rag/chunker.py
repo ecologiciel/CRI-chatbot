@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 
 import structlog
 import tiktoken
@@ -248,23 +249,57 @@ class ChunkingService:
                         headings.append((offset, (*path, line.strip())))
             offset += len(line)
         tables = self._markdown_tables(text)
+        table_starts = [table[0] for table in tables]
+
+        def overlaps_table(begin: int, end: int) -> bool:
+            index = bisect_right(table_starts, begin) - 1
+            if index >= 0 and tables[index][2] > begin:
+                return True
+            following = index + 1
+            return following < len(tables) and tables[following][0] < end
+
         faq_pairs = [
             (begin, end)
             for begin, end in self._labelled_faq_pairs(text)
-            if self.count_tokens(text[begin:end]) <= target
-            and not any(table[0] < end and table[2] > begin for table in tables)
+            if self.count_tokens(text[begin:end]) <= target and not overlaps_table(begin, end)
         ]
+        faq_starts = [pair[0] for pair in faq_pairs]
+        heading_starts = [position for position, _ in headings]
         start = 0
         length = len(text)
         while start < length:
-            end = self._bounded_end(text, start, target)
+            table_index = bisect_right(table_starts, start) - 1
+            table = (
+                tables[table_index] if table_index >= 0 and start < tables[table_index][2] else None
+            )
+            faq_index = bisect_right(faq_starts, start) - 1
+            faq = (
+                faq_pairs[faq_index] if faq_index >= 0 and start < faq_pairs[faq_index][1] else None
+            )
+            if faq is not None and self.count_tokens(text[start : faq[1]]) <= target:
+                end = faq[1]
+            else:
+                end = self._bounded_end(text, start, target)
 
             # Keep tables separate from prose and prefer whole rows.
-            table = next((item for item in tables if item[0] <= start < item[2]), None)
-            faq = next((item for item in faq_pairs if item[0] <= start < item[1]), None)
-            next_table = next((item[0] for item in tables if start < item[0] <= end), None)
-            next_faq = next((item[0] for item in faq_pairs if start < item[0] <= end), None)
-            next_heading = next((pos for pos, _ in headings if start < pos <= end), None)
+            next_table_index = bisect_right(table_starts, start)
+            next_faq_index = bisect_right(faq_starts, start)
+            next_heading_index = bisect_right(heading_starts, start)
+            next_table = (
+                table_starts[next_table_index]
+                if next_table_index < len(tables) and table_starts[next_table_index] <= end
+                else None
+            )
+            next_faq = (
+                faq_starts[next_faq_index]
+                if next_faq_index < len(faq_pairs) and faq_starts[next_faq_index] <= end
+                else None
+            )
+            next_heading = (
+                heading_starts[next_heading_index]
+                if next_heading_index < len(headings) and heading_starts[next_heading_index] <= end
+                else None
+            )
             boundary = min(
                 (pos for pos in (next_heading, next_table, next_faq) if pos is not None),
                 default=None,
@@ -287,7 +322,8 @@ class ChunkingService:
                     if candidates and candidates[-1].end() >= len(prefix) // 2:
                         end = start + candidates[-1].end()
                         break
-            section = next((p for pos, p in reversed(headings) if pos <= start), ())
+            section_index = bisect_right(heading_starts, start) - 1
+            section = headings[section_index][1] if section_index >= 0 else ()
             content = text[start:end]
             header = None
             header_start = None

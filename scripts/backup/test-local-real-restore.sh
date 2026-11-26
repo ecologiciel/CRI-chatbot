@@ -23,6 +23,8 @@ fi
 [ "$(docker info --format '{{.Name}}')" = "$expected_daemon" ]
 for image in "$backend_image" postgres:16-alpine redis:7-alpine qdrant/qdrant:v1.12.1 dappros/minio:RELEASE.2025-09-07T16-13-09Z; do docker image inspect "$image" >/dev/null; done
 read -r expected_hash expected_name < "$checksum_file"
+# Windows-created checksum files may use CRLF line endings.
+expected_name=${expected_name%$'\r'}
 [[ "$expected_hash" =~ ^[a-f0-9]{64}$ && "$expected_name" = "$archive_name" ]]
 actual_hash=$(sha256sum "$archive"); actual_hash=${actual_hash%% *}
 [ "$actual_hash" = "$expected_hash" ]
@@ -76,6 +78,10 @@ print("ARCHIVE_PATHS_SAFE")'
 decrypt | tar -xzf - -C "$work/data"
 for d in postgres minio qdrant; do [ -d "$work/data/$d" ]; done
 [ -f "$work/data/env.demo" ]
+if [ "${BACKUP_EXPECT_ANTIVIRUS_CONFIG:-0}" = 1 ]; then
+ [ -s "$work/data/metadata/runtime/docker/clamav/clamd.conf" ]
+ echo ANTIVIRUS_CONFIGURATION_PRESENT
+fi
 while IFS= read -r line || [ -n "$line" ]; do
  case "$line" in *=*) key=${line%%=*}; value=${line#*=};; *) continue;; esac
  case "$key" in

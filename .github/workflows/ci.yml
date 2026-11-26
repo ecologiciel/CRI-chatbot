@@ -570,7 +570,9 @@ jobs:
       - name: Test KMS rotation crash recovery
         env:
           BACKEND_TEST_IMAGE: ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
-        run: bash scripts/test-kms-rotation-operator.sh
+        # The production operator runs as root. Match its bind-mount ownership
+        # while preserving only the synthetic image reference in the environment.
+        run: sudo BACKEND_TEST_IMAGE="$BACKEND_TEST_IMAGE" bash scripts/test-kms-rotation-operator.sh
 
       - name: Build and push frontend image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5

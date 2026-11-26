@@ -156,6 +156,11 @@ status=\$?
 if [ "\$status" -eq 0 ] && [ "\${KMS_FIXTURE_INTERRUPT:-}" = after-apply ]; then
     case " \$* " in *' app.scripts.kms_rotation apply '*) kill -KILL "\$PPID" ;; esac
 fi
+if [ "\$status" -eq 0 ] && [ "\${KMS_FIXTURE_INTERRUPT:-}" = fail-backend ] && [ -f "$fixture/proxy/fail-once" ]; then
+    case " \$* " in
+        *' up -d --no-deps --no-build --force-recreate backend '*) rm -f "$fixture/proxy/fail-once"; exit 42 ;;
+    esac
+fi
 exit "\$status"
 EOF
 chmod 700 "$fixture/proxy/docker"
@@ -183,6 +188,25 @@ timeout 180s python3 "$script_dir/kms_rotation_operator.py" recover --deployment
 recovered_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
 [[ "$recovered_hash" == "$original_hash" ]]
 echo 'Rollback restored the original fixture master key.'
+
+# A failure immediately after backend recreation must stop the new writer,
+# roll the database/environment back, and restart every fixture writer.
+touch "$fixture/proxy/fail-once"
+set +e
+PATH="$fixture/proxy:$PATH" KMS_FIXTURE_INTERRUPT=fail-backend \
+    timeout 180s python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" \
+    --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg" >"$fixture/recovery.log" 2>&1
+status=$?
+set -e
+[[ "$status" -ne 0 && ! -e "$fixture/proxy/fail-once" && ! -e "$fixture/.kms-maintenance" ]]
+grep -q 'Maintenance recovered; writers restarted' "$fixture/recovery.log"
+recovered_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
+[[ "$recovered_hash" == "$original_hash" ]]
+for service in backend ingestion-worker learning-worker purge-worker; do
+    id=$("${compose[@]}" ps -aq "$service")
+    [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == true/unless-stopped ]]
+done
+echo 'Failure after backend restart rolled back and recovered the fixture.'
 
 timeout 180s python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg"
 [[ ! -e "$fixture/.kms-maintenance" ]]

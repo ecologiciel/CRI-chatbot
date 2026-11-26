@@ -21,7 +21,8 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
     __tablename__ = "whatsapp_inbox_events"
     __table_args__ = (
         CheckConstraint(
-            "state IN ('pending', 'processing', 'uncertain', 'completed')", name="ck_wa_inbox_state"
+            "state IN ('pending', 'processing', 'uncertain', 'follow_up', 'resolved', 'completed')",
+            name="ck_wa_inbox_state",
         ),
         CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_inbox_counters"),
         CheckConstraint(

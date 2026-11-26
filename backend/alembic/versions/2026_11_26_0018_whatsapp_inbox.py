@@ -38,7 +38,8 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["tenant_id"], ["public.tenants.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.CheckConstraint(
-            "state IN ('pending', 'processing', 'uncertain', 'completed')", name="ck_wa_inbox_state"
+            "state IN ('pending', 'processing', 'uncertain', 'follow_up', 'resolved', 'completed')",
+            name="ck_wa_inbox_state",
         ),
         sa.CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_inbox_counters"),
         sa.CheckConstraint(

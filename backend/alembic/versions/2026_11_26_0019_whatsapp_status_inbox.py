@@ -42,7 +42,8 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["tenant_id"], ["public.tenants.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.CheckConstraint(
-            "state IN ('pending', 'applied', 'uncertain')", name="ck_wa_status_state"
+            "state IN ('pending', 'applied', 'uncertain', 'follow_up', 'resolved')",
+            name="ck_wa_status_state",
         ),
         sa.CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_status_counters"),
         schema="public",

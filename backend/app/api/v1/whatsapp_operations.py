@@ -5,26 +5,46 @@ This staged endpoint requires inbox migrations and is not yet deployed.
 
 from __future__ import annotations
 
+import json
+import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.rbac import require_role
 from app.core.tenant import TenantContext, get_current_tenant
+from app.models.audit import AuditLog
 from app.models.enums import AdminRole
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
 from app.schemas.auth import AdminTokenPayload
+from app.schemas.whatsapp import IncomingMessage, StatusInfo
+from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
 
 router = APIRouter(prefix="/whatsapp/operations", tags=["whatsapp-operations"])
+
+
+@router.get("/availability")
+async def availability(
+    _tenant: TenantContext = Depends(get_current_tenant),
+    _admin: AdminTokenPayload = Depends(
+        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
+    ),
+) -> dict[str, bool]:
+    """Report the intake switch, not worker health or provider connectivity."""
+    return {"intake_enabled": get_settings().whatsapp_durable_inbox_enabled}
 
 
 @router.get("/events")
 async def list_events(
     kind: Literal["message", "status"] = "message",
-    state: Literal["pending", "processing", "uncertain", "completed", "applied"] = "uncertain",
+    state: Literal[
+        "pending", "processing", "uncertain", "follow_up", "resolved", "completed", "applied"
+    ] = "uncertain",
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=100_000),
     tenant: TenantContext = Depends(get_current_tenant),
@@ -59,3 +79,109 @@ async def list_events(
             for row in rows
         ],
     }
+
+
+class ReviewRequest(BaseModel):
+    action: Literal["follow_up", "resolve"]
+
+
+@router.get("/events/{event_id}/detail")
+async def event_detail(
+    event_id: uuid.UUID,
+    kind: Literal["message", "status"] = "message",
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+) -> dict[str, str]:
+    """Provide minimal provider identifiers for review, with an audit entry."""
+    model = WhatsAppInboxEvent if kind == "message" else WhatsAppStatusEvent
+    factory = get_session_factory()
+    async with factory() as session:
+        event = (
+            await session.execute(
+                select(model).where(model.id == event_id, model.tenant_id == tenant.id)
+            )
+        ).scalar_one_or_none()
+        if event is None:
+            raise HTTPException(status_code=404, detail="Événement introuvable")
+        cipher = VersionedEnvelopeService(factory, get_settings().kms_master_key)
+        plaintext = await cipher.decrypt(
+            VersionedEnvelope(event.key_version, event.ciphertext),
+            tenant_id=tenant.id,
+            purpose="wa_inbox" if kind == "message" else "wa_status",
+            record_id=event.id,
+        )
+        payload = json.loads(plaintext)
+        if not isinstance(payload, dict) or payload.get("phone_number_id") != event.phone_number_id:
+            raise ValueError("Inbox channel mismatch")
+        if kind == "message":
+            message = IncomingMessage.model_validate(payload.get("message"))
+            if message.id != event.provider_message_id:
+                raise ValueError("Inbox message mismatch")
+            provider_id, recipient, event_type = message.id, message.from_, message.type
+        else:
+            status = StatusInfo.model_validate(payload.get("status"))
+            provider_id, recipient, event_type = status.id, status.recipient_id, status.status
+        session.add(
+            AuditLog(
+                tenant_slug=tenant.slug,
+                user_id=uuid.UUID(admin.sub),
+                user_type="admin",
+                action="wa_inbox_view",
+                resource_type="whatsapp_inbox_event",
+                resource_id=str(event.id),
+                details={"kind": kind},
+            )
+        )
+        await session.commit()
+        return {
+            "id": str(event.id),
+            "state": event.state,
+            "provider_message_id": provider_id,
+            "recipient_masked": "***" + recipient[-4:] if len(recipient) >= 4 else "***",
+            "event_type": event_type,
+        }
+
+
+@router.post("/events/{event_id}/review")
+async def review_event(
+    event_id: uuid.UUID,
+    data: ReviewRequest,
+    kind: Literal["message", "status"] = "message",
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+) -> dict[str, str]:
+    """Record a human review without sending or retrying a message.
+
+    State and immutable audit entry commit together. Resolving is an operator
+    decision and is not evidence of provider acceptance or delivery.
+    """
+    model = WhatsAppInboxEvent if kind == "message" else WhatsAppStatusEvent
+    async with get_session_factory()() as session:
+        event = (
+            await session.execute(
+                select(model)
+                .where(model.id == event_id, model.tenant_id == tenant.id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if event is None:
+            raise HTTPException(status_code=404, detail="Événement introuvable")
+        allowed = {"uncertain"} if data.action == "follow_up" else {"uncertain", "follow_up"}
+        if event.state not in allowed:
+            raise HTTPException(status_code=409, detail="État de l’événement modifié")
+        previous = event.state
+        event.state = "follow_up" if data.action == "follow_up" else "resolved"
+        event.updated_at = func.clock_timestamp()
+        session.add(
+            AuditLog(
+                tenant_slug=tenant.slug,
+                user_id=uuid.UUID(admin.sub),
+                user_type="admin",
+                action="wa_inbox_review",
+                resource_type="whatsapp_inbox_event",
+                resource_id=str(event.id),
+                details={"kind": kind, "previous_state": previous, "decision": data.action},
+            )
+        )
+        await session.commit()
+        return {"id": str(event.id), "state": event.state}

@@ -10,19 +10,27 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from fastapi import HTTPException
 from sqlalchemy import select, text, update
 
 from app.core.config import get_settings
-from app.api.v1.whatsapp_operations import list_events
+from app.api.v1.whatsapp_operations import (
+    ReviewRequest,
+    event_detail,
+    list_events,
+    review_event,
+)
 from app.core.database import Base, close_engine, get_engine, get_session_factory
 from app.core.exceptions import CRIDecryptionError, TenantInactiveError
 from app.core.tenant import TenantContext
 from app.models.enums import TenantStatus
+from app.models.audit import AuditLog
 from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
 from app.schemas.whatsapp import IncomingMessage, StatusInfo
+from app.schemas.auth import AdminTokenPayload
 from app.services.crypto.versioned_envelope import (
     VersionedEnvelope,
     VersionedEnvelopeService,
@@ -56,11 +64,12 @@ async def main():
             lambda sync: Base.metadata.create_all(
                 sync,
                 tables=(
-                    [Tenant.__table__, TenantKey.__table__]
+                    [Tenant.__table__, TenantKey.__table__, AuditLog.__table__]
                     if os.getenv("WA_INBOX_ALEMBIC_TEST") == "1"
                     else [
                         Tenant.__table__,
                         TenantKey.__table__,
+                        AuditLog.__table__,
                         WhatsAppInboxEvent.__table__,
                         WhatsAppStatusEvent.__table__,
                     ]
@@ -254,6 +263,114 @@ async def main():
         "created_at",
         "updated_at",
     }
+    review_id = uuid.UUID(operations["events"][0]["id"])
+    admin = AdminTokenPayload(
+        sub=str(uuid.uuid4()),
+        role="admin_tenant",
+        tenant_id=str(tenant_id),
+        exp=9999999999,
+        iat=1700000000,
+        jti=str(uuid.uuid4()),
+        type="access",
+    )
+    with patch(
+        "app.api.v1.whatsapp_operations.VersionedEnvelopeService", return_value=cipher
+    ):
+        detail = await event_detail(
+            review_id, kind="status", tenant=tenant, admin=admin
+        )
+    assert detail["provider_message_id"] == "status-wamid"
+    assert detail["recipient_masked"] == "***0001"
+    assert "212600000001" not in json.dumps(detail)
+    async with get_engine().begin() as conn:
+        await conn.execute(
+            text("""
+            CREATE FUNCTION public.reject_synthetic_audit() RETURNS trigger
+            LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic audit failure'; END $$
+        """)
+        )
+        await conn.execute(
+            text("""
+            CREATE TRIGGER synthetic_audit_failure BEFORE INSERT ON public.audit_logs
+            FOR EACH ROW EXECUTE FUNCTION public.reject_synthetic_audit()
+        """)
+        )
+    try:
+        await review_event(
+            review_id,
+            ReviewRequest(action="follow_up"),
+            kind="status",
+            tenant=tenant,
+            admin=admin,
+        )
+        raise AssertionError("Review unexpectedly succeeded without audit")
+    except Exception as exc:
+        if isinstance(exc, AssertionError):
+            raise
+    async with get_engine().begin() as conn:
+        await conn.execute(
+            text("DROP TRIGGER synthetic_audit_failure ON public.audit_logs")
+        )
+        await conn.execute(text("DROP FUNCTION public.reject_synthetic_audit()"))
+    async with get_session_factory()() as session:
+        current = (
+            await session.execute(
+                select(WhatsAppStatusEvent.state).where(
+                    WhatsAppStatusEvent.id == review_id
+                )
+            )
+        ).scalar_one()
+    assert current == "uncertain"
+    assert (
+        await review_event(
+            review_id,
+            ReviewRequest(action="follow_up"),
+            kind="status",
+            tenant=tenant,
+            admin=admin,
+        )
+    )["state"] == "follow_up"
+    assert (
+        await review_event(
+            review_id,
+            ReviewRequest(action="resolve"),
+            kind="status",
+            tenant=tenant,
+            admin=admin,
+        )
+    )["state"] == "resolved"
+    async with get_session_factory()() as session:
+        logs = (
+            (
+                await session.execute(
+                    select(AuditLog).where(AuditLog.resource_id == str(review_id))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        other_id = (
+            await session.execute(
+                select(WhatsAppStatusEvent.id).where(
+                    WhatsAppStatusEvent.tenant_id == other_tenant_id
+                )
+            )
+        ).scalar_one()
+    assert len(logs) == 3 and all(log.tenant_slug == tenant.slug for log in logs)
+    assert sum(log.action == "wa_inbox_view" for log in logs) == 1
+    assert sum(log.action == "wa_inbox_review" for log in logs) == 2
+    for target, expected in ((review_id, 409), (other_id, 404)):
+        try:
+            await review_event(
+                target,
+                ReviewRequest(action="resolve"),
+                kind="status",
+                tenant=tenant,
+                admin=admin,
+            )
+            raise AssertionError("Unexpected review access")
+        except HTTPException as exc:
+            assert exc.status_code == expected
     async with get_engine().connect() as conn:
         delivery = (
             await conn.execute(

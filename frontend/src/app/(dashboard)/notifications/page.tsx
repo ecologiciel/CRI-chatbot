@@ -8,10 +8,14 @@ import { NotificationStats } from "./components/notification-stats";
 import { NotificationTable } from "./components/notification-table";
 import { SendNotificationDialog } from "./components/send-notification-dialog";
 import { TemplateConfig } from "./components/template-config";
+import { WhatsAppReview } from "./components/whatsapp-review";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function NotificationsPage() {
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [periodDays, setPeriodDays] = useState(30);
+  const { admin } = useAuth();
+  const canReview = admin?.role === "super_admin" || admin?.role === "admin_tenant";
 
   return (
     <div className="space-y-6">
@@ -40,6 +44,7 @@ export default function NotificationsPage() {
             Historique
           </TabsTrigger>
           <TabsTrigger value="templates">Templates</TabsTrigger>
+          {canReview && <TabsTrigger value="whatsapp-review">Suivi WhatsApp</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="history" className="mt-4">
@@ -49,6 +54,7 @@ export default function NotificationsPage() {
         <TabsContent value="templates" className="mt-4">
           <TemplateConfig />
         </TabsContent>
+        {canReview && <TabsContent value="whatsapp-review" className="mt-4"><WhatsAppReview /></TabsContent>}
       </Tabs>
 
       {/* Send dialog */}

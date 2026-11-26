@@ -20,6 +20,12 @@ router = APIRouter()
 logger = structlog.get_logger()
 
 
+def _unavailable(service: str, exc: Exception) -> "ServiceHealth":
+    """Keep provider exception details out of the unauthenticated endpoint."""
+    logger.warning("health_dependency_failed", service=service, error_type=type(exc).__name__)
+    return ServiceHealth(status="error", error="Service indisponible")
+
+
 class ServiceHealth(BaseModel):
     status: str  # "ok" | "error"
     latency_ms: float | None = None
@@ -46,7 +52,7 @@ async def health_check() -> HealthResponse:
         latency = (time.monotonic() - start) * 1000
         services["postgresql"] = ServiceHealth(status="ok", latency_ms=round(latency, 2))
     except Exception as e:
-        services["postgresql"] = ServiceHealth(status="error", error=str(e)[:200])
+        services["postgresql"] = _unavailable("postgresql", e)
 
     # Redis
     try:
@@ -56,7 +62,7 @@ async def health_check() -> HealthResponse:
         latency = (time.monotonic() - start) * 1000
         services["redis"] = ServiceHealth(status="ok", latency_ms=round(latency, 2))
     except Exception as e:
-        services["redis"] = ServiceHealth(status="error", error=str(e)[:200])
+        services["redis"] = _unavailable("redis", e)
 
     # Qdrant
     try:
@@ -66,7 +72,7 @@ async def health_check() -> HealthResponse:
         latency = (time.monotonic() - start) * 1000
         services["qdrant"] = ServiceHealth(status="ok", latency_ms=round(latency, 2))
     except Exception as e:
-        services["qdrant"] = ServiceHealth(status="error", error=str(e)[:200])
+        services["qdrant"] = _unavailable("qdrant", e)
 
     # MinIO
     try:
@@ -76,7 +82,7 @@ async def health_check() -> HealthResponse:
         latency = (time.monotonic() - start) * 1000
         services["minio"] = ServiceHealth(status="ok", latency_ms=round(latency, 2))
     except Exception as e:
-        services["minio"] = ServiceHealth(status="error", error=str(e)[:200])
+        services["minio"] = _unavailable("minio", e)
 
     # Overall status
     error_count = sum(1 for s in services.values() if s.status == "error")

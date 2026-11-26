@@ -30,6 +30,17 @@ COOKIE_NAME = "demo_chat_session"
 SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 RATE_LIMIT_MAX = 10
 RATE_LIMIT_WINDOW_SECONDS = 60
+# Shared budgets prevent creating fresh cookies from bypassing per-session
+# limits. These conservative demo limits may affect simultaneous visitors.
+TENANT_SESSION_LIMIT = 60
+TENANT_MESSAGE_LIMIT = 30
+PLATFORM_SESSION_LIMIT = 180
+PLATFORM_MESSAGE_LIMIT = 100
+_ATOMIC_WINDOW = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return count
+"""
 DEFAULT_DISCLAIMER = (
     "Prototype de démonstration non officiel. Les réponses reposent sur une sélection "
     "de sources publiques et ne remplacent pas les informations officielles de l’institution."
@@ -52,9 +63,7 @@ async def _resolve_public_tenant(slug: str) -> tuple[TenantContext, Tenant]:
 async def _check_rate_limit(tenant: TenantContext, session_id: str) -> None:
     redis = get_redis()
     key = f"{tenant.redis_prefix}:rl:web:{session_id}"
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS)
+    count = await redis.eval(_ATOMIC_WINDOW, 1, key, RATE_LIMIT_WINDOW_SECONDS)
     if count > RATE_LIMIT_MAX:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -62,10 +71,31 @@ async def _check_rate_limit(tenant: TenantContext, session_id: str) -> None:
         )
 
 
+async def _check_shared_rate_limit(tenant: TenantContext, operation: str) -> None:
+    """Bound aggregate anonymous traffic even when callers create new sessions."""
+    limits = {
+        "session": (TENANT_SESSION_LIMIT, PLATFORM_SESSION_LIMIT),
+        "message": (TENANT_MESSAGE_LIMIT, PLATFORM_MESSAGE_LIMIT),
+    }
+    tenant_limit, platform_limit = limits[operation]
+    redis = get_redis()
+    for key, limit in (
+        (f"{tenant.redis_prefix}:rl:web:shared:{operation}", tenant_limit),
+        (f"__platform__:rl:web:{operation}", platform_limit),
+    ):
+        count = await redis.eval(_ATOMIC_WINDOW, 1, key, RATE_LIMIT_WINDOW_SECONDS)
+        if count > limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="La démonstration est très sollicitée. Réessayez dans une minute.",
+            )
+
+
 @router.post("/{slug}/session", response_model=PublicSessionResponse)
 async def create_session(slug: str, response: Response) -> PublicSessionResponse:
     """Create a pseudonymous browser session for an enabled demo tenant."""
     tenant, _ = await _resolve_public_tenant(slug)
+    await _check_shared_rate_limit(tenant, "session")
     session_id = secrets.token_urlsafe(24)
     redis = get_redis()
     await redis.setex(
@@ -114,6 +144,7 @@ async def send_message(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Session non autorisée")
 
     await _check_rate_limit(tenant, demo_chat_session)
+    await _check_shared_rate_limit(tenant, "message")
     language = Language(payload.language) if payload.language else Language.fr
     contacts = get_contact_service()
     conversations = get_conversation_service()

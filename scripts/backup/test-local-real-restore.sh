@@ -11,13 +11,19 @@ umask 077
 root="${BACKUP_DIR:?Set BACKUP_DIR to the local encrypted backup directory}"
 expected_daemon="${BACKUP_EXPECTED_DAEMON:?Set BACKUP_EXPECTED_DAEMON to the verified local Docker daemon name}"
 backend_image="${BACKUP_TEST_BACKEND_IMAGE:?Set BACKUP_TEST_BACKEND_IMAGE to the locally built backend image}"
-archive="$root/donnees-hostinger.tar.gz.gpg"
+archive_name="${BACKUP_ARCHIVE_NAME:-donnees-hostinger.tar.gz.gpg}"
+[[ "$archive_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.tar\.gz\.gpg$ ]]
+archive="$root/$archive_name"
+checksum_file="$root/$archive_name.sha256"
+if [ "$archive_name" = donnees-hostinger.tar.gz.gpg ] && [ ! -f "$checksum_file" ]; then
+ checksum_file="$root/donnees-hostinger.sha256"
+fi
 [ -z "${DOCKER_HOST:-}" ] && [ -z "${DOCKER_CONTEXT:-}" ]
 [ "$(docker context inspect --format '{{.Endpoints.docker.Host}}')" = unix:///var/run/docker.sock ]
 [ "$(docker info --format '{{.Name}}')" = "$expected_daemon" ]
 for image in "$backend_image" postgres:16-alpine redis:7-alpine qdrant/qdrant:v1.12.1 dappros/minio:RELEASE.2025-09-07T16-13-09Z; do docker image inspect "$image" >/dev/null; done
-read -r expected_hash expected_name < "$root/donnees-hostinger.sha256"
-[[ "$expected_hash" =~ ^[a-f0-9]{64}$ && "$expected_name" = donnees-hostinger.tar.gz.gpg ]]
+read -r expected_hash expected_name < "$checksum_file"
+[[ "$expected_hash" =~ ^[a-f0-9]{64}$ && "$expected_name" = "$archive_name" ]]
 actual_hash=$(sha256sum "$archive"); actual_hash=${actual_hash%% *}
 [ "$actual_hash" = "$expected_hash" ]
 work=$(mktemp -d /dev/shm/codex-real-restore.XXXXXXXX)

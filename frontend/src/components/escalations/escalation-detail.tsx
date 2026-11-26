@@ -17,7 +17,6 @@ import { PriorityBadge } from "./priority-badge";
 import { TriggerBadge } from "./trigger-badge";
 import { AiSummaryBanner } from "./ai-summary-banner";
 import { ConversationBubbles } from "./conversation-bubbles";
-import { AiSuggestions } from "./ai-suggestions";
 import { ResponseInput } from "./response-input";
 import { CloseDialog } from "./close-dialog";
 import {
@@ -43,7 +42,6 @@ export function EscalationDetail({ escalationId }: EscalationDetailProps) {
   const { data: messages } = useEscalationConversation(escalationId);
   const assignMutation = useAssignEscalation();
   const [closeOpen, setCloseOpen] = useState(false);
-  const [suggestionText, setSuggestionText] = useState("");
 
   const handleAssign = useCallback(() => {
     assignMutation.mutate(escalationId, {
@@ -51,10 +49,6 @@ export function EscalationDetail({ escalationId }: EscalationDetailProps) {
       onError: () => toast.error("Échec de l'assignation"),
     });
   }, [escalationId, assignMutation]);
-
-  const handleSuggestionSelect = useCallback((text: string) => {
-    setSuggestionText(text);
-  }, []);
 
   if (isLoading) {
     return (
@@ -150,20 +144,9 @@ export function EscalationDetail({ escalationId }: EscalationDetailProps) {
         escalation={escalation}
       />
 
-      {/* AI Suggestions — only when assigned */}
-      {isActive && (
-        <AiSuggestions
-          escalationId={escalationId}
-          onSelect={handleSuggestionSelect}
-        />
-      )}
-
       {/* Response input — only when assigned */}
       {isActive && (
-        <ResponseInput
-          escalationId={escalationId}
-          suggestion={suggestionText}
-        />
+        <ResponseInput escalationId={escalationId} />
       )}
 
       {/* Read-only banner for closed escalations */}

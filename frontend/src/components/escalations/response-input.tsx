@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useState } from "react";
 import { Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -10,26 +10,15 @@ import { useRespondEscalation } from "@/hooks/use-escalations";
 interface ResponseInputProps {
   escalationId: string;
   disabled?: boolean;
-  /** When set, the textarea is filled with this text (from AI suggestions) */
-  suggestion?: string;
 }
 
 export function ResponseInput({
   escalationId,
   disabled,
-  suggestion,
 }: ResponseInputProps) {
   const [message, setMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const respondMutation = useRespondEscalation();
-
-  // Insert suggestion text when prop changes
-  useEffect(() => {
-    if (suggestion) {
-      setMessage(suggestion);
-      textareaRef.current?.focus();
-    }
-  }, [suggestion]);
 
   const handleSend = useCallback(() => {
     const trimmed = message.trim();

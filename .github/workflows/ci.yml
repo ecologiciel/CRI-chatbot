@@ -518,6 +518,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Verify encrypted archive, locking and restart on failure
         run: bash scripts/backup/test-hostinger-cold-backup.sh
+      - name: Verify backup monitoring signals
+        run: bash scripts/backup/test-check-hostinger-backup.sh
 
   # ---------------------------------------------------------------------------
   # Docker Build + Security Scan (only on push to develop/main, after all tests)

@@ -1,0 +1,7 @@
+# Surveillance depuis Windows
+
+La tâche planifiée `Chatbot ONSSA surveillance` exécute `scripts/monitoring/check-platform-windows.ps1` toutes les dix minutes lorsque la session Windows du propriétaire est ouverte. Elle interroge uniquement le point de santé HTTPS public de la plateforme, sans identifiant ni donnée de conversation. Après deux échecs consécutifs, elle tente d'afficher une notification Windows ; une nouvelle notification est tentée au retour à la normale. Une panne de la connexion Internet locale peut provoquer cette alerte.
+
+L'état et les transitions sont stockés dans `%LOCALAPPDATA%\ChatbotDemoMonitor\state.json` et `events.log`. Cette surveillance dépend de l'ordinateur, de sa session, d'Internet, du chemin du script et de l'affichage des notifications : elle ne constitue pas une supervision 24 h/24. Elle ne vérifie ni la sauvegarde, ni la qualité des réponses, ni WhatsApp. Le contrôle du VPS est distinct et écrit ses alertes localement. Une surveillance externe indépendante et une copie de sauvegarde hors site automatisée restent nécessaires.
+
+Dans le Planificateur de tâches Windows, rechercher `Chatbot ONSSA surveillance` pour consulter ou désactiver la tâche. Si le projet est déplacé, modifier le chemin du script dans l'action de la tâche. La notification graphique ne peut pas être garantie si Windows masque les notifications ou si aucune session interactive n'est ouverte.

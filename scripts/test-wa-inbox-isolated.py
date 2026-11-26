@@ -135,7 +135,16 @@ async def main():
     active = [claim for claim in claims if claim is not None]
     assert len(active) == 1
     claim = active[0]
-    assert claim.id == event.id, f"Unexpected claimed event: {claim.id!r} != {event.id!r}"
+    if claim.id != event.id:
+        async with get_session_factory()() as session:
+            rows = (
+                await session.execute(
+                    select(WhatsAppInboxEvent.id, WhatsAppInboxEvent.state)
+                )
+            ).all()
+        raise AssertionError(
+            f"Unexpected claimed event: {claim.id!r} != {event.id!r}; rows={rows!r}"
+        )
     decoded = await decrypt_claim(claim, cipher)
     assert decoded.message.id == message.id
 

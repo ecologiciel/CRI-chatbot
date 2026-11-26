@@ -97,3 +97,9 @@ comme nécessaires alors que la fiche indique qu'elles peuvent être nécessaire
 selon le contexte. Les consignes multilingues ont ensuite été renforcées pour
 préserver ce type de modalité. Les réponses doivent encore être évaluées par
 une personne compétente, notamment sur ces formulations et leur traduction.
+
+Après déploiement de ces consignes, un nouvel appel par question a été effectué :
+la réponse à `candidate-18` ne mentionnait plus les analyses, tandis que celle
+à `candidate-09` utilisait encore le terme arabe « garantie » pour la sécurité
+des échanges. Le renforcement du prompt n'a donc pas suffi à corriger ce cas.
+Il faut poursuivre l'évaluation et ne pas présenter cette réponse comme validée.

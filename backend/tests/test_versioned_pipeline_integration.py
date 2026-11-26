@@ -12,8 +12,9 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.tenant import TenantContext
-from app.models.enums import KBDocumentStatus
+from app.models.enums import KBDocumentStatus, TenantStatus
 from app.models.kb import KBChunk, KBDocument
+from app.models.tenant import Tenant
 from app.services.rag.extractors import PageSpan
 from app.services.rag.ingestion import IngestionService
 from app.services.rag.retrieval import RetrievalService
@@ -26,6 +27,9 @@ async def test_reindex_failure_preserves_published_search():
         pytest.skip("Set RAG_PIPELINE_TEST_DSN to a fresh disposable PostgreSQL database")
     engine = create_async_engine(dsn)
     qdrant = AsyncQdrantClient(":memory:")
+    tenant = TenantContext(
+        id=uuid.uuid4(), slug="onssa", name="ONSSA", status="active", whatsapp_config=None
+    )
     try:
         async with engine.begin() as conn:
             assert (await conn.execute(text("SELECT current_database()"))).scalar_one() in {
@@ -39,15 +43,25 @@ async def test_reindex_failure_preserves_published_search():
                 await conn.execute(text("SELECT to_regnamespace('tenant_onssa') IS NULL"))
             ).scalar_one()
             await conn.execute(text("CREATE SCHEMA tenant_onssa"))
+            await conn.run_sync(lambda c: Tenant.__table__.create(c, checkfirst=True))
+            await conn.execute(
+                Tenant.__table__.insert().values(
+                    id=tenant.id,
+                    name=tenant.name,
+                    slug=tenant.slug,
+                    region="National",
+                    status=TenantStatus.active,
+                )
+            )
             await conn.execute(text("SET search_path TO tenant_onssa, public"))
             await conn.run_sync(lambda c: KBDocument.__table__.create(c, checkfirst=True))
             await conn.run_sync(lambda c: KBChunk.__table__.create(c, checkfirst=True))
         factory = async_sessionmaker(engine, expire_on_commit=False)
-        tenant = TenantContext(
-            id=uuid.uuid4(), slug="onssa", name="ONSSA", status="active", whatsapp_config=None
-        )
         document_id = uuid.uuid4()
-        with patch("app.core.tenant.get_session_factory", return_value=factory):
+        with (
+            patch("app.core.tenant.get_session_factory", return_value=factory),
+            patch("app.core.tenant_lifecycle.get_session_factory", return_value=factory),
+        ):
             async with tenant.db_session() as session:
                 session.add(
                     KBDocument(

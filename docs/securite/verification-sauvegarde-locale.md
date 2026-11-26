@@ -21,7 +21,7 @@ cd /opt/chatbot-demo
 bash scripts/backup/hostinger-cold-backup.sh --recover
 ```
 
-La reprise utilise les mêmes verrous que la sauvegarde, refuse un journal KMS inachevé, redémarre les services enregistrés et conserve le journal si le démarrage ou le contrôle de disponibilité échoue. Vérifier ensuite l'état de la plateforme. Ce mécanisme est manuel : il ne constitue ni une reprise automatique ni une garantie en cas de coupure électrique au moment de l'écriture du journal. Les tâches Redis en attente ne sont pas incluses dans l'archive.
+La reprise utilise les mêmes verrous que la sauvegarde, refuse un journal KMS inachevé, redémarre les services enregistrés et conserve le journal si le démarrage ou le contrôle de disponibilité échoue. Vérifier ensuite l'état de la plateforme. Le script `hostinger-backup-recovery-guard.sh` peut être appelé régulièrement par le planificateur de l'hôte ; il ne tente rien tant que le verrou de sauvegarde est occupé. La planification doit être installée et surveillée séparément. Elle ne garantit pas la reprise après une coupure électrique au moment de l'écriture du journal. Les tâches Redis en attente ne sont pas incluses dans l'archive.
 
 Les sauvegardes créées avec la version qui inclut l'antivirus conservent sa
 configuration sous `metadata/runtime/docker/clamav/clamd.conf` dans l'archive

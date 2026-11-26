@@ -72,6 +72,8 @@ for service in postgres minio qdrant; do
 done
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+mkdir -p "$fixture/scripts/backup"
+cp "$script_dir/hostinger-cold-backup.sh" "$fixture/scripts/backup/hostinger-cold-backup.sh"
 DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"
 archive=$(find "$fixture/backups" -maxdepth 1 -name '*.tar.gz.gpg' -type f -print)
 [[ -n "$archive" && $(printf '%s\n' "$archive" | wc -l) -eq 1 ]]
@@ -109,6 +111,10 @@ mkfifo "$fixture/release-lock"
 lock_pid=$!
 for attempt in $(seq 1 30); do [[ -f "$fixture/lock-ready" ]] && break; sleep 1; done
 test -f "$fixture/lock-ready"
+printf '%s\n' backend > "$fixture/backups/.cold-backup-services"
+DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-backup-recovery-guard.sh"
+test -f "$fixture/backups/.cold-backup-services"
+rm "$fixture/backups/.cold-backup-services"
 if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" BACKUP_RECIPIENT_FILE="$fixture/recipient.asc" bash "$script_dir/hostinger-cold-backup.sh"; then
     echo 'A concurrent backup was unexpectedly accepted' >&2
     exit 1
@@ -170,12 +176,12 @@ if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$pr
 fi
 mkdir -p "$fixture/.kms-maintenance"
 touch "$fixture/.kms-maintenance/journal"
-if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-cold-backup.sh" --recover; then
+if DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-backup-recovery-guard.sh"; then
     echo 'Backup recovery ignored incomplete KMS maintenance' >&2
     exit 1
 fi
 rm "$fixture/.kms-maintenance/journal"
-DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-cold-backup.sh" --recover
+DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-backup-recovery-guard.sh"
 [[ ! -e "$fixture/backups/.cold-backup-services" ]]
 [[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
 echo 'Isolated encrypted backup, decryption, locking and interruption recovery: OK'

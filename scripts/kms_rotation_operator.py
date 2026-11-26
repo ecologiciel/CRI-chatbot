@@ -20,7 +20,9 @@ import tempfile
 import time
 from pathlib import Path
 
-WRITERS = ("backend", "ingestion-worker", "learning-worker", "purge-worker")
+REQUIRED_WRITERS = ("backend", "ingestion-worker", "learning-worker", "purge-worker")
+OPTIONAL_WRITERS = ("whatsapp-inbox-worker",)
+WRITERS = REQUIRED_WRITERS + OPTIONAL_WRITERS
 STATE_NAME = ".kms-maintenance"
 
 
@@ -130,6 +132,8 @@ class RotationOperator:
             str(self.compose_files[0]),
             "-f",
             str(self.compose_files[1]),
+            "--profile",
+            "whatsapp-durable",
             *args,
             capture=capture,
         )
@@ -151,11 +155,14 @@ class RotationOperator:
         )
         return output.splitlines() if output else []
 
-    def writer_ids(self, require_one: bool = True) -> list[str]:
+    def writer_ids(
+        self, require_one: bool = True, services: tuple[str, ...] | None = None
+    ) -> list[str]:
         ids = []
-        for service in WRITERS:
+        for service in services or WRITERS:
             matches = self.containers(service)
-            if require_one and len(matches) != 1:
+            required = service in REQUIRED_WRITERS or services is not None
+            if len(matches) > 1 or (require_one and required and len(matches) != 1):
                 raise RuntimeError(f"Expected exactly one {service} container")
             ids.extend(matches)
         return ids
@@ -264,7 +271,7 @@ class RotationOperator:
             f"/deployment/{STATE_NAME}/journal",
         )
 
-    def start_writers(self) -> None:
+    def start_writers(self, services: tuple[str, ...]) -> None:
         self.compose(
             "up", "-d", "--no-deps", "--no-build", "--force-recreate", "backend"
         )
@@ -281,9 +288,9 @@ class RotationOperator:
         else:
             raise RuntimeError("Backend did not become healthy")
         self.compose(
-            "up", "-d", "--no-deps", "--no-build", "--force-recreate", *WRITERS[1:]
+            "up", "-d", "--no-deps", "--no-build", "--force-recreate", *services[1:]
         )
-        for cid in self.writer_ids():
+        for cid in self.writer_ids(services=services):
             if not self.inspect(cid)["State"]["Running"]:
                 raise RuntimeError("A writer did not restart")
 
@@ -303,8 +310,11 @@ class RotationOperator:
             raise ValueError("Compose configuration changed during maintenance")
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", data.get("image", "")):
             raise ValueError("Invalid maintenance image identifier")
+        services = data.get("writer_services", list(REQUIRED_WRITERS))
+        if services not in (list(REQUIRED_WRITERS), list(WRITERS)):
+            raise ValueError("Invalid maintenance writer services")
         refs = data.get("image_references")
-        if not isinstance(refs, list) or len(refs) != len(WRITERS):
+        if not isinstance(refs, list) or len(refs) != len(services):
             raise ValueError("Invalid application image references")
         for ref in refs:
             if not isinstance(ref, str) or not re.fullmatch(
@@ -354,7 +364,7 @@ class RotationOperator:
                 self.coordinator("finalize-rollback", data["image"])
             else:
                 self.coordinator("abort-incomplete", data["image"])
-        self.start_writers()
+        self.start_writers(tuple(data.get("writer_services", REQUIRED_WRITERS)))
         self.clear_state()
         print("Maintenance recovered; writers restarted.", flush=True)
 
@@ -364,6 +374,9 @@ class RotationOperator:
             raise RuntimeError("Maintenance state exists; recover it before starting")
         self.assert_no_unmanaged_key_writers()
         ids = self.writer_ids()
+        services = REQUIRED_WRITERS + tuple(
+            service for service in OPTIONAL_WRITERS if self.containers(service)
+        )
         if not all(self.inspect(cid)["State"]["Running"] for cid in ids):
             raise RuntimeError(
                 "Every application writer must be running before rotation"
@@ -379,6 +392,7 @@ class RotationOperator:
                 "network": self.network,
                 "image": image,
                 "image_references": image_references,
+                "writer_services": list(services),
                 "compose_hashes": [checksum(path) for path in self.compose_files],
             },
         )
@@ -386,7 +400,7 @@ class RotationOperator:
             self.quiesce()
             self.coordinator("prepare", image)
             self.coordinator("apply", image)
-            self.start_writers()
+            self.start_writers(services)
             self.coordinator("finalize", image)
             self.clear_state()
         except Exception:

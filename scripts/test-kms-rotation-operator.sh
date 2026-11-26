@@ -77,6 +77,9 @@ services:
     <<: *writer
   purge-worker:
     <<: *writer
+  whatsapp-inbox-worker:
+    <<: *writer
+    profiles: ["whatsapp-durable"]
 networks:
   data:
     name: ${TEST_NETWORK}
@@ -154,6 +157,10 @@ done
 docker rm -f "${project}-unmanaged-writer" >/dev/null
 echo 'Unmanaged KMS writer correctly blocked the rotation.'
 
+# The optional durable worker is an additional KMS writer and must remain
+# stopped during an interrupted rotation and be restored after recovery.
+"${compose[@]}" --profile whatsapp-durable up -d whatsapp-inbox-worker >/dev/null
+
 # Proxy only this test's Docker CLI, and kill the operator after a successful
 # database/configuration switch but before it can restart the writers.
 mkdir "$fixture/proxy"
@@ -181,7 +188,7 @@ set -e
 [[ "$status" -ne 0 && -f "$fixture/.kms-maintenance/journal/READY" ]]
 interrupted_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
 [[ "$interrupted_hash" != "$original_hash" ]]
-for service in backend ingestion-worker learning-worker purge-worker; do
+for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker; do
     id=$("${compose[@]}" ps -aq "$service")
     [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == false/no ]]
 done
@@ -210,7 +217,7 @@ set -e
 grep -q 'Maintenance recovered; writers restarted' "$fixture/recovery.log"
 recovered_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
 [[ "$recovered_hash" == "$original_hash" ]]
-for service in backend ingestion-worker learning-worker purge-worker; do
+for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker; do
     id=$("${compose[@]}" ps -aq "$service")
     [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == true/unless-stopped ]]
 done
@@ -238,7 +245,7 @@ async def run():
     await close_engine()
 asyncio.run(run())
 PY
-for service in backend ingestion-worker learning-worker purge-worker; do
+for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker; do
     id=$("${compose[@]}" ps -aq "$service")
     [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == true/unless-stopped ]]
 done

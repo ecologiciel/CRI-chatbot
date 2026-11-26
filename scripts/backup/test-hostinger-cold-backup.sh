@@ -46,6 +46,10 @@ services:
   backend:
     image: redis:7-alpine
     entrypoint: [sleep, '600']
+  whatsapp-inbox-worker:
+    image: redis:7-alpine
+    entrypoint: [sleep, '600']
+    profiles: ["whatsapp-durable"]
 volumes:
   pg:
   objects:
@@ -170,6 +174,7 @@ fi
 
 # Simulate the operating system killing the backup immediately after stopping
 # its services. A shell EXIT trap cannot run after SIGKILL.
+"${compose[@]}" --profile whatsapp-durable up -d whatsapp-inbox-worker >/dev/null
 mkdir "$fixture/docker-wrapper"
 real_docker=$(command -v docker)
 cat > "$fixture/docker-wrapper/docker" <<'SH'
@@ -201,5 +206,5 @@ fi
 rm "$fixture/.kms-maintenance/journal"
 DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-backup-recovery-guard.sh"
 [[ ! -e "$fixture/backups/.cold-backup-services" ]]
-[[ $("${compose[@]}" ps --status running --services | wc -l) -eq 4 ]]
+[[ $("${compose[@]}" ps --status running --services | wc -l) -eq 5 ]]
 echo 'Isolated encrypted backup, decryption, locking and interruption recovery: OK'

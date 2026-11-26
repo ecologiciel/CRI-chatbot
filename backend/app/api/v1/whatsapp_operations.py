@@ -26,6 +26,7 @@ async def list_events(
     kind: Literal["message", "status"] = "message",
     state: Literal["pending", "processing", "uncertain", "completed", "applied"] = "uncertain",
     limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100_000),
     tenant: TenantContext = Depends(get_current_tenant),
     _admin: AdminTokenPayload = Depends(
         require_role(AdminRole.super_admin, AdminRole.admin_tenant)
@@ -40,11 +41,13 @@ async def list_events(
                 .where(model.tenant_id == tenant.id, model.state == state)
                 .order_by(model.created_at, model.id)
                 .limit(limit)
+                .offset(offset)
             )
         ).all()
     return {
         "kind": kind,
         "state": state,
+        "offset": offset,
         "events": [
             {
                 "id": str(row.id),

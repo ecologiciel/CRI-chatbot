@@ -244,7 +244,7 @@ async def main():
         )
         await session.commit()
     operations = await list_events(
-        kind="status", state="uncertain", limit=50, tenant=tenant, _admin=None
+        kind="status", state="uncertain", limit=50, offset=0, tenant=tenant, _admin=None
     )
     assert len(operations["events"]) == 1
     assert set(operations["events"][0]) == {

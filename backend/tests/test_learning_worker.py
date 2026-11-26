@@ -7,6 +7,7 @@ idempotency guards, synthetic document get-or-create, and chunk indexing.
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -29,6 +30,46 @@ TEST_TENANT = TenantContext(
 
 QUESTION_ID = uuid.uuid4()
 ADMIN_ID = uuid.uuid4()
+
+
+@pytest.fixture(autouse=True)
+def mock_lifecycle_lock():
+    @asynccontextmanager
+    async def unlocked(_tenant):
+        yield
+
+    with patch("app.workers.learning.protect_ingestion", unlocked):
+        yield
+
+
+@pytest.mark.asyncio
+async def test_reinjection_holds_lifecycle_lock_until_publication_finishes():
+    from app.workers.learning import reinject_learning_task
+
+    held = False
+
+    @asynccontextmanager
+    async def lock(tenant):
+        nonlocal held
+        assert tenant is TEST_TENANT
+        held = True
+        try:
+            yield
+        finally:
+            held = False
+
+    async def publish(_ctx, tenant, _question_id):
+        assert held
+        assert tenant is TEST_TENANT
+        return {"status": "ok"}
+
+    with (
+        patch("app.core.tenant.TenantResolver.from_slug", new_callable=AsyncMock, return_value=TEST_TENANT),
+        patch("app.workers.learning.protect_ingestion", lock),
+        patch("app.workers.learning._reinject_learning_locked", side_effect=publish),
+    ):
+        assert (await reinject_learning_task({}, TEST_TENANT.slug, str(QUESTION_ID)))["status"] == "ok"
+    assert not held
 
 
 def _make_mock_tenant(mock_session):

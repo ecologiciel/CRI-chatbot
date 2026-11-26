@@ -19,6 +19,7 @@ from sqlalchemy import func, select, text
 
 from app.core.arq import LEARNING_QUEUE
 from app.core.config import get_settings
+from app.core.tenant_lifecycle import protect_ingestion
 from app.models.enums import KBDocumentStatus, UnansweredStatus
 from app.models.feedback import UnansweredQuestion
 from app.models.kb import KBChunk, KBDocument
@@ -142,6 +143,15 @@ async def reinject_learning_task(
     tenant_slug: str,
     question_id: str,
 ) -> dict:
+    """Keep tenant removal excluded while a reviewed answer is published."""
+    from app.core.tenant import TenantResolver
+
+    tenant = await TenantResolver.from_slug(tenant_slug)
+    async with protect_ingestion(tenant):
+        return await _reinject_learning_locked(ctx, tenant, question_id)
+
+
+async def _reinject_learning_locked(ctx: dict, tenant, question_id: str) -> dict:
     """Reinject an approved question into Qdrant as a searchable KB chunk.
 
     Pipeline:
@@ -168,21 +178,18 @@ async def reinject_learning_task(
         Dict with status and details (qdrant_point_id on success).
     """
     from app.core.qdrant import get_qdrant
-    from app.core.tenant import TenantResolver
     from app.services.ai.embeddings import get_embedding_service
     from app.services.audit.service import get_audit_service
     from app.services.guardrails.pii_masker import get_pii_masker
 
+    tenant_slug = tenant.slug
     log = logger.bind(
         task="reinject_learning",
         tenant=tenant_slug,
         question_id=question_id,
     )
 
-    # 1. Resolve tenant
-    tenant = await TenantResolver.from_slug(tenant_slug)
-
-    # 2. Fetch question and validate
+    # Fetch the question after acquiring and validating the lifecycle lock.
     async with tenant.db_session() as session:
         result = await session.execute(
             select(UnansweredQuestion).where(

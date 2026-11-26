@@ -1,4 +1,4 @@
-"""PostgreSQL lifecycle locks for tenant-scoped ingestion and removal.
+"""PostgreSQL lifecycle locks for tenant-scoped publication and removal.
 
 Shared locks let ingestion jobs for one tenant run concurrently. A nonblocking
 exclusive lock lets removal fail safely if any protected job is in flight.
@@ -58,6 +58,6 @@ async def protect_removal(slug: str) -> AsyncIterator[None]:
         ).scalar_one()
         if not acquired:
             raise TenantLifecycleBusyError(
-                "Une indexation est en cours pour cette institution. Réessayez après sa fin."
+                "Un traitement documentaire est en cours pour cette institution. Réessayez après sa fin."
             )
         yield

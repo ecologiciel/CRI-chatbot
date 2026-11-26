@@ -65,6 +65,44 @@ def _mock_minio_response(content: bytes = b"Document text content") -> tuple:
 
 class TestIngestDocumentTask:
     @pytest.mark.asyncio
+    async def test_worker_uses_isolated_extractor_when_configured(self):
+        from types import SimpleNamespace
+
+        from app.workers.ingestion import ingest_document_task
+
+        doc_id = uuid.uuid4()
+        doc = _make_doc_orm(doc_id, file_path="kb/file.txt")
+        session = _mock_tenant_session(doc)
+        service = MagicMock(ingest_document=AsyncMock(return_value=1))
+        with (
+            patch(
+                "app.core.tenant.TenantResolver.from_slug",
+                new_callable=AsyncMock,
+                return_value=TEST_TENANT,
+            ),
+            patch.object(TenantContext, "db_session", return_value=session),
+            patch(
+                "app.core.minio.get_object_bytes", new_callable=AsyncMock, return_value=b"document"
+            ),
+            patch("app.services.antivirus.scan_document", new_callable=AsyncMock),
+            patch("app.services.rag.ingestion.get_ingestion_service", return_value=service),
+            patch(
+                "app.workers.ingestion.get_settings",
+                return_value=SimpleNamespace(extraction_service_url="http://extractor:8080"),
+            ),
+            patch(
+                "app.workers.ingestion.extract_remotely",
+                new_callable=AsyncMock,
+                return_value=ExtractedDocument("document"),
+            ) as remote,
+            patch("app.workers.ingestion.extract_document") as local,
+        ):
+            result = await ingest_document_task({}, "rabat", str(doc_id))
+        assert result["status"] == "ok"
+        remote.assert_awaited_once_with(b"document", "file.txt", "http://extractor:8080")
+        local.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_recovery_selects_approved_stale_jobs_with_stable_ids(self):
         from app.workers.ingestion import _recover_tenant_documents
 

@@ -18,6 +18,7 @@ x-backend-environment: &backend-environment
   ANTIVIRUS_PORT: 3310
   ANTIVIRUS_TIMEOUT: 30
   ANTIVIRUS_MAX_SIGNATURE_AGE_DAYS: 7
+  EXTRACTION_SERVICE_URL: http://extractor:8080
   WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
   WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
   WEBHOOK_PROXY_SHARED_SECRET: ${WEBHOOK_PROXY_SHARED_SECRET:-}
@@ -118,6 +119,24 @@ services:
     restart: unless-stopped
     mem_limit: 4g
 
+  extractor:
+    <<: *app-hardening
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    command: uvicorn app.services.rag.extractor_service:app --host 0.0.0.0 --port 8080 --no-access-log
+    networks: [demo-extractor]
+    read_only: true
+    tmpfs: ["/tmp:noexec,nosuid,nodev,size=64m"]
+    pids_limit: 32
+    cpus: 1.0
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
   backend:
     <<: *app-hardening
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
@@ -171,9 +190,10 @@ services:
     depends_on:
       backend: { condition: service_healthy }
       antivirus: { condition: service_healthy }
+      extractor: { condition: service_healthy }
     # It remains private for data access while gaining outbound HTTPS through
     # the edge network for the configured embedding provider (Gemini).
-    networks: [demo-data, demo-edge, demo-antivirus]
+    networks: [demo-data, demo-edge, demo-antivirus, demo-extractor]
     healthcheck:
       disable: true
     restart: unless-stopped
@@ -323,6 +343,9 @@ networks:
     internal: true
   demo-antivirus-egress:
     name: chatbot-demo-antivirus-egress
+  demo-extractor:
+    name: chatbot-demo-extractor
+    internal: true
 
 volumes:
   postgres_data:

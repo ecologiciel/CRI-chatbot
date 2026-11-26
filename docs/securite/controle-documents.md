@@ -15,7 +15,14 @@ diagnostiquer une indisponibilité ; ne pas y inclure de contenu confidentiel.
 Les fichiers DOCX sont aussi vérifiés avant extraction : 2 048 entrées au maximum,
 10 Mio par entrée, 50 Mio décompressés au total. Les archives imbriquées, objets
 incorporés, macros, contenus chiffrés et chemins non sûrs sont refusés. Les PDF
-chiffrés non analysables sont refusés par l'antivirus. L'analyse antivirus et ces
-limites réduisent les risques : elles ne garantissent pas l'absence de logiciel
-malveillant et ne remplacent ni la validation humaine ni une isolation dédiée du
-programme d'extraction.
+chiffrés non analysables sont refusés par l'antivirus. Ces contrôles ne garantissent
+pas l'absence de logiciel malveillant et ne remplacent pas la validation humaine.
+
+Sur Hostinger, le worker transmet le fichier à un service d'extraction distinct,
+sans identifiants applicatifs, sans accès aux bases et sans réseau extérieur. Le
+service utilise un processus enfant par fichier et des limites de temps, mémoire
+et taille ; le conteneur est en lecture seule avec capacités Linux retirées. Si le
+service échoue ou est indisponible, l'indexation échoue sans retour silencieux à
+l'extraction dans le worker. Ce confinement par conteneur réduit la surface
+d'exposition : il ne constitue pas une machine virtuelle ni une garantie absolue
+d'isolation ou d'absence de vulnérabilités.

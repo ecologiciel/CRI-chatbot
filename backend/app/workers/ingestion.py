@@ -24,6 +24,7 @@ from app.models.enums import KBDocumentStatus
 from app.models.kb import KBDocument
 from app.services.antivirus import MalwareDetectedError
 from app.services.rag.extractors import extract_document
+from app.services.rag.remote_extraction import extract_remotely
 
 logger = structlog.get_logger()
 
@@ -151,7 +152,12 @@ async def ingest_document_task(
 
         # 4. Extract text
         filename = doc.file_path.rsplit("/", 1)[-1] if "/" in doc.file_path else doc.file_path
-        extracted = extract_document(file_bytes, filename)
+        settings = get_settings()
+        extracted = (
+            await extract_remotely(file_bytes, filename, settings.extraction_service_url)
+            if settings.extraction_service_url
+            else extract_document(file_bytes, filename)
+        )
 
         # 5. Run ingestion pipeline
         service = get_ingestion_service()
@@ -224,7 +230,12 @@ async def reindex_document_task(
 
         # Extract text
         filename = doc.file_path.rsplit("/", 1)[-1] if "/" in doc.file_path else doc.file_path
-        extracted = extract_document(file_bytes, filename)
+        settings = get_settings()
+        extracted = (
+            await extract_remotely(file_bytes, filename, settings.extraction_service_url)
+            if settings.extraction_service_url
+            else extract_document(file_bytes, filename)
+        )
 
         # Reindex (delete old chunks + re-ingest)
         service = get_ingestion_service()

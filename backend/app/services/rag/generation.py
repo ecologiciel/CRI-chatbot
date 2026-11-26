@@ -163,6 +163,12 @@ class GenerationService:
                     trace_id=trace_id,
                 )
 
+            # The public response can display at most three documents. Do not
+            # give the model additional documents whose citations would be
+            # silently dropped from the answer shown to the user.
+            cited_documents = {source["document_id"] for source in self._build_sources(chunks)}
+            chunks = [chunk for chunk in chunks if chunk.document_id in cited_documents]
+
             # 4. Confidence check → disclaimer
             disclaimer: str | None = None
             if not is_confident:

@@ -175,6 +175,28 @@ def _make_generation_service(
 
 class TestGenerationSuccess:
     @pytest.mark.asyncio
+    async def test_prompt_only_uses_documents_present_in_returned_sources(self):
+        service, _, gemini, _ = _make_generation_service()
+        chunks = [
+            RetrievedChunk(
+                chunk_id=f"chunk-{index}",
+                document_id=doc,
+                content=f"unique passage {index}",
+                score=0.9,
+                metadata={"title": doc},
+            )
+            for index, doc in enumerate(["one", "two", "three", "four", "one"])
+        ]
+        response = await service.generate(
+            TEST_TENANT, GenerationRequest(query="Question", language="fr", chunks=chunks)
+        )
+        prompt = gemini.generate.await_args.args[0].contents
+        assert "unique passage 3" not in prompt
+        assert "unique passage 4" in prompt
+        assert response.chunk_ids == ["chunk-0", "chunk-1", "chunk-2", "chunk-4"]
+        assert [source["document_id"] for source in response.sources] == ["one", "two", "three"]
+
+    @pytest.mark.asyncio
     async def test_full_pipeline_returns_response(self):
         """Happy path: query -> retrieve -> generate -> response with chunk_ids."""
         service, mock_retrieval, mock_gemini, _ = _make_generation_service()

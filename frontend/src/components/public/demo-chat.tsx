@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 type Source = { title?: string | null; url?: string | null; published_at?: string | null; section_path?: string[]; page_numbers?: number[]; language?: string | null };
 type ChatMessage = { role: "user" | "assistant"; content: string; sources?: Source[] };
@@ -19,7 +19,7 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
   const [institution, setInstitution] = useState<string | null>(null);
   const started = useRef(false);
 
-  useEffect(() => {
+  const startSession = useCallback(() => {
     if (started.current) return;
     started.current = true;
     fetch(`/api/v1/public/${tenantSlug}/session`, { method: "POST", credentials: "same-origin" })
@@ -29,8 +29,13 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
         setInstitution(body.tenant_name || null);
         setReady(true);
       })
-      .catch((reason: Error) => setError(reason.message));
+      .catch(() => setError("Impossible de démarrer la démonstration. Veuillez réessayer."))
+      .finally(() => { started.current = false; });
   }, [tenantSlug]);
+
+  useEffect(() => {
+    startSession();
+  }, [startSession]);
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -99,6 +104,11 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
 
         <footer className="border-t border-slate-200 bg-white p-4">
           {error && <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {error && !ready && (
+            <button type="button" className="mb-3 rounded-lg border border-emerald-700 px-4 py-2 text-sm font-semibold text-emerald-700" onClick={() => { setError(null); startSession(); }}>
+              Réessayer de démarrer
+            </button>
+          )}
           <form onSubmit={send} className="flex gap-2">
             <label className="sr-only" htmlFor="question">Votre question</label>
             <input id="question" value={input} onChange={(event) => setInput(event.target.value)} disabled={!ready || sending} maxLength={2000} placeholder={ready ? "Posez votre question…" : "Initialisation…"} className="min-w-0 flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none ring-emerald-600 focus:ring-2 disabled:bg-slate-100" />

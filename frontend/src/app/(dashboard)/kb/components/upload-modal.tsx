@@ -137,8 +137,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
             Ajouter un document
           </DialogTitle>
           <DialogDescription>
-            Importez un document dans la base de connaissances pour
-            l&apos;indexation automatique.
+            Importez un document, puis validez sa source avant son indexation.
           </DialogDescription>
         </DialogHeader>
 
@@ -195,6 +194,12 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
               </>
             )}
           </div>
+
+          {file?.name.toLowerCase().endsWith(".csv") && (
+            <p className="text-sm text-muted-foreground">
+              Pour un CSV, la première ligne est supposée contenir les intitulés des colonnes. Vérifiez-la avant l&apos;import.
+            </p>
+          )}
 
           <div className="space-y-2 rounded-md border p-3">
             <p className="text-sm font-medium">Preuve et validité de la source <span className="text-destructive">*</span></p>

@@ -33,6 +33,7 @@ from app.services.whatsapp.inbox_leases import (
 )
 from app.services.whatsapp.inbox_payload import decrypt_claim
 from app.services.whatsapp.status_inbox import persist_delivery_status
+from app.services.whatsapp.status_projection import apply_status_event
 
 
 async def main():
@@ -125,6 +126,49 @@ async def main():
         record_id=status_rows[0].id,
     )
     assert json.loads(status_plaintext)["status"]["status"] == "delivered"
+    async with get_engine().begin() as conn:
+        await conn.execute(text("CREATE SCHEMA tenant_synthetica"))
+        await conn.execute(
+            text("CREATE TYPE public.messagedirection AS ENUM ('inbound', 'outbound')")
+        )
+        await conn.execute(
+            text(
+                "CREATE TYPE public.messagetype AS ENUM ('text', 'image', 'audio', 'document', 'interactive', 'system')"
+            )
+        )
+        await conn.execute(
+            text("""
+            CREATE TABLE tenant_synthetica.messages (
+                id uuid PRIMARY KEY, conversation_id uuid NOT NULL,
+                direction public.messagedirection NOT NULL, type public.messagetype NOT NULL,
+                content text, media_url varchar(500), chunk_ids jsonb NOT NULL DEFAULT '[]',
+                whatsapp_message_id varchar(100), metadata jsonb,
+                timestamp timestamptz NOT NULL DEFAULT now(),
+                created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+            )
+        """)
+        )
+    assert await apply_status_event(status_rows[0].id, cipher=cipher) == "waiting"
+    async with get_engine().begin() as conn:
+        await conn.execute(
+            text("""
+            INSERT INTO tenant_synthetica.messages
+                (id, conversation_id, direction, type, whatsapp_message_id, metadata)
+            VALUES (:id, :conversation, 'outbound', 'text', 'status-wamid', '{"delivery_state":"accepted"}')
+        """),
+            {"id": uuid.uuid4(), "conversation": uuid.uuid4()},
+        )
+    assert await apply_status_event(status_rows[0].id, cipher=cipher) == "applied"
+    assert await apply_status_event(status_rows[0].id, cipher=cipher) == "applied"
+    async with get_engine().connect() as conn:
+        delivery = (
+            await conn.execute(
+                text(
+                    "SELECT metadata->>'delivery_state' FROM tenant_synthetica.messages"
+                )
+            )
+        ).scalar_one()
+    assert delivery == "delivered"
     message = IncomingMessage.model_validate(
         {
             "id": "synthetic-wamid",

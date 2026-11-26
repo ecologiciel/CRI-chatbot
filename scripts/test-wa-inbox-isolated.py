@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import select, text, update
@@ -375,6 +376,54 @@ async def main():
             )
         ).scalar_one()
     assert state == "uncertain"
+    if os.getenv("WA_INBOX_ARQ_TEST") == "1":
+        from arq.connections import RedisSettings, create_pool
+        from arq.worker import Worker
+
+        import app.services.whatsapp.inbox_execution as execution
+        from app.services.whatsapp.handler import HandlingOutcome
+        from app.workers.whatsapp_inbox import WorkerSettings, poll_incoming
+
+        fresh = message.model_copy(update={"id": "synthetic-worker-wamid"})
+        assert await persist_incoming_message(tenant, "123", fresh, None, cipher=cipher)
+        redis = await create_pool(
+            RedisSettings(host="wa-inbox-redis", password="wa_test")
+        )
+        try:
+            job = await redis.enqueue_job(
+                "poll_incoming", _queue_name=WorkerSettings.queue_name
+            )
+            handler = MagicMock()
+            handler.handle_message = AsyncMock(return_value=HandlingOutcome.accepted)
+            with (
+                patch.object(
+                    execution, "VersionedEnvelopeService", return_value=cipher
+                ),
+                patch.object(execution, "get_message_handler", return_value=handler),
+            ):
+                worker = Worker(
+                    functions=[poll_incoming],
+                    queue_name=WorkerSettings.queue_name,
+                    redis_pool=redis,
+                    burst=True,
+                    handle_signals=False,
+                    max_tries=1,
+                )
+                await worker.async_run()
+            assert await job.result(timeout=5) == "finalized"
+            handler.handle_message.assert_awaited_once()
+            async with get_session_factory()() as session:
+                state = (
+                    await session.execute(
+                        select(WhatsAppInboxEvent.state).where(
+                            WhatsAppInboxEvent.provider_message_id == fresh.id
+                        )
+                    )
+                ).scalar_one()
+            assert state == "completed"
+        finally:
+            await redis.aclose()
+        print("ISOLATED_INBOX_ARQ_OK", flush=True)
     await close_engine()
     print("ISOLATED_INBOX_POSTGRES_OK", flush=True)
 

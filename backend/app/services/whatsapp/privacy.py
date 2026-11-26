@@ -9,9 +9,13 @@ Fire-and-forget: exceptions are logged but never re-raised.
 
 from __future__ import annotations
 
-import structlog
+import contextlib
+import uuid
+from enum import Enum
 
-from app.core.exceptions import WhatsAppSendError
+import structlog
+from prometheus_client import Counter
+
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
 from app.schemas.audit import AuditLogCreate
@@ -23,7 +27,26 @@ logger = structlog.get_logger()
 # -- Constants ----------------------------------------------------------------
 
 REDIS_KEY_PREFIX = "privacy_sent"
-PRIVACY_TEMPLATE_NAME = "cndp_privacy_notice"
+NOTICE_RESULTS = Counter(
+    "cri_whatsapp_privacy_notice_results_total",
+    "WhatsApp privacy notice processing results (not a delivery receipt)",
+    ["tenant", "result"],
+)
+_CAS_STATE = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  redis.call('SET', KEYS[1], ARGV[2])
+  return 1
+end
+return 0
+"""
+
+
+class NoticeResult(str, Enum):
+    accepted = "accepted"
+    pending = "pending"
+    uncertain = "uncertain"
+    legacy_unknown = "legacy_unknown"
+
 
 PRIVACY_FALLBACK_TEXT: dict[str, str] = {
     "fr": (
@@ -55,90 +78,80 @@ class PrivacyNoticeService:
         self._logger = logger.bind(service="privacy_notice")
         self._sender = WhatsAppSenderService()
 
-    async def should_send(self, tenant: TenantContext, phone: str) -> bool:
-        """Check and atomically mark whether the notice needs sending.
-
-        Uses Redis SET NX (no TTL --- permanent). Returns True if the key
-        was newly set (notice not yet sent), False if already exists.
-        """
-        redis = get_redis()
-        key = f"{tenant.redis_prefix}:{REDIS_KEY_PREFIX}:{phone}"
-        result = await redis.set(key, "1", nx=True)
-        return result is not None
-
     async def send_privacy_notice(
         self,
         tenant: TenantContext,
         phone: str,
         *,
         language: str = "fr",
-    ) -> None:
-        """Send privacy notice if not already sent.  Fire-and-forget.
+    ) -> NoticeResult:
+        """Attempt one notice; acceptance is not a delivery receipt.
 
-        Args:
-            tenant: Current tenant context.
-            phone: Recipient phone (E.164).
-            language: ISO language code (fr/ar/en).
+        A pending marker is never silently treated as sent. A timeout is
+        uncertain, and is not automatically retried because Meta could have
+        accepted the message before the connection failed. Legacy markers did
+        not record outcomes and must not be treated as proof of delivery.
         """
+        key = f"{tenant.redis_prefix}:{REDIS_KEY_PREFIX}:{phone}"
+        token = f"pending:{uuid.uuid4()}"
         try:
-            if not await self.should_send(tenant, phone):
-                self._logger.debug(
-                    "privacy_notice_already_sent",
-                    phone_last4=phone[-4:],
-                    tenant=tenant.slug,
+            redis = get_redis()
+            claimed = await redis.set(key, token, nx=True)
+            if not claimed:
+                current = await redis.get(key)
+                if current == "accepted":
+                    result = NoticeResult.accepted
+                elif isinstance(current, str) and current.startswith("pending:"):
+                    result = NoticeResult.pending
+                elif current == "1":
+                    result = NoticeResult.legacy_unknown
+                else:
+                    result = NoticeResult.uncertain
+                NOTICE_RESULTS.labels(tenant=tenant.slug, result=result.value).inc()
+                self._logger.info(
+                    "privacy_notice_existing_state", tenant=tenant.slug, result=result.value
                 )
-                return
+                return result
 
-            method = "template"
-
-            # Try Meta template first
             try:
-                await self._sender.send_template(
-                    tenant,
-                    phone,
-                    PRIVACY_TEMPLATE_NAME,
-                    language,
+                text = PRIVACY_FALLBACK_TEXT.get(language, PRIVACY_FALLBACK_TEXT["fr"])
+                message_id = await self._sender.send_text(tenant, phone, text)
+                if not message_id:
+                    raise RuntimeError("Provider did not confirm acceptance")
+                changed = await redis.eval(_CAS_STATE, 1, key, token, "accepted")
+                if not changed:
+                    raise RuntimeError("Notice state changed before confirmation")
+            except Exception as exc:
+                # If Redis is unavailable, the pending marker also means unknown.
+                with contextlib.suppress(Exception):
+                    await redis.eval(_CAS_STATE, 1, key, token, "uncertain")
+                NOTICE_RESULTS.labels(tenant=tenant.slug, result=NoticeResult.uncertain.value).inc()
+                self._logger.warning(
+                    "privacy_notice_unconfirmed", tenant=tenant.slug, error_type=type(exc).__name__
                 )
-            except (WhatsAppSendError, Exception):
-                # Fallback to plain text
-                method = "text"
-                fallback = PRIVACY_FALLBACK_TEXT.get(
-                    language,
-                    PRIVACY_FALLBACK_TEXT["fr"],
-                )
-                await self._sender.send_text(tenant, phone, fallback)
+                return NoticeResult.uncertain
 
-            # Audit trail (fire-and-forget)
-            audit = get_audit_service()
-            await audit.log_action(
+            NOTICE_RESULTS.labels(tenant=tenant.slug, result=NoticeResult.accepted.value).inc()
+            await get_audit_service().log_action(
                 AuditLogCreate(
                     tenant_slug=tenant.slug,
                     user_type="system",
                     action="privacy_notice",
                     resource_type="contact",
                     resource_id=phone,
-                    details={
-                        "language": language,
-                        "method": method,
-                    },
-                ),
+                    details={"language": language, "method": "text", "state": "provider_accepted"},
+                )
             )
-
-            self._logger.info(
-                "privacy_notice_sent",
-                phone_last4=phone[-4:],
-                tenant=tenant.slug,
-                language=language,
-                method=method,
-            )
-
+            self._logger.info("privacy_notice_provider_accepted", tenant=tenant.slug)
+            return NoticeResult.accepted
         except Exception as exc:
+            NOTICE_RESULTS.labels(tenant=tenant.slug, result=NoticeResult.uncertain.value).inc()
             self._logger.warning(
-                "privacy_notice_failed",
-                phone_last4=phone[-4:],
+                "privacy_notice_state_unavailable",
                 tenant=tenant.slug,
-                error=str(exc),
+                error_type=type(exc).__name__,
             )
+            return NoticeResult.uncertain
 
 
 # -- Singleton ----------------------------------------------------------------

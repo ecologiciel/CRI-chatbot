@@ -25,8 +25,12 @@ echo "PostgreSQL backup catalog verified: $backup_file"
 echo "Applying database migrations..."
 "${COMPOSE[@]}" run --rm --no-deps backend alembic upgrade head
 
+# The isolated extractor runs the backend image too. Recreate it and wait for
+# its health check before restarting workers, so extraction code is not stale.
+"${COMPOSE[@]}" up -d --no-deps --no-build --force-recreate --wait --wait-timeout 90 extractor
+
 # Do not restart PostgreSQL, Redis, Qdrant, MinIO, or Traefik.
-"${COMPOSE[@]}" up -d --no-deps --force-recreate backend frontend-demo frontend-admin
+"${COMPOSE[@]}" up -d --no-deps --no-build --force-recreate backend frontend-demo frontend-admin
 echo "Waiting for the API to become healthy..."
 for attempt in $(seq 1 36); do
   if "${COMPOSE[@]}" exec -T backend python -m app.scripts.healthcheck; then

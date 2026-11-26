@@ -21,7 +21,7 @@ from app.core.config import get_settings
 from app.core.tenant import TenantContext
 from app.models.campaign import Campaign, CampaignRecipient
 from app.models.contact import Contact
-from app.models.enums import CampaignStatus, RecipientStatus
+from app.models.enums import CampaignStatus, OptInStatus, RecipientStatus
 from app.services.campaign.service import CampaignService
 from app.services.whatsapp.session import WhatsAppSessionManager
 
@@ -283,34 +283,39 @@ async def _send_single_recipient(
     )
 
     try:
-        # Load contact
+        # Serialize the consent check with STOP updates. The row lock is held
+        # through the bounded provider request; once an opt-out commits, a
+        # later campaign send cannot use the previous consent state.
+        skip_reason = None
+        wamid = None
         async with tenant.db_session() as session:
             result = await session.execute(
-                select(Contact).where(Contact.id == recipient.contact_id),
+                select(Contact).where(Contact.id == recipient.contact_id).with_for_update(),
             )
             contact = result.scalar_one_or_none()
+            if contact is None:
+                skip_reason = "Contact not found"
+            elif contact.opt_in_status != OptInStatus.opted_in:
+                skip_reason = "Contact consent is not active"
+            else:
+                components = service.resolve_variables(campaign.variable_mapping, contact)
+                wamid = await service._sender.send_template(
+                    tenant=tenant,
+                    to=contact.phone,
+                    template_name=campaign.template_name,
+                    language_code=campaign.template_language,
+                    components=components or None,
+                )
 
-        if contact is None:
-            log.warning("recipient_contact_missing", contact_id=str(recipient.contact_id))
+        if skip_reason is not None:
+            log.info("campaign_recipient_not_eligible", recipient_id=str(recipient.id))
             await _update_recipient_status(
                 tenant,
                 recipient.id,
                 RecipientStatus.failed,
-                error_message="Contact not found",
+                error_message=skip_reason,
             )
             return False
-
-        # Resolve template variables
-        components = service.resolve_variables(campaign.variable_mapping, contact)
-
-        # Send via WhatsApp
-        wamid = await service._sender.send_template(
-            tenant=tenant,
-            to=contact.phone,
-            template_name=campaign.template_name,
-            language_code=campaign.template_language,
-            components=components or None,
-        )
 
         # Update recipient: sent
         await _update_recipient_status(

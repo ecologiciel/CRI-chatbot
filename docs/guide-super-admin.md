@@ -65,6 +65,14 @@ nécessaire avant une présentation institutionnelle.
 
 ## Limites d'exploitation
 
+- Le chat public limite, par fenêtre de 60 secondes, chaque session à 10
+  messages, chaque institution à 30 messages et 60 créations de session, et
+  l'ensemble de la plateforme à 100 messages et 180 créations de session.
+  Les limites d'une institution et de la plateforme sont partagées entre leurs
+  visiteurs : un pic de trafic peut donc entraîner une réponse demandant de
+  réessayer plus tard. Ces compteurs ne remplacent ni les quotas et plafonds
+  de facturation du fournisseur d'IA, ni une protection complète contre les
+  abus ; ils dépendent notamment de la disponibilité de Redis.
 - WhatsApp demande une configuration et des essais distincts ; créer une
   démonstration web ne configure pas ce canal.
 - Un état de santé vert ne garantit pas que le fournisseur d'IA répond ni que

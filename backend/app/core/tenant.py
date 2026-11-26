@@ -11,7 +11,6 @@ Resolution strategies:
 
 from __future__ import annotations
 
-import json
 import re
 import uuid
 from collections.abc import AsyncGenerator
@@ -30,7 +29,6 @@ from app.core.exceptions import (
     TenantNotFoundError,
     TenantResolutionError,
 )
-from app.core.redis import get_redis
 from app.models.enums import TenantStatus
 
 if TYPE_CHECKING:
@@ -99,52 +97,24 @@ class TenantContext:
 
 
 class TenantResolver:
-    """Resolves tenant identity from various request sources.
+    """Resolve an active tenant from authoritative database state.
 
-    Each method checks Redis cache first, then falls back to DB.
-    Successful lookups are cached in Redis for subsequent requests.
+    Cached tenant records can outlive deactivation or phone reassignment.
+    Every new request or job therefore checks the current database record.
+    This does not cancel work that already resolved a tenant.
     """
 
-    REDIS_PHONE_MAPPING_PREFIX = "phone_mapping"
+    # Kept for components that invalidate caches created by older releases.
     REDIS_TENANT_CACHE_PREFIX = "tenant_cache"
-    REDIS_TENANT_CACHE_TTL = 300  # 5 minutes
-    REDIS_PHONE_MAPPING_TTL = 3600  # 1 hour
+    REDIS_PHONE_MAPPING_PREFIX = "phone_mapping"
 
     @staticmethod
     async def from_tenant_id_header(tenant_id: str) -> TenantContext:
-        """Resolve tenant from X-Tenant-ID header (back-office).
-
-        Args:
-            tenant_id: UUID string from X-Tenant-ID header.
-
-        Returns:
-            TenantContext for the resolved tenant.
-
-        Raises:
-            TenantNotFoundError: If tenant UUID does not exist.
-            TenantInactiveError: If tenant is not active.
-        """
-        redis = get_redis()
-
-        # 1. Redis cache lookup
-        cache_key = f"{TenantResolver.REDIS_TENANT_CACHE_PREFIX}:{tenant_id}"
-        cached = await redis.get(cache_key)
-        if cached:
-            data = json.loads(cached)
-            if data["status"] != TenantStatus.active.value:
-                raise TenantInactiveError(
-                    f"Tenant is not active: {data['slug']}",
-                    details={"slug": data["slug"], "status": data["status"]},
-                )
-            return TenantResolver._build_context_from_dict(data)
-
-        # 2. DB fallback
         try:
             tenant_uuid = uuid.UUID(tenant_id)
-        except ValueError as err:
+        except (ValueError, TypeError, AttributeError) as err:
             raise TenantNotFoundError(
-                f"Invalid tenant ID format: {tenant_id}",
-                details={"identifier": tenant_id},
+                f"Invalid tenant ID format: {tenant_id}", details={"identifier": tenant_id}
             ) from err
 
         from app.models.tenant import Tenant
@@ -153,51 +123,19 @@ class TenantResolver:
         async with factory() as session:
             result = await session.execute(select(Tenant).where(Tenant.id == tenant_uuid))
             tenant = result.scalar_one_or_none()
-
         if not tenant:
             raise TenantNotFoundError(
-                f"Tenant not found: {tenant_id}",
-                details={"identifier": tenant_id},
+                f"Tenant not found: {tenant_id}", details={"identifier": tenant_id}
             )
-
         if tenant.status != TenantStatus.active:
             raise TenantInactiveError(
                 f"Tenant is not active: {tenant.slug}",
                 details={"slug": tenant.slug, "status": tenant.status.value},
             )
-
-        context = TenantResolver._build_context(tenant)
-        await redis.setex(
-            cache_key,
-            TenantResolver.REDIS_TENANT_CACHE_TTL,
-            json.dumps(TenantResolver._context_to_dict(context)),
-        )
-        logger.debug("tenant_cached", tenant_slug=context.slug, cache_key=cache_key)
-        return context
+        return TenantResolver._build_context(tenant)
 
     @staticmethod
     async def from_phone_number_id(phone_number_id: str) -> TenantContext:
-        """Resolve tenant from WhatsApp phone_number_id.
-
-        Args:
-            phone_number_id: The phone_number_id from the WhatsApp webhook payload.
-
-        Returns:
-            TenantContext for the resolved active tenant.
-
-        Raises:
-            TenantNotFoundError: If no active tenant matches this phone_number_id.
-        """
-        redis = get_redis()
-
-        # 1. Redis cache lookup
-        cache_key = f"{TenantResolver.REDIS_PHONE_MAPPING_PREFIX}:{phone_number_id}"
-        cached = await redis.get(cache_key)
-        if cached:
-            data = json.loads(cached)
-            return TenantResolver._build_context_from_dict(data)
-
-        # 2. DB fallback — JSONB query
         from app.models.tenant import Tenant
 
         factory = get_session_factory()
@@ -209,81 +147,29 @@ class TenantResolver:
                 )
             )
             tenant = result.scalar_one_or_none()
-
         if not tenant:
             raise TenantNotFoundError(
                 f"No active tenant for phone_number_id: {phone_number_id}",
                 details={"phone_number_id": phone_number_id},
             )
-
-        context = TenantResolver._build_context(tenant)
-        await redis.setex(
-            cache_key,
-            TenantResolver.REDIS_PHONE_MAPPING_TTL,
-            json.dumps(TenantResolver._context_to_dict(context)),
-        )
-        logger.debug(
-            "phone_mapping_cached",
-            tenant_slug=context.slug,
-            phone_number_id=phone_number_id,
-        )
-        return context
+        return TenantResolver._build_context(tenant)
 
     @staticmethod
     async def from_slug(slug: str) -> TenantContext:
-        """Resolve tenant from slug (internal utility).
-
-        Args:
-            slug: Tenant slug identifier.
-
-        Returns:
-            TenantContext for the resolved tenant.
-
-        Raises:
-            TenantNotFoundError: If slug does not exist.
-            TenantInactiveError: If tenant is not active.
-        """
-        redis = get_redis()
-
-        # 1. Redis cache lookup
-        cache_key = f"{TenantResolver.REDIS_TENANT_CACHE_PREFIX}:slug:{slug}"
-        cached = await redis.get(cache_key)
-        if cached:
-            data = json.loads(cached)
-            if data["status"] != TenantStatus.active.value:
-                raise TenantInactiveError(
-                    f"Tenant is not active: {slug}",
-                    details={"slug": slug, "status": data["status"]},
-                )
-            return TenantResolver._build_context_from_dict(data)
-
-        # 2. DB fallback
         from app.models.tenant import Tenant
 
         factory = get_session_factory()
         async with factory() as session:
             result = await session.execute(select(Tenant).where(Tenant.slug == slug))
             tenant = result.scalar_one_or_none()
-
         if not tenant:
-            raise TenantNotFoundError(
-                f"Tenant not found: {slug}",
-                details={"slug": slug},
-            )
-
+            raise TenantNotFoundError(f"Tenant not found: {slug}", details={"slug": slug})
         if tenant.status != TenantStatus.active:
             raise TenantInactiveError(
                 f"Tenant is not active: {slug}",
                 details={"slug": slug, "status": tenant.status.value},
             )
-
-        context = TenantResolver._build_context(tenant)
-        await redis.setex(
-            cache_key,
-            TenantResolver.REDIS_TENANT_CACHE_TTL,
-            json.dumps(TenantResolver._context_to_dict(context)),
-        )
-        return context
+        return TenantResolver._build_context(tenant)
 
     # --- Internal helpers ---
 

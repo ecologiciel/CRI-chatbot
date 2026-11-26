@@ -49,9 +49,12 @@ _CIN_RE = re.compile(r"\b[A-Z]{1,2}\d{5,6}\b")
 # Moroccan IBAN: MA + 2 check digits + 24 alphanumeric (checked before phone)
 _IBAN_RE = re.compile(r"\bMA\d{2}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}\b")
 
-# Moroccan phone: +212 or 0 prefix, then 6 or 7, then 8 digits
-# Handles: +212612345678, +212 6 12 34 56 78, 0612345678, 06-12-34-56-78
-_PHONE_RE = re.compile(r"(?:\+212[\s.-]?|0)[67][\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}\b")
+# Moroccan geographic fixed and mobile numbers, with national or international
+# prefix. Special-service 08 numbers are intentionally not treated as personal.
+_PHONE_RE = re.compile(
+    r"(?<!\d)(?:(?:\+212|00212)[\s.-]?(?:\(0\)[\s.-]?)?|0)"
+    r"[14567][\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}(?!\d)"
+)
 
 # Standard email
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")

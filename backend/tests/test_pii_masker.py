@@ -1,5 +1,7 @@
 """Tests for PIIMasker — Moroccan PII detection and masking."""
 
+import pytest
+
 from app.services.guardrails.pii_masker import PIIMasker, PIIMaskResult
 
 
@@ -48,6 +50,28 @@ class TestPhoneMasking:
         assert "[PHONE_1]" in result.masked_text
         assert "06 12 34 56 78" not in result.masked_text
         assert result.pii_count == 1
+
+    @pytest.mark.parametrize(
+        "number",
+        [
+            "0522123456",
+            "05 22 12 34 56",
+            "+212522123456",
+            "00212 5 22 12 34 56",
+            "+212 (0)5 22 12 34 56",
+            "0412345678",
+        ],
+    )
+    def test_masks_fixed_and_additional_mobile_formats(self, number):
+        result = PIIMasker().mask(f"Contact : {number}")
+        assert result.masked_text == "Contact : [PHONE_1]"
+        assert result.pii_found[0].original == number
+
+    def test_special_service_number_is_not_treated_as_personal(self):
+        assert PIIMasker().mask("Centre : 080 100 36 37").masked_text == "Centre : 080 100 36 37"
+
+    def test_does_not_match_partial_number_in_a_longer_identifier(self):
+        assert PIIMasker().mask("123052212345699").pii_count == 0
 
 
 class TestEmailMasking:

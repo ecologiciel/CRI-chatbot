@@ -28,7 +28,7 @@ async def protect_claim_channel(claim: InboxClaim) -> AsyncIterator[TenantContex
     async with protect_ingestion(initial), get_session_factory()() as session:
         current = (
             await session.execute(
-                select(Tenant).where(Tenant.id == claim.tenant_id).with_for_update()
+                select(Tenant).where(Tenant.id == claim.tenant_id).with_for_update(read=True)
             )
         ).scalar_one_or_none()
         if (

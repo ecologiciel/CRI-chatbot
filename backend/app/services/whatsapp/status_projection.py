@@ -40,7 +40,9 @@ async def apply_status_event(event_id: uuid.UUID, *, cipher: VersionedEnvelopeSe
     initial = await TenantResolver.from_tenant_id_header(str(identity))
     async with protect_ingestion(initial), factory() as session:
         tenant = (
-            await session.execute(select(Tenant).where(Tenant.id == identity).with_for_update())
+            await session.execute(
+                select(Tenant).where(Tenant.id == identity).with_for_update(read=True)
+            )
         ).scalar_one_or_none()
         event = (
             await session.execute(

@@ -338,6 +338,13 @@ async def main():
 
     async with protect_claim_channel(claim) as protected:
         assert protected.id == tenant_id
+        # An in-flight message must not prevent a duplicate webhook from
+        # being acknowledged after its independent transaction commits.
+        duplicate = await asyncio.wait_for(
+            persist_incoming_message(tenant, "123", message, None, cipher=cipher),
+            timeout=5,
+        )
+        assert duplicate is False
         updater = asyncio.create_task(change_channel())
         await update_started.wait()
         await asyncio.sleep(0.3)
@@ -388,6 +395,7 @@ async def main():
         import app.services.whatsapp.inbox_execution as execution
         import app.services.whatsapp.inbox_intake as intake
         import app.services.whatsapp.webhook as webhook_service
+        from app.services.crypto.startup_guard import assert_master_key_consistent
         from app.services.whatsapp.handler import HandlingOutcome
         from app.workers.whatsapp_inbox import WorkerSettings, poll_incoming
 
@@ -463,6 +471,7 @@ async def main():
             RedisSettings(host="wa-inbox-redis", password="wa_test")
         )
         try:
+            await assert_master_key_consistent(get_session_factory(), master)
             job = await redis.enqueue_job(
                 "poll_incoming", _queue_name=WorkerSettings.queue_name
             )
@@ -481,6 +490,8 @@ async def main():
                     burst=True,
                     handle_signals=False,
                     max_tries=1,
+                    on_startup=WorkerSettings.on_startup,
+                    on_shutdown=WorkerSettings.on_shutdown,
                 )
                 await worker.async_run()
             assert await job.result(timeout=5) == "finalized"
@@ -494,6 +505,7 @@ async def main():
                     )
                 ).scalar_one()
             assert state == "completed"
+            await worker.close()
         finally:
             await redis.aclose()
         print("ISOLATED_INBOX_ARQ_OK", flush=True)

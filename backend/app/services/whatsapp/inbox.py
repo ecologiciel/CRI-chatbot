@@ -64,7 +64,7 @@ async def persist_incoming_message(
         async with get_session_factory()() as session:
             current = (
                 await session.execute(
-                    select(Tenant).where(Tenant.id == tenant.id).with_for_update()
+                    select(Tenant).where(Tenant.id == tenant.id).with_for_update(read=True)
                 )
             ).scalar_one_or_none()
             if (

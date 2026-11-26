@@ -65,6 +65,7 @@ class ConversationState(TypedDict, total=False):
 
     # ── Phase 3: Dossier tracking ──
     tracking_state: str | None  # TrackingStep: idle, awaiting_identifier, otp_sent, authenticated
+    tracking_available: bool  # Whether this channel supports authenticated tracking.
     authenticated_phone: str | None  # Phone verified via OTP (for session persistence)
 
 

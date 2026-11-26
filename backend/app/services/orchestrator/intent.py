@@ -9,6 +9,8 @@ Blocked messages skip Gemini entirely (cost saving + security).
 
 from __future__ import annotations
 
+import re
+
 import structlog
 
 from app.core.tenant import TenantContext
@@ -27,37 +29,31 @@ logger = structlog.get_logger()
 # Quick heuristic keywords for tracking intent (saves ~50 Gemini tokens)
 # ---------------------------------------------------------------------------
 
-_TRACKING_KEYWORDS_FR: set[str] = {
-    "suivi",
-    "suivre",
-    "avancement",
-    "état dossier",
-}
-_TRACKING_KEYWORDS_AR: set[str] = {
-    "متابعة",
-    "تتبع",
-    "حالة الملف",
-}
-_TRACKING_KEYWORDS_EN: set[str] = {
-    "track",
-    "tracking",
-    "file status",
-    "my dossier",
-}
-_ALL_TRACKING_KEYWORDS: set[str] = (
-    _TRACKING_KEYWORDS_FR | _TRACKING_KEYWORDS_AR | _TRACKING_KEYWORDS_EN
+_PERSONAL_TRACKING_PATTERNS = (
+    (
+        re.compile(r"\b(?:suivi|suivre|avancement|état|statut)\b", re.IGNORECASE),
+        re.compile(r"\b(?:mon|ma|mes)\s+(?:dossier|dossiers|demande|demandes)\b", re.IGNORECASE),
+    ),
+    (
+        re.compile(r"(?:متابعة|تتبع|حالة)"),
+        re.compile(r"(?:ملفي|طلبي|ملفاتِي|طلباتي)"),
+    ),
+    (
+        re.compile(r"\b(?:track|tracking|status|progress)\b", re.IGNORECASE),
+        re.compile(r"\bmy\s+(?:file|dossier|application|request)\b", re.IGNORECASE),
+    ),
 )
 
 
 def quick_intent_detect(query: str) -> str | None:
     """Heuristic keyword check for tracking intent (zero LLM cost).
 
-    Returns ``IntentType.SUIVI_DOSSIER`` if any tracking keyword is found
-    in *query*, ``None`` otherwise (fall through to Gemini).
+    Require both a tracking term and a personal dossier reference. Ambiguous
+    wording falls through to the tenant-aware classifier.
     """
-    q = query.lower().strip()
-    for kw in _ALL_TRACKING_KEYWORDS:
-        if kw in q:
+    q = query.strip()
+    for tracking, personal_object in _PERSONAL_TRACKING_PATTERNS:
+        if tracking.search(q) and personal_object.search(q):
             return IntentType.SUIVI_DOSSIER
     return None
 

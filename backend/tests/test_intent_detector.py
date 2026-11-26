@@ -369,6 +369,21 @@ class TestQuickIntentDetect:
         assert quick_intent_detect("Comment constituer un dossier de certification ?") is None
         assert quick_intent_detect("كيف أعد ملف طلب الشهادة؟") is None
 
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Comment se déroule le suivi des cultures phytosanitaires ?",
+            "Quel est le suivi des dossiers de certification ?",
+            "كيف يتم تتبع الآفات الزراعية؟",
+            "How does tracking pests work?",
+            "What is the contract status?",
+        ],
+    )
+    def test_general_tracking_is_not_personal_dossier(self, question):
+        from app.services.orchestrator.intent import quick_intent_detect
+
+        assert quick_intent_detect(question) is None
+
     def test_greeting_returns_none(self):
         from app.services.orchestrator.intent import quick_intent_detect
 

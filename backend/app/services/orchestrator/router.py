@@ -46,4 +46,6 @@ class Router:
             return "blocked_response"
 
         intent = state.get("intent", IntentType.FAQ)
+        if intent == IntentType.SUIVI_DOSSIER and not state.get("tracking_available", True):
+            return "tracking_unavailable"
         return Router._ROUTING_MAP.get(intent, "faq_agent")

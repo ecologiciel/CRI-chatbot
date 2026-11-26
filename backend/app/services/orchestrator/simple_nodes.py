@@ -41,6 +41,14 @@ class BlockedResponseNode:
         return {"response": PromptTemplates.get_message("out_of_scope", language)}  # type: ignore[return-value]
 
 
+class TrackingUnavailableNode:
+    """Do not collect dossier identifiers in channels without tracking support."""
+
+    async def handle(self, state: ConversationState) -> ConversationState:
+        language = state.get("language", "fr")
+        return {"response": PromptTemplates.get_message("tracking_unavailable", language)}  # type: ignore[return-value]
+
+
 class TrackingPlaceholder:
     """Phase 3 placeholder for dossier tracking."""
 

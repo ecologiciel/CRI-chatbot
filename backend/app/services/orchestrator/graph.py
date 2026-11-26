@@ -43,6 +43,7 @@ from app.services.orchestrator.simple_nodes import (
     BlockedResponseNode,
     GreetingNode,
     OutOfScopeNode,
+    TrackingUnavailableNode,
 )
 from app.services.orchestrator.state import ConversationState
 from app.services.orchestrator.tracking_agent import get_tracking_agent
@@ -221,6 +222,7 @@ def build_conversation_graph() -> Any:
     greeting_node = GreetingNode()
     out_of_scope_node = OutOfScopeNode()
     blocked_node = BlockedResponseNode()
+    tracking_unavailable_node = TrackingUnavailableNode()
 
     # Build graph
     graph: Any = StateGraph(ConversationState)
@@ -263,6 +265,10 @@ def build_conversation_graph() -> Any:
         _wrap_tenant_node(tracking_agent.handle, "tracking_agent"),
     )
     graph.add_node(
+        "tracking_unavailable",
+        _wrap_simple_node(tracking_unavailable_node.handle, "tracking_unavailable"),
+    )
+    graph.add_node(
         "escalation_handler",
         _wrap_tenant_node(escalation_handler.handle, "escalation_handler"),
     )
@@ -285,6 +291,7 @@ def build_conversation_graph() -> Any:
             "out_of_scope_response": "out_of_scope_response",
             "blocked_response": "blocked_response",
             "tracking_agent": "tracking_agent",
+            "tracking_unavailable": "tracking_unavailable",
             "escalation_handler": "escalation_handler",
             "internal_agent": "internal_agent",
         },
@@ -320,6 +327,7 @@ def build_conversation_graph() -> Any:
     graph.add_edge("greeting_response", END)
     graph.add_edge("out_of_scope_response", END)
     graph.add_edge("blocked_response", END)
+    graph.add_edge("tracking_unavailable", END)
     graph.add_edge("escalation_handler", END)
 
     return graph.compile()
@@ -353,6 +361,7 @@ async def run_conversation(
     incentive_state: dict | None = None,
     conversation_id: str | None = None,
     tracking_state: str | None = None,
+    tracking_available: bool = True,
 ) -> dict:
     """Run a user message through the conversation graph.
 
@@ -393,6 +402,7 @@ async def run_conversation(
         "consecutive_low_confidence": 0,
         "conversation_id": conversation_id,
         "tracking_state": tracking_state,
+        "tracking_available": tracking_available,
         "authenticated_phone": None,
     }
 

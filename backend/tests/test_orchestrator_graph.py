@@ -301,6 +301,17 @@ class TestConversationGraph:
         assert result["response"] == expected
 
     @pytest.mark.asyncio
+    async def test_web_demo_tracking_does_not_request_identifiers(self):
+        graph, _mocks = _build_graph_with_mocks(intent=IntentType.SUIVI_DOSSIER)
+        state = _make_state(query="Suivre mon dossier", tracking_available=False)
+
+        result = await graph.ainvoke(state)
+
+        assert "pas disponible" in result["response"]
+        assert "Ne communiquez pas" in result["response"]
+        assert result["intent"] == IntentType.SUIVI_DOSSIER
+
+    @pytest.mark.asyncio
     async def test_misclassified_in_scope_question_gets_uncertainty_not_wrong_scope_claim(self):
         graph, _mocks = _build_graph_with_mocks(intent=IntentType.HORS_PERIMETRE)
         state = _make_state(query="Quels sont les frais de certification ?")

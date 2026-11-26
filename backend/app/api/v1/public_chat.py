@@ -130,6 +130,7 @@ async def send_message(
         conversation_history=history,
         incentive_state=(conversation.metadata_ or {}).get("incentive_state"),
         conversation_id=str(conversation.id),
+        tracking_available=False,
     )
 
     answer = (

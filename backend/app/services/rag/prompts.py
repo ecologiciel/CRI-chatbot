@@ -129,6 +129,11 @@ class PromptTemplates:
             "ar": "مرحباً! أنا المساعد الوثائقي. كيف يمكنني مساعدتكم؟",
             "en": "Hello! I'm the document assistant. How can I help you today?",
         },
+        "tracking_unavailable": {
+            "fr": "Le suivi de dossier personnel n'est pas disponible dans cette démonstration. Ne communiquez pas de numéro de dossier ni de CIN ici ; contactez l'institution par ses canaux officiels.",
+            "ar": "تتبع الملف الشخصي غير متاح في هذه التجربة. لا ترسلوا رقم الملف أو رقم البطاقة هنا، وتواصلوا مع المؤسسة عبر قنواتها الرسمية.",
+            "en": "Personal dossier tracking is unavailable in this demonstration. Do not share a dossier or identity number here; contact the institution through its official channels.",
+        },
         "feedback_request": {
             "fr": "Cette réponse vous a-t-elle été utile ?",
             "ar": "هل كانت هذه الإجابة مفيدة لكم؟",

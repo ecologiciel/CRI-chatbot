@@ -23,7 +23,7 @@ from typing import Any
 import structlog
 from arq.connections import RedisSettings
 from arq.cron import cron
-from sqlalchemy import and_, delete, or_, select, text
+from sqlalchemy import and_, case, delete, func, or_, select, text
 
 from app.core.config import get_settings
 
@@ -113,6 +113,17 @@ async def _purge_tenant_conversations(
     tenant = await TenantResolver.from_slug(slug)
     total_deleted = 0
 
+    # A contact may have arbitrary user-supplied metadata. Casting a JSON
+    # string or object directly to boolean can abort the whole tenant purge.
+    # Only the literal JSON boolean true identifies a pseudonymous contact.
+    pseudonymous_web = case(
+        (
+            func.jsonb_typeof(Contact.metadata_["pseudonymous"]) == "boolean",
+            Contact.metadata_["pseudonymous"].as_boolean().is_(True),
+        ),
+        else_=False,
+    )
+
     async with tenant.db_session() as session:
         while True:
             # PostgreSQL doesn't support DELETE ... LIMIT, so use subquery.
@@ -126,7 +137,7 @@ async def _purge_tenant_conversations(
             web_contact = select(Contact.id).where(
                 Contact.id == Conversation.contact_id,
                 Contact.source == ContactSource.web,
-                Contact.metadata_["pseudonymous"].as_boolean().is_(True),
+                pseudonymous_web,
             ).exists()
             unclosed_expired = and_(
                 Conversation.ended_at.is_(None),
@@ -158,7 +169,7 @@ async def _purge_tenant_conversations(
             delete(Contact)
             .where(
                 Contact.source == ContactSource.web,
-                Contact.metadata_["pseudonymous"].as_boolean().is_(True),
+                pseudonymous_web,
                 Contact.created_at < cutoff,
             )
             .where(~select(Conversation.id).where(Conversation.contact_id == Contact.id).exists())

@@ -7,13 +7,14 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Set env vars before importing app modules
@@ -40,17 +41,28 @@ CUTOFF = datetime.now(UTC) - timedelta(days=RETENTION_DAYS_CONVERSATIONS)
 async def test_real_queries_keep_recent_and_nonweb_sessions():
     """Exercise the actual retention queries on isolated disposable tables."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def add_jsonb_typeof(dbapi_connection, _):
+        def jsonb_typeof(value):
+            parsed = json.loads(value) if value is not None else None
+            return "boolean" if isinstance(parsed, bool) or parsed in (0, 1) else "other"
+
+        dbapi_connection.create_function("jsonb_typeof", 1, jsonb_typeof)
+
     old, recent = CUTOFF - timedelta(days=2), CUTOFF + timedelta(days=2)
-    ids = [uuid.uuid4().hex for _ in range(10)]
+    ids = [uuid.uuid4().hex for _ in range(14)]
     async with engine.begin() as connection:
         await connection.execute(text("CREATE TABLE contacts (id TEXT PRIMARY KEY, source TEXT, created_at DATETIME, metadata JSON)"))
         await connection.execute(text("CREATE TABLE conversations (id TEXT PRIMARY KEY, contact_id TEXT, started_at DATETIME, ended_at DATETIME)"))
         await connection.execute(text("CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT, created_at DATETIME)"))
-        for i, source in enumerate(["web", "web", "whatsapp", "web", "web"]):
-            metadata = '{"pseudonymous": true}' if source == "web" and i != 4 else '{}'
+        for i, source in enumerate(["web", "web", "whatsapp", "web", "web", "web", "web"]):
+            metadata = ('{"pseudonymous": true}' if i in (0, 1, 3) else
+                        '{"pseudonymous": "invalid"}' if i == 5 else
+                        '{"pseudonymous": "true"}' if i == 6 else '{}')
             await connection.execute(text("INSERT INTO contacts VALUES (:id, :source, :created, :metadata)"), {"id": ids[i], "source": source, "created": old, "metadata": metadata})
-            await connection.execute(text("INSERT INTO conversations VALUES (:id, :contact, :started, :ended)"), {"id": ids[i+5], "contact": ids[i], "started": old, "ended": old if i == 3 else None})
-        await connection.execute(text("INSERT INTO messages VALUES (:id, :conversation, :created)"), {"id": uuid.uuid4().hex, "conversation": ids[6], "created": recent})
+            await connection.execute(text("INSERT INTO conversations VALUES (:id, :contact, :started, :ended)"), {"id": ids[i+7], "contact": ids[i], "started": old, "ended": old if i == 3 else None})
+        await connection.execute(text("INSERT INTO messages VALUES (:id, :conversation, :created)"), {"id": uuid.uuid4().hex, "conversation": ids[8], "created": recent})
     factory = async_sessionmaker(engine, expire_on_commit=False)
     tenant = MagicMock()
     tenant.db_session = factory
@@ -64,8 +76,8 @@ async def test_real_queries_keep_recent_and_nonweb_sessions():
             remaining = set((await connection.execute(text("SELECT id FROM conversations"))).scalars())
             contacts = set((await connection.execute(text("SELECT id FROM contacts"))).scalars())
         assert result["conversations_deleted"] == 2
-        assert remaining == {ids[6], ids[7], ids[9]}  # recent web, WhatsApp, non-pseudonymous web
-        assert contacts == {ids[1], ids[2], ids[4]}
+        assert remaining == {ids[8], ids[9], ids[11], ids[12], ids[13]}
+        assert contacts == {ids[1], ids[2], ids[4], ids[5], ids[6]}
     finally:
         await engine.dispose()
 

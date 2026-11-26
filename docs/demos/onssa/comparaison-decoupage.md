@@ -39,3 +39,19 @@ Cet essai couvre une FAQ courte et explicitement étiquetée, pas toutes les
 présentations possibles ni le parcours d'import dans l'interface. Les réponses
 qui dépassent la limite restent découpées, et les documents déjà indexés ne
 sont pas retraités automatiquement.
+
+## Contrôle du découpage optimisé sur le VPS
+
+Après optimisation le 26 novembre 2026, le PDF de la loi 76-17 identifié en
+tête de ce document a été extrait et découpé en mémoire sur le VPS. L'empreinte
+du fichier correspondait à celle déjà relevée. Les 19 pages contenaient du texte
+extrait ; le découpeur a produit 68 passages, chacun sous la limite testée de
+512 tokens, avec des offsets exacts et sans trou dans le texte extrait. Un
+passage contenant le titre de l'article 4 indiquait la page physique 2.
+
+L'extraction a pris environ 2,83 secondes et le découpage 0,15 seconde lors de
+cet appel unique. Ces chiffres ne comprennent ni l'antivirus, ni les appels
+au fournisseur d'IA, ni la publication ; ils ne sont pas comparables au test
+local synthétique avant optimisation. Le fichier n'a pas été importé dans la
+base ONSSA lors de ce contrôle, qui ne valide ni la fidélité complète de
+l'extraction ni l'exactitude des réponses du chatbot.

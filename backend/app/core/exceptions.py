@@ -38,6 +38,10 @@ class TenantInactiveError(CRIBaseException):
     """Tenant exists but is not active (inactive/suspended/provisioning)."""
 
 
+class TenantLifecycleBusyError(CRIBaseException):
+    """Tenant has protected work in flight and cannot be removed yet."""
+
+
 class TenantResolutionError(CRIBaseException):
     """Cannot determine tenant from the request context."""
 

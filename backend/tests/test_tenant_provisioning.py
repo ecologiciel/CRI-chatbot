@@ -1,6 +1,7 @@
 """Tests for TenantProvisioningService — atomic provisioning with rollback."""
 
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,6 +12,19 @@ from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.models.tenant_key import TenantKey
 from app.services.tenant.provisioning import TenantProvisioningService
+
+
+@pytest.fixture(autouse=True)
+def mock_lifecycle_lock():
+    """These unit tests isolate their existing mocks from database locks."""
+
+    @asynccontextmanager
+    async def unlocked(_value):
+        yield
+
+    with patch("app.services.tenant.provisioning.protect_removal", unlocked):
+        yield
+
 
 # --- Factories ---
 

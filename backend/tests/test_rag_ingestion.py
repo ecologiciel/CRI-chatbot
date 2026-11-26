@@ -3,6 +3,7 @@
 import json
 import os
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,6 +29,18 @@ def test_chunks_receive_only_physically_overlapping_pages():
     annotated = _attach_pages(chunks, pages)
     assert [chunk.page_numbers for chunk in annotated] == [(1,), (1, 3), (3,)]
     assert chunks[0].page_numbers == ()
+
+
+@pytest.fixture(autouse=True)
+def mock_lifecycle_lock():
+    """These unit tests isolate their existing mocks from database locks."""
+
+    @asynccontextmanager
+    async def unlocked(_value):
+        yield
+
+    with patch("app.services.rag.ingestion.protect_ingestion", unlocked):
+        yield
 
 
 # ---------------------------------------------------------------------------

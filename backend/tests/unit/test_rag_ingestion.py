@@ -12,6 +12,19 @@ from app.models.enums import KBDocumentStatus
 from app.schemas.rag import ChunkResult
 from app.services.rag.ingestion import IngestionService
 
+
+@pytest.fixture(autouse=True)
+def mock_lifecycle_lock():
+    """These unit tests isolate their existing mocks from database locks."""
+
+    @asynccontextmanager
+    async def unlocked(_value):
+        yield
+
+    with patch("app.services.rag.ingestion.protect_ingestion", unlocked):
+        yield
+
+
 _CHUNKER_PATCH = "app.services.rag.ingestion.get_chunking_service"
 _EMBED_PATCH = "app.services.rag.ingestion.get_embedding_service"
 _GEMINI_PATCH = "app.services.rag.ingestion.get_gemini_service"

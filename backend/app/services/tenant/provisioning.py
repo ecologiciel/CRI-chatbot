@@ -25,6 +25,7 @@ from app.core.exceptions import DuplicateTenantError, TenantProvisioningError
 from app.core.minio import get_minio
 from app.core.qdrant import get_qdrant
 from app.core.redis import get_redis
+from app.core.tenant_lifecycle import protect_removal
 from app.models.admin import Admin
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
@@ -217,6 +218,11 @@ class TenantProvisioningService:
         """
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", slug):
             raise TenantProvisioningError("Invalid tenant slug; no resources removed")
+        async with protect_removal(slug):
+            await self._deprovision_locked(slug)
+
+    async def _deprovision_locked(self, slug: str) -> None:
+        """Remove tenant resources while holding its lifecycle lock."""
         log = self.logger.bind(slug=slug, action="deprovision")
         failures: list[str] = []
         tenant = None

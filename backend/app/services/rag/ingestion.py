@@ -25,6 +25,7 @@ from app.core.exceptions import DuplicateResourceError, IngestionError
 from app.core.ingestion_errors import safe_ingestion_error
 from app.core.qdrant import get_qdrant
 from app.core.tenant import TenantContext
+from app.core.tenant_lifecycle import protect_ingestion
 from app.models.enums import KBDocumentStatus
 from app.models.kb import KBChunk, KBDocument
 from app.schemas.rag import ChunkResult, MetadataEnrichment
@@ -117,7 +118,7 @@ class IngestionService:
         pages: tuple[PageSpan, ...] = (),
     ) -> int:
         """Serialize ingestion per tenant/document across worker processes."""
-        async with tenant.db_session() as lock_session:
+        async with protect_ingestion(tenant), tenant.db_session() as lock_session:
             await lock_session.execute(
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
                 {"lock_key": f"kb:{tenant.id}:{document_id}"},

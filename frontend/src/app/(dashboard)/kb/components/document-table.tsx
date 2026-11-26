@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Search,
   MoreHorizontal,
@@ -123,16 +123,23 @@ function formatRelativeDate(dateStr: string): string {
 
 export function DocumentTable() {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
   const { data: categories = [] } = useDocumentCategories();
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const { data, isLoading, isError, refetch } = useDocuments({
     page,
     page_size: 20,
     status: statusFilter !== "all" ? (statusFilter as KBDocumentStatus) : undefined,
     category: categoryFilter !== "all" ? categoryFilter.slice(4) : undefined,
+    search: debouncedSearch || undefined,
   });
 
   const deleteDoc = useDeleteDocument();
@@ -142,12 +149,7 @@ export function DocumentTable() {
   const documents = data?.items ?? [];
   const total = data?.total ?? 0;
 
-  // Client-side search filter on top of server-side filters
-  const filtered = search
-    ? documents.filter((doc) =>
-        doc.title.toLowerCase().includes(search.toLowerCase()),
-      )
-    : documents;
+  const filtered = documents;
 
   function handleDelete(id: string, title: string) {
     deleteDoc.mutate(id, {
@@ -194,7 +196,8 @@ export function DocumentTable() {
           <Input
             placeholder="Rechercher un document..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            maxLength={200}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             className="ps-9"
           />
         </div>

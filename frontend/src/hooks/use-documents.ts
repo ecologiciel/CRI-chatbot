@@ -12,6 +12,7 @@ interface DocumentsParams {
   page_size?: number;
   status?: KBDocumentStatus;
   category?: string;
+  search?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,7 @@ export function useDocuments(params?: DocumentsParams) {
         page_size: params?.page_size,
         status: params?.status,
         category: params?.category,
+        search: params?.search,
       }),
     refetchInterval: (query) => query.state.data?.items.some(
       (document) => document.status === "pending" || document.status === "indexing",

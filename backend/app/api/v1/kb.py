@@ -251,23 +251,24 @@ async def list_documents(
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
     status: KBDocumentStatus | None = Query(default=None, description="Filter by status"),
     category: str | None = Query(default=None, description="Filter by category"),
+    search: str | None = Query(default=None, max_length=200, description="Search document titles"),
 ) -> KBDocumentList:
     """List KB documents with pagination and optional filters."""
+    filters = []
+    if status is not None:
+        filters.append(KBDocument.status == status)
+    if category is not None:
+        filters.append(KBDocument.category == category)
+    if search and search.strip():
+        escaped = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        filters.append(KBDocument.title.ilike(f"%{escaped}%", escape="\\"))
     async with tenant.db_session() as session:
         # Count query
-        count_stmt = select(func.count(KBDocument.id))
-        if status is not None:
-            count_stmt = count_stmt.where(KBDocument.status == status)
-        if category is not None:
-            count_stmt = count_stmt.where(KBDocument.category == category)
+        count_stmt = select(func.count(KBDocument.id)).where(*filters)
         total = (await session.execute(count_stmt)).scalar_one()
 
         # Data query
-        data_stmt = select(KBDocument).order_by(KBDocument.created_at.desc())
-        if status is not None:
-            data_stmt = data_stmt.where(KBDocument.status == status)
-        if category is not None:
-            data_stmt = data_stmt.where(KBDocument.category == category)
+        data_stmt = select(KBDocument).where(*filters).order_by(KBDocument.created_at.desc())
         data_stmt = data_stmt.offset((page - 1) * page_size).limit(page_size)
         result = await session.execute(data_stmt)
         documents = result.scalars().all()

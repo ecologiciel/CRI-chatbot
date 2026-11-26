@@ -296,6 +296,42 @@ class TestUploadDocument:
 
 class TestListDocuments:
     @pytest.mark.asyncio
+    async def test_search_applies_to_count_and_paginated_results_with_literal_wildcards(self):
+        _setup_overrides()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 1
+        data_result = MagicMock()
+        data_result.scalars.return_value.all.return_value = [_make_document_orm()]
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.execute = AsyncMock(side_effect=[count_result, data_result])
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as MockResolver,
+                patch.object(TenantContext, "db_session", return_value=mock_session),
+            ):
+                MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.get(
+                        "/api/v1/kb/documents",
+                        params={"search": "100%_", "category": "sante-vegetale", "page": 2},
+                        headers=_headers(),
+                    )
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+        for call in mock_session.execute.await_args_list:
+            statement = call.args[0]
+            params = statement.compile().params.values()
+            assert "%100\\%\\_%" in params
+            assert "sante-vegetale" in params
+
+    @pytest.mark.asyncio
     async def test_categories_are_loaded_from_selected_tenant(self):
         _setup_overrides()
         mock_session = _mock_tenant_db_session(

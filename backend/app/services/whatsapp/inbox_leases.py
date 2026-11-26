@@ -71,6 +71,8 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
         await session.commit()
     if row is None:
         return None
+    if not isinstance(row.tenant_id, uuid.UUID):
+        print("INBOX_DEBUG_ROW", tuple(row), list(row._mapping.keys()), flush=True)
     return InboxClaim(
         id=row.id,
         tenant_id=row.tenant_id,

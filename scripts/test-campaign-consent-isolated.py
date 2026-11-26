@@ -12,6 +12,7 @@ from app.core.database import Base, close_engine, get_engine
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
 from app.models.enums import OptInStatus
+from app.services.notification.service import NotificationService
 from app.workers.campaign import _send_single_recipient
 
 
@@ -82,6 +83,33 @@ async def main():
             tenant, campaign, recipient, service, session_mgr
         )
         assert sender.await_count == 1
+    async with tenant.db_session() as session:
+        contact = (
+            await session.execute(select(Contact).where(Contact.id == contact_id))
+        ).scalar_one()
+        contact.opt_in_status = OptInStatus.opted_in
+    entered.clear()
+    release.clear()
+    sender.reset_mock()
+    notifications = NotificationService(
+        sender=SimpleNamespace(send_template=sender), audit=AsyncMock()
+    )
+    notification = asyncio.create_task(
+        notifications._send_with_current_consent(
+            tenant, contact_id, template_name="demo", language_code="fr", components=[]
+        )
+    )
+    await asyncio.wait_for(entered.wait(), timeout=10)
+    change = asyncio.create_task(opt_out())
+    await asyncio.sleep(0.3)
+    assert not change.done(), "Consent update bypassed the notification lock"
+    release.set()
+    assert await asyncio.wait_for(notification, timeout=10) == (None, "synthetic-wamid")
+    await asyncio.wait_for(change, timeout=10)
+    assert await notifications._send_with_current_consent(
+        tenant, contact_id, template_name="demo", language_code="fr", components=[]
+    ) == ("opted_out", None)
+    assert sender.await_count == 1
     await close_engine()
     print("ISOLATED_CAMPAIGN_CONSENT_OK", flush=True)
 

@@ -292,6 +292,36 @@ class NotificationService:
             )
             return result.scalar_one_or_none()
 
+    async def _send_with_current_consent(
+        self,
+        tenant: TenantContext,
+        contact_id: uuid.UUID,
+        *,
+        template_name: str,
+        language_code: str,
+        components: list,
+    ) -> tuple[str | None, str | None]:
+        """Serialize opt-out updates with the bounded provider send request."""
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(Contact).where(Contact.id == contact_id).with_for_update()
+            )
+            contact = result.scalar_one_or_none()
+            if contact is None:
+                return "contact_not_found", None
+            if contact.opt_in_status == OptInStatus.opted_out:
+                return "opted_out", None
+            if not contact.phone:
+                return "no_phone", None
+            wamid = await self._sender.send_template(
+                tenant=tenant,
+                to=contact.phone,
+                template_name=template_name,
+                language_code=language_code,
+                components=components,
+            )
+            return None, wamid
+
     # ── Deduplication ────────────────────────────────────────────
 
     async def is_duplicate(
@@ -421,13 +451,16 @@ class NotificationService:
             return {"status": "skipped", "reason": "no_phone"}
 
         try:
-            wamid = await self._sender.send_template(
-                tenant=tenant,
-                to=contact.phone,
+            skip_reason, wamid = await self._send_with_current_consent(
+                tenant,
+                contact_uuid,
                 template_name=decision.template_name,
                 language_code=language_code,
                 components=components,
             )
+            if skip_reason:
+                log.info("notification_skipped_after_recheck", reason=skip_reason)
+                return {"status": "skipped", "reason": skip_reason}
         except Exception as exc:
             log.error(
                 "notification_send_failed",

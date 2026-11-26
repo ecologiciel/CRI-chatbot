@@ -70,6 +70,11 @@ def _make_tenant(slug: str = "rabat") -> MagicMock:
     tenant.id = uuid.uuid4()
     tenant.name = "CRI Rabat"
     tenant.status = "active"
+    session = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = _make_contact(opt_in_status=OptInStatus.opted_in)
+    session.execute.return_value = result
+    tenant.db_session.return_value.__aenter__.return_value = session
     return tenant
 
 

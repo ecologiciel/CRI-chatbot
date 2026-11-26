@@ -185,8 +185,8 @@ export function DocumentTable() {
   }
 
   function handleValidate(doc: (typeof documents)[number]) {
-    if (!doc.source_authority?.trim() || !doc.source_reference?.trim() || !doc.source_version?.trim() || !doc.published_at) {
-      toast.error("Renseignez l'autorité, la référence, la version et la date de publication.");
+    if (!doc.source_authority?.trim() || !doc.source_reference?.trim() || !doc.source_version?.trim()) {
+      toast.error("Renseignez l'autorité, la référence et la version. La date de publication est facultative si elle est inconnue.");
       return;
     }
     if (doc.source_url?.trim() && !safeSourceUrl(doc.source_url.trim())) {
@@ -493,7 +493,7 @@ export function DocumentTable() {
                     ["source_authority", "Autorité source", "text", 300],
                     ["source_reference", "Référence", "text", 500],
                     ["source_version", "Version", "text", 100],
-                    ["published_at", "Date de publication", "date", undefined],
+                    ["published_at", "Date de publication (si connue)", "date", undefined],
                     ["expires_at", "Date d'expiration", "date", undefined],
                     ["source_url", "URL de la source", "url", 1000],
                   ] as const).map(([field, label, type, maxLength]) => (

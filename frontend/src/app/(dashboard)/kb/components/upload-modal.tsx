@@ -202,7 +202,7 @@ export function UploadModal({ open, onOpenChange }: UploadModalProps) {
               <Input required placeholder="Organisme émetteur" value={sourceAuthority} onChange={(e) => setSourceAuthority(e.target.value)} />
               <Input required placeholder="Référence officielle" value={sourceReference} onChange={(e) => setSourceReference(e.target.value)} />
               <Input required placeholder="Version" value={sourceVersion} onChange={(e) => setSourceVersion(e.target.value)} />
-              <Input required type="date" value={publishedAt} onChange={(e) => setPublishedAt(e.target.value)} aria-label="Date de publication" />
+              <label className="text-sm">Date de publication (si connue)<Input type="date" value={publishedAt} onChange={(e) => setPublishedAt(e.target.value)} aria-label="Date de publication si connue" /></label>
             </div>
             <Input type="url" placeholder="Lien officiel (optionnel)" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} />
           </div>

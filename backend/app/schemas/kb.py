@@ -47,7 +47,7 @@ class KBDocumentValidationRequest(BaseModel):
     source_authority: str = Field(..., min_length=1, max_length=300)
     source_reference: str = Field(..., min_length=1, max_length=500)
     source_version: str = Field(..., min_length=1, max_length=100)
-    published_at: date
+    published_at: date | None = None
     source_url: str | None = Field(default=None, max_length=1000)
     expires_at: date | None = None
 

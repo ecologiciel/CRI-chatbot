@@ -34,6 +34,16 @@ def test_approved_document_can_be_reindexed():
     _ensure_reindexable(document())
 
 
+def test_unknown_publication_date_does_not_require_inventing_one():
+    from app.schemas.kb import KBDocumentValidationRequest
+
+    data = KBDocumentValidationRequest(
+        source_authority="ONSSA", source_reference="Guide", source_version="collecte-2026-11-23"
+    )
+    assert data.published_at is None
+    _ensure_reindexable(document(published_at=None))
+
+
 @pytest.mark.parametrize(
     "override",
     [

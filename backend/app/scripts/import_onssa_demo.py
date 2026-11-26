@@ -197,7 +197,6 @@ async def main() -> int:
                     "source_authority": manifest["source_authority"],
                     "source_reference": source["title"],
                     "source_version": version,
-                    "published_at": collected_at,
                 },
                 files={"file": (document_path.name, document_path.read_bytes(), "text/markdown")},
             )
@@ -211,7 +210,6 @@ async def main() -> int:
                     "source_authority": manifest["source_authority"],
                     "source_reference": source["title"],
                     "source_version": version,
-                    "published_at": collected_at,
                     "source_url": source["url"],
                 },
             )

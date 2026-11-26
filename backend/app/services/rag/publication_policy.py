@@ -14,7 +14,6 @@ def ensure_publishable(document: KBDocument) -> None:
             "source_authority": document.source_authority,
             "source_reference": document.source_reference,
             "source_version": document.source_version,
-            "published_at": document.published_at,
         }.items()
         if not value or (isinstance(value, str) and not value.strip())
     ]

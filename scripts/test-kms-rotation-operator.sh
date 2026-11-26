@@ -44,7 +44,8 @@ EOF
 cat > "$fixture/docker-compose.hostinger.yml" <<'YAML'
 x-writer: &writer
   image: ${BACKEND_TEST_IMAGE}
-  entrypoint: [sleep, '1800']
+  # PID 1 must handle SIGTERM so this test models graceful application shutdown.
+  entrypoint: [python, -c, 'import signal,sys,time; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); time.sleep(1800)']
   environment:
     KMS_MASTER_KEY: ${KMS_MASTER_KEY}
   networks: [data]
@@ -137,24 +138,26 @@ EOF
 chmod 700 "$fixture/proxy/docker"
 set +e
 PATH="$fixture/proxy:$PATH" KMS_FIXTURE_INTERRUPT=after-apply \
-    python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" \
+    timeout 180s python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" \
     --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg"
 status=$?
 set -e
 [[ "$status" -ne 0 && -f "$fixture/.kms-maintenance/journal/READY" ]]
+interrupted_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
+[[ "$interrupted_hash" != "$original_hash" ]]
 for service in backend ingestion-worker learning-worker purge-worker; do
     id=$("${compose[@]}" ps -aq "$service")
     [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == false/no ]]
 done
 echo 'Interrupted rotation kept all fixture writers stopped with restart disabled.'
 
-python3 "$script_dir/kms_rotation_operator.py" recover --deployment-dir "$fixture" --project "$project" --network "$network"
+timeout 180s python3 "$script_dir/kms_rotation_operator.py" recover --deployment-dir "$fixture" --project "$project" --network "$network"
 [[ ! -e "$fixture/.kms-maintenance" ]]
 recovered_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
 [[ "$recovered_hash" == "$original_hash" ]]
 echo 'Rollback restored the original fixture master key.'
 
-python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg"
+timeout 180s python3 "$script_dir/kms_rotation_operator.py" rotate --deployment-dir "$fixture" --project "$project" --network "$network" --backup "$fixture/test.tar.gz.gpg"
 [[ ! -e "$fixture/.kms-maintenance" ]]
 rotated_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
 [[ "$rotated_hash" != "$original_hash" ]]

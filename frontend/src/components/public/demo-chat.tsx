@@ -85,7 +85,7 @@ export function DemoChat({ tenantSlug }: { tenantSlug: string }) {
                         {source.url ? <a className="text-emerald-700 underline" href={source.url} target="_blank" rel="noreferrer">{source.title ?? "Source officielle"}</a> : source.title ?? "Source officielle"}
                         {source.published_at ? ` — ${source.published_at}` : ""}
                         {source.section_path?.length ? ` — ${source.section_path.join(" › ")}` : ""}
-                        {source.page_numbers?.length ? ` — p. ${source.page_numbers.join(", ")}` : ""}
+                        {source.page_numbers?.length ? ` — pages consultées : ${source.page_numbers.join(", ")}` : ""}
                         {source.language ? ` — ${source.language.toUpperCase()}` : ""}
                       </li>
                     ))}

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Integration test using an isolated disposable Compose project and test keys.
 set -Eeuo pipefail
+export BACKUP_STOP_TIMEOUT_SECONDS=2
 umask 077
 root="${BACKUP_TEST_ROOT:-/tmp}"
 fixture=$(mktemp -d "$root/hostinger-backup-test.XXXXXXXX")

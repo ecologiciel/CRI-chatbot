@@ -178,6 +178,7 @@ services:
 
   ingestion-worker:
     <<: *app-hardening
+    stop_grace_period: 660s
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
@@ -201,6 +202,7 @@ services:
 
   learning-worker:
     <<: *app-hardening
+    stop_grace_period: 180s
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment
@@ -219,6 +221,7 @@ services:
 
   purge-worker:
     <<: *app-hardening
+    stop_grace_period: 660s
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     environment:
       <<: *backend-environment

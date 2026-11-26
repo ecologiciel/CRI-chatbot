@@ -443,4 +443,5 @@ class WorkerSettings:
     redis_settings = _get_redis_settings()
     max_jobs = 5
     job_timeout = 120  # 2 minutes (embed + upsert, much faster than ingestion)
+    job_completion_wait = 150  # Finish in-flight jobs on a graceful shutdown.
     max_tries = 3

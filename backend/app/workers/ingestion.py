@@ -339,4 +339,5 @@ class WorkerSettings:
     redis_settings = _get_redis_settings()
     max_jobs = 5
     job_timeout = 600  # 10 minutes
+    job_completion_wait = 630  # Finish in-flight jobs on a graceful shutdown.
     max_tries = 3

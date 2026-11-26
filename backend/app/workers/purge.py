@@ -276,3 +276,4 @@ class WorkerSettings:
     redis_settings = _get_redis_settings()
     max_jobs = 1
     job_timeout = 600  # 10 minutes (multi-tenant purge)
+    job_completion_wait = 630  # Finish in-flight jobs on a graceful shutdown.

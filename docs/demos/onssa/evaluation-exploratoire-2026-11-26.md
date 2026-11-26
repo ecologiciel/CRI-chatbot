@@ -103,3 +103,10 @@ la réponse à `candidate-18` ne mentionnait plus les analyses, tandis que celle
 à `candidate-09` utilisait encore le terme arabe « garantie » pour la sécurité
 des échanges. Le renforcement du prompt n'a donc pas suffi à corriger ce cas.
 Il faut poursuivre l'évaluation et ne pas présenter cette réponse comme validée.
+
+Un exemple explicite distinguant « contribuer » et « garantir » a ensuite été
+ajouté à la consigne arabe. Dans deux nouveaux appels indépendants sur
+`candidate-09`, les réponses employaient une formulation de contribution plutôt
+qu'une garantie. L'une conservait un mot français et les deux présentaient des
+formulations arabes à relire. Ces deux essais ne garantissent ni le résultat
+des réponses futures ni la qualité globale de la traduction.

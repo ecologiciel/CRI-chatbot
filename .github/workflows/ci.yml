@@ -562,6 +562,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Test isolated document extraction
+        env:
+          BACKEND_IMAGE: ghcr.io/${{ env.REPO_LC }}/backend:${{ github.sha }}
+        run: bash scripts/test-isolated-extraction.sh
+
       - name: Build and push frontend image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:

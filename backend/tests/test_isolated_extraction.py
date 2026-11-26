@@ -1,5 +1,6 @@
 """Exercise the extraction boundary and fail-closed client behavior."""
 
+import asyncio
 from unittest.mock import patch
 
 import httpx
@@ -8,6 +9,38 @@ import pytest
 from app.core.exceptions import IngestionError
 from app.services.rag.extractor_service import MAX_INPUT, app
 from app.services.rag.remote_extraction import extract_remotely
+
+
+@pytest.mark.asyncio
+async def test_concurrent_documents_are_processed_one_at_a_time():
+    active = 0
+    peak = 0
+
+    async def simulated_child(data, extension):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.02)
+        active -= 1
+        return {"text": data.decode(), "pages": []}
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        with (
+            patch("app.services.rag.extractor_service._slot", asyncio.Semaphore(1)),
+            patch("app.services.rag.extractor_service._run_child", side_effect=simulated_child),
+        ):
+            responses = await asyncio.gather(
+                *(
+                    client.post(
+                        "/extract", headers={"X-File-Extension": ".txt"}, content=str(i).encode()
+                    )
+                    for i in range(5)
+                )
+            )
+    assert peak == 1
+    assert [response.json()["text"] for response in responses] == list("01234")
 
 
 @pytest.mark.asyncio

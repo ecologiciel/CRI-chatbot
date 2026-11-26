@@ -69,5 +69,13 @@ async def test_public_messages_disable_private_dossier_tracking():
         patch("app.api.v1.public_chat.get_conversation_service", return_value=conversations),
         patch("app.api.v1.public_chat.run_conversation", run),
     ):
-        await send_message("prospect", PublicChatRequest(message="Suivre mon dossier"), "session")
+        await send_message(
+            "prospect",
+            PublicChatRequest(message="Suivre mon dossier, téléphone 0522123456"),
+            "session",
+        )
     assert run.await_args.kwargs["tracking_available"] is False
+    stored_input = conversations.add_message.await_args_list[0].args[-1]
+    assert "0522123456" not in stored_input
+    assert "[PHONE_1]" in stored_input
+    assert run.await_args.kwargs["query"] == stored_input

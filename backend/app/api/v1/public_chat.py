@@ -21,6 +21,7 @@ from app.schemas.public_chat import (
 )
 from app.services.contact.service import get_contact_service
 from app.services.conversation.service import get_conversation_service
+from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.orchestrator.graph import run_conversation
 
 router = APIRouter(prefix="/public", tags=["public-chat"])
@@ -119,14 +120,17 @@ async def send_message(
     contact = await contacts.get_or_create_web_session(tenant, demo_chat_session, language)
     conversation = await conversations.get_or_create(tenant, contact.id, AgentType.public)
 
+    # The anonymous demo does not support private dossier tracking. Minimize
+    # recognized sensitive data before persistence and downstream processing.
+    safe_message = get_pii_masker().mask(payload.message).masked_text
     await conversations.add_message(
-        tenant, conversation.id, MessageDirection.inbound, MessageType.text, payload.message
+        tenant, conversation.id, MessageDirection.inbound, MessageType.text, safe_message
     )
     history = await conversations.get_history(tenant, conversation.id, limit=10)
     result = await run_conversation(
         tenant=tenant,
         phone=contact.phone,
-        query=payload.message,
+        query=safe_message,
         conversation_history=history,
         incentive_state=(conversation.metadata_ or {}).get("incentive_state"),
         conversation_id=str(conversation.id),

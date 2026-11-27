@@ -18,11 +18,11 @@ export function ImportRequests({ enabled }: { enabled: boolean }) {
   const queryClient = useQueryClient();
   const [state, setState] = useState("uncertain");
   const [offset, setOffset] = useState(0);
-  const [selection, setSelection] = useState<{id: string; action: "follow_up" | "close_applied" | "close_not_applied"} | null>(null);
+  const [selection, setSelection] = useState<{id: string; action: "follow_up" | "close_applied" | "close_not_applied" | "authorize_retry"} | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const requests = useDurableImportRequests(state, offset, enabled);
   const review = useMutation({
-    mutationFn: ({id, action}: {id: string; action: "follow_up" | "close_applied" | "close_not_applied"}) => api.post(`/dossiers/imports/${id}/review`, {action}),
+    mutationFn: ({id, action}: {id: string; action: "follow_up" | "close_applied" | "close_not_applied" | "authorize_retry"}) => api.post(`/dossiers/imports/${id}/review`, {action}),
     onSuccess: () => { setMessage("Décision enregistrée. Aucun import n’a été relancé."); queryClient.invalidateQueries({queryKey: ["dossier-import-requests"]}); },
     onError: () => { setMessage("Décision non enregistrée. Actualisez le suivi avant de réessayer."); queryClient.invalidateQueries({queryKey: ["dossier-import-requests"]}); },
   });
@@ -50,6 +50,8 @@ export function ImportRequests({ enabled }: { enabled: boolean }) {
           {item.state === "uncertain" && <p role="status">{item.outcome_code === "configuration_changed" ? "Le paramétrage a changé après le dépôt." : "Résultat technique non confirmé."} {item.review_state === "closed" ? "Le suivi administratif est clôturé." : "Faites examiner cette demande par un administrateur."}</p>}
           {item.state === "uncertain" && <div className="space-y-2 mt-2">
             <p>Suivi : {item.review_state === "closed" ? `clôturé — ${item.review_outcome === "applied" ? "effets constatés" : "aucun effet constaté"}` : item.review_state === "follow_up" ? "à suivre" : "à examiner"}</p>
+            {item.retry_authorized && <p>Nouvelle tentative manuelle autorisée : déposez à nouveau le fichier pour lancer l’import.</p>}
+            {item.review_state === "closed" && item.review_outcome === "not_applied" && !item.retry_authorized && <Button variant="outline" disabled={review.isPending} onClick={() => setSelection({id: item.request_id, action: "authorize_retry"})}>Autoriser un nouveau dépôt</Button>}
             {item.review_state !== "closed" && <div className="flex flex-wrap gap-2">
               {item.review_state === "open" && <Button variant="outline" disabled={review.isPending} onClick={() => setSelection({id: item.request_id, action: "follow_up"})}>À suivre</Button>}
               <Button variant="outline" disabled={review.isPending} onClick={() => setSelection({id: item.request_id, action: "close_applied"})}>Clôturer : effets constatés</Button>
@@ -64,7 +66,7 @@ export function ImportRequests({ enabled }: { enabled: boolean }) {
       </>}
       <AlertDialog open={selection !== null} onOpenChange={(open) => { if (!open) setSelection(null); }}>
         <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confirmer la décision</AlertDialogTitle>
-          <AlertDialogDescription>{selection?.action === "follow_up" ? "La demande sera marquée à suivre." : selection?.action === "close_applied" ? "Vous confirmez avoir constaté les effets de cet import après vérification." : "Vous confirmez avoir vérifié qu’aucun effet de cet import n’a été constaté."} Cette décision est journalisée et ne relance pas l’import.</AlertDialogDescription>
+          <AlertDialogDescription>{selection?.action === "follow_up" ? "La demande sera marquée à suivre." : selection?.action === "close_applied" ? "Vous confirmez avoir constaté les effets de cet import après vérification." : selection?.action === "authorize_retry" ? "Vous autorisez un nouveau dépôt manuel du même fichier, après avoir vérifié l’absence d’effets. Le fichier devra être déposé à nouveau." : "Vous confirmez avoir vérifié qu’aucun effet de cet import n’a été constaté."} Cette décision est journalisée et ne relance pas l’import.</AlertDialogDescription>
         </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annuler</AlertDialogCancel><AlertDialogAction onClick={() => { if (selection) review.mutate(selection); setSelection(null); }}>Confirmer</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
     </CardContent></Card>

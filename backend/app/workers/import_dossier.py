@@ -441,6 +441,7 @@ async def task_watch_import_folder(
             ext = PurePosixPath(obj.object_name).suffix.lower()
             if get_settings().dossier_durable_imports_enabled:
                 from app.services.dossier.import_requests import (
+                    block_watched_retry,
                     find_existing_import,
                     mapping_digest,
                     register_import,
@@ -461,6 +462,9 @@ async def task_watch_import_folder(
                     bucket, snapshot_path, data=io.BytesIO(file_bytes), length=len(file_bytes)
                 )
                 async with tenant.db_session() as session:
+                    if await block_watched_retry(session, tenant.id, file_hash):
+                        files_skipped += 1
+                        continue
                     _, created = await register_import(
                         session,
                         request_id=request_id,

@@ -34,6 +34,7 @@ def upgrade() -> None:
         sa.Column("outcome_code", sa.String(64), nullable=True),
         sa.Column("review_state", sa.String(16), nullable=False, server_default="open"),
         sa.Column("review_outcome", sa.String(16), nullable=True),
+        sa.Column("retry_authorized", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -51,6 +52,10 @@ def upgrade() -> None:
             "(review_state IN ('open', 'follow_up') AND review_outcome IS NULL) OR "
             "(review_state = 'closed' AND review_outcome IS NOT NULL AND review_outcome IN ('applied', 'not_applied'))",
             name="ck_dossier_import_request_review",
+        ),
+        sa.CheckConstraint(
+            "NOT retry_authorized OR (state = 'uncertain' AND review_state = 'closed' AND review_outcome = 'not_applied')",
+            name="ck_dossier_import_retry_authorized",
         ),
         sa.CheckConstraint(
             "(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) "
@@ -77,7 +82,7 @@ def upgrade() -> None:
         "dossier_import_requests",
         ["tenant_id", "content_sha256"],
         unique=True,
-        postgresql_where=sa.text("state <> 'failed'"),
+        postgresql_where=sa.text("state <> 'failed' AND NOT retry_authorized"),
         schema="public",
     )
 

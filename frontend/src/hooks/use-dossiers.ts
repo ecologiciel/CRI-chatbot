@@ -140,6 +140,7 @@ export interface DurableImportRequest {
   outcome_code: string | null;
   review_state: "open" | "follow_up" | "closed";
   review_outcome: "applied" | "not_applied" | null;
+  retry_authorized: boolean;
   sync_log_id: string | null;
   created_at: string;
   updated_at: string;

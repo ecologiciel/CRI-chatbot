@@ -348,6 +348,7 @@ async def list_import_requests(
                 "outcome_code": row.outcome_code,
                 "review_state": row.review_state,
                 "review_outcome": row.review_outcome,
+                "retry_authorized": row.retry_authorized,
                 "sync_log_id": str(row.sync_log_id) if row.sync_log_id else None,
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
@@ -383,6 +384,7 @@ async def get_import_request(
             "outcome_code": request.outcome_code,
             "review_state": request.review_state,
             "review_outcome": request.review_outcome,
+            "retry_authorized": request.retry_authorized,
             "sync_log_id": str(request.sync_log_id) if request.sync_log_id else None,
             "created_at": request.created_at,
             "updated_at": request.updated_at,
@@ -390,7 +392,7 @@ async def get_import_request(
 
 
 class DossierImportReview(BaseModel):
-    action: Literal["follow_up", "close_applied", "close_not_applied"]
+    action: Literal["follow_up", "close_applied", "close_not_applied", "authorize_retry"]
 
 
 @router.post("/imports/{request_id}/review")
@@ -414,15 +416,25 @@ async def review_import_request(
         ).scalar_one_or_none()
         if request is None:
             raise HTTPException(status_code=404, detail="Demande introuvable")
-        allowed = {"open"} if data.action == "follow_up" else {"open", "follow_up"}
-        if request.state != "uncertain" or request.review_state not in allowed:
-            raise HTTPException(status_code=409, detail="État de la demande modifié")
         previous = request.review_state
-        request.review_state = "follow_up" if data.action == "follow_up" else "closed"
-        request.review_outcome = {
-            "close_applied": "applied",
-            "close_not_applied": "not_applied",
-        }.get(data.action)
+        if data.action == "authorize_retry":
+            if (
+                request.state != "uncertain"
+                or request.review_state != "closed"
+                or request.review_outcome != "not_applied"
+                or request.retry_authorized
+            ):
+                raise HTTPException(status_code=409, detail="Nouvelle tentative non autorisée")
+            request.retry_authorized = True
+        else:
+            allowed = {"open"} if data.action == "follow_up" else {"open", "follow_up"}
+            if request.state != "uncertain" or request.review_state not in allowed:
+                raise HTTPException(status_code=409, detail="État de la demande modifié")
+            request.review_state = "follow_up" if data.action == "follow_up" else "closed"
+            request.review_outcome = {
+                "close_applied": "applied",
+                "close_not_applied": "not_applied",
+            }.get(data.action)
         request.updated_at = func.clock_timestamp()
         session.add(
             AuditLog(
@@ -441,6 +453,7 @@ async def review_import_request(
             "state": request.state,
             "review_state": request.review_state,
             "review_outcome": request.review_outcome,
+            "retry_authorized": request.retry_authorized,
         }
 
 

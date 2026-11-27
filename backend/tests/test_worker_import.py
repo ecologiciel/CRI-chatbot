@@ -622,8 +622,8 @@ class TestTaskWatchImportFolder:
     """Tests for the task_watch_import_folder ARQ task."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("duplicate", [False, True])
-    async def test_durable_watcher_registers_once_without_redis_job(self, duplicate):
+    @pytest.mark.parametrize("duplicate,blocked", [(False, False), (True, False), (False, True)])
+    async def test_durable_watcher_registers_once_without_redis_job(self, duplicate, blocked):
         config = MagicMock(id=TEST_CONFIG_ID, watched_folder="imports/pending/", column_mapping={})
         config_result, hash_result = MagicMock(), MagicMock()
         config_result.scalar_one_or_none.return_value = config
@@ -644,16 +644,23 @@ class TestTaskWatchImportFolder:
             patch("app.core.minio.get_minio", return_value=minio),
             patch("app.workers.import_dossier.get_settings") as settings,
             patch("app.services.dossier.import_requests.find_existing_import", existing),
+            patch(
+                "app.services.dossier.import_requests.block_watched_retry",
+                new=AsyncMock(return_value=blocked),
+            ),
             patch("app.services.dossier.import_requests.register_import", register),
         ):
             resolver.from_slug = AsyncMock(return_value=tenant)
             settings.return_value.dossier_durable_imports_enabled = True
             result = await task_watch_import_folder({"redis": queue}, TEST_TENANT_SLUG)
-        assert result["files_enqueued"] == (0 if duplicate else 1)
+        assert result["files_enqueued"] == (0 if duplicate or blocked else 1)
         queue.enqueue_job.assert_not_awaited()
         minio.remove_object.assert_not_awaited()
         if duplicate:
             minio.put_object.assert_not_awaited()
+            register.assert_not_awaited()
+        elif blocked:
+            minio.put_object.assert_awaited_once()
             register.assert_not_awaited()
         else:
             minio.put_object.assert_awaited_once()

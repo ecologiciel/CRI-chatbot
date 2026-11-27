@@ -35,7 +35,12 @@ from app.models.dossier import Dossier, DossierHistory
 from app.models.sync import SyncConfig, SyncLog
 from app.models.tenant import Tenant
 from app.services.dossier.import_execution import process_one_durable_import
-from app.services.dossier.import_requests import LostImportLeaseError, claim_import, register_import
+from app.services.dossier.import_requests import (
+    LostImportLeaseError,
+    block_watched_retry,
+    claim_import,
+    register_import,
+)
 from app.services.dossier.import_service import DossierImportRow, DossierImportService
 from app.services.notification.outbox import claim_notification, enqueue_notification
 from app.services.notification.outbox_execution import process_one_notification
@@ -571,6 +576,7 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             "outcome_code",
             "review_state",
             "review_outcome",
+            "retry_authorized",
             "sync_log_id",
             "created_at",
             "updated_at",
@@ -625,6 +631,76 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             )
         assert repeat.value.status_code == 409
         async with sessions.begin() as session:
+            await session.execute(
+                sa.text(
+                    "ALTER TABLE public.audit_logs ADD CONSTRAINT test_reject_retry CHECK (action <> 'dossier_imp_review') NOT VALID"
+                )
+            )
+        with pytest.raises(IntegrityError):
+            await review_import_request(
+                changed_id,
+                DossierImportReview(action="authorize_retry"),
+                tenant=tenant,
+                admin=admin,
+            )
+        async with sessions.begin() as session:
+            assert not (
+                await session.execute(
+                    sa.text(
+                        "SELECT retry_authorized FROM public.dossier_import_requests WHERE id=:id"
+                    ),
+                    {"id": changed_id},
+                )
+            ).scalar_one()
+            await session.execute(
+                sa.text("ALTER TABLE public.audit_logs DROP CONSTRAINT test_reject_retry")
+            )
+        async with sessions.begin() as session:
+            content_hash = hashlib.sha256(b"numero,statut\nA,valide\n\n").hexdigest()
+            assert await block_watched_retry(session, tenant_id, content_hash)
+            retry_task = asyncio.create_task(
+                review_import_request(
+                    changed_id,
+                    DossierImportReview(action="authorize_retry"),
+                    tenant=tenant,
+                    admin=admin,
+                )
+            )
+            await asyncio.sleep(0.1)
+            assert not retry_task.done()
+        retry = await asyncio.wait_for(retry_task, 5)
+        assert retry["retry_authorized"] is True and retry["state"] == "uncertain"
+        with pytest.raises(HTTPException) as repeated_retry:
+            await review_import_request(
+                changed_id,
+                DossierImportReview(action="authorize_retry"),
+                tenant=tenant,
+                admin=admin,
+            )
+        assert repeated_retry.value.status_code == 409
+        async with sessions.begin() as session:
+            assert await block_watched_retry(session, tenant_id, content_hash)
+        new_attempt = await accept_import(
+            UploadFile(filename="changed.csv", file=io.BytesIO(b"numero,statut\nA,valide\n\n")),
+            sync_config_id=config_id,
+            tenant=tenant,
+            admin=admin,
+        )
+        assert (
+            new_attempt["deduplicated"] is False
+            and new_attempt["request_id"] != changed["request_id"]
+        )
+        second_attempt = await accept_import(
+            UploadFile(filename="changed.csv", file=io.BytesIO(b"numero,statut\nA,valide\n\n")),
+            sync_config_id=config_id,
+            tenant=tenant,
+            admin=admin,
+        )
+        assert (
+            second_attempt["deduplicated"] is True
+            and second_attempt["request_id"] == new_attempt["request_id"]
+        )
+        async with sessions.begin() as session:
             assert (
                 await session.execute(
                     sa.text(
@@ -632,7 +708,7 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
                     ),
                     {"id": str(changed_id)},
                 )
-            ).scalar_one() == 2
+            ).scalar_one() == 3
     async with sessions.begin() as session:
         assert (
             await session.execute(

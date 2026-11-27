@@ -5,7 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, func, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +37,10 @@ class DossierImportRequest(UUIDMixin, Base):
             name="ck_dossier_import_request_review",
         ),
         CheckConstraint(
+            "NOT retry_authorized OR (state = 'uncertain' AND review_state = 'closed' AND review_outcome = 'not_applied')",
+            name="ck_dossier_import_retry_authorized",
+        ),
+        CheckConstraint(
             "(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) "
             "OR (state <> 'processing' AND lease_token IS NULL AND lease_until IS NULL)",
             name="ck_dossier_import_request_lease",
@@ -37,7 +51,7 @@ class DossierImportRequest(UUIDMixin, Base):
             "tenant_id",
             "content_sha256",
             unique=True,
-            postgresql_where=text("state <> 'failed'"),
+            postgresql_where=text("state <> 'failed' AND NOT retry_authorized"),
         ),
         Index("ix_dossier_import_request_queue", "tenant_id", "state", "created_at"),
         {"schema": "public"},
@@ -59,6 +73,7 @@ class DossierImportRequest(UUIDMixin, Base):
     outcome_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     review_state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="open")
     review_outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    retry_authorized: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

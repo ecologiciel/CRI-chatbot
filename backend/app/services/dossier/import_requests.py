@@ -102,6 +102,7 @@ async def find_existing_import(
                 DossierImportRequest.tenant_id == tenant_id,
                 DossierImportRequest.content_sha256 == content_sha256,
                 DossierImportRequest.state != "failed",
+                DossierImportRequest.retry_authorized.is_(False),
             )
         )
     ).one_or_none()
@@ -112,6 +113,28 @@ async def find_existing_import(
             "file already registered with different configuration"
         )
     return existing.id
+
+
+async def block_watched_retry(
+    session: AsyncSession, tenant_id: uuid.UUID, content_sha256: str
+) -> bool:
+    """Lock uncertain entries so authorizing a manual retry cannot race the watcher."""
+    rows = (
+        (
+            await session.execute(
+                select(DossierImportRequest.id)
+                .where(
+                    DossierImportRequest.tenant_id == tenant_id,
+                    DossierImportRequest.content_sha256 == content_sha256,
+                    DossierImportRequest.state == "uncertain",
+                )
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return bool(rows)
 
 
 async def register_import(

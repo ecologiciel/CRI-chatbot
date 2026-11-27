@@ -29,7 +29,10 @@ def mock_lifecycle_lock():
     async def unlocked(_value):
         yield
 
-    with patch("app.services.tenant.provisioning.protect_removal", unlocked):
+    with (
+        patch("app.services.tenant.provisioning.protect_removal", unlocked),
+        patch("app.services.tenant.provisioning._assert_template_compatible", new=AsyncMock()),
+    ):
         yield
 
 

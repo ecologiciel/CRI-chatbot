@@ -56,7 +56,7 @@ export function WhatsAppReview() {
   const reconcile = useMutation({
     mutationFn: (id: string) => api.post<{ stop_applied: boolean }>(`/whatsapp/operations/events/${id}/reconcile`, {}),
     onSuccess: (data) => {
-      setMessage(data.stop_applied ? "Demande STOP appliquée. Le résultat du message reste à examiner." : "Message rapproché. Son résultat reste à examiner.");
+      setMessage(data.stop_applied ? "Demande STOP appliquée. Le résultat du message reste à examiner." : "Rapprochement non confirmé ; le message reste à examiner.");
       queryClient.invalidateQueries({ queryKey: ["wa-operations"] });
     },
     onError: () => setMessage("Rapprochement impossible. Le canal, le message ou sa durée de conservation nécessitent un examen spécifique."),
@@ -127,7 +127,7 @@ export function WhatsAppReview() {
       <AlertDialog open={reconcileId !== null} onOpenChange={(open) => { if (!open) setReconcileId(null); }}>
         <AlertDialogContent><AlertDialogHeader>
           <AlertDialogTitle>Rapprocher cet ancien message ?</AlertDialogTitle>
-          <AlertDialogDescription>Le message texte sera vérifié. Une demande STOP sera appliquée et journalisée ; aucun message ne sera envoyé et le résultat restera à examiner.</AlertDialogDescription>
+          <AlertDialogDescription>Seules les commandes STOP explicitement reconnues sont rapprochées. Une demande reconnue sera appliquée et journalisée ; aucun message ne sera envoyé et le résultat restera à examiner.</AlertDialogDescription>
         </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annuler</AlertDialogCancel>
           <AlertDialogAction onClick={() => { if (reconcileId) reconcile.mutate(reconcileId); setReconcileId(null); }}>Rapprocher</AlertDialogAction>
         </AlertDialogFooter></AlertDialogContent>

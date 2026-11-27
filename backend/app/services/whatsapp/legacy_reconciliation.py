@@ -1,4 +1,4 @@
-"""Conservative reconciliation of pre-ordering text inbox records.
+"""Conservative reconciliation of explicit pre-ordering STOP commands.
 
 Staged only. No message is sent and the operator must still review the
 uncertain outcome afterwards. Unsupported or redacted records stay blocked.
@@ -66,6 +66,10 @@ async def reconcile_legacy_text(
         if message.id != provider_id or message.type != "text" or not message.text:
             raise LegacyReconciliationError("Message non textuel ou incohérent : examen spécifique requis")
         is_stop = SegmentationService.is_stop_command(message.text.body)
+        if not is_stop:
+            # An arbitrary sentence may still express an opt-out. Without a
+            # reviewed interpretation it is unsafe to mark this stream known.
+            raise LegacyReconciliationError("Message sans commande STOP reconnue : examen spécifique requis")
         fingerprint = await cipher.whatsapp_sender_fingerprint(
             tenant_id=tenant.id, channel_id=channel, sender_id=message.from_,
         )

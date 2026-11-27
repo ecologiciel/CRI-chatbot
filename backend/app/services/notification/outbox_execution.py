@@ -100,6 +100,8 @@ async def process_one_notification(
                     reason = result.get("reason")
                     if reason in _SKIP_REASONS:
                         outcome, code = "skipped", reason
+                    elif reason in {"tenant_or_channel_changed", "claim_lost"}:
+                        code = reason
                     else:
                         code = "unknown_skip_reason"
                 elif status == "unconfirmed":

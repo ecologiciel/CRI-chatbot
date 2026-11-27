@@ -43,6 +43,12 @@ def setup_execution(monkeypatch):
         ({"status": "unconfirmed"}, "uncertain", "provider_unconfirmed", None),
         ({"status": "skipped", "reason": "opted_out"}, "skipped", "opted_out", None),
         ({"status": "skipped", "reason": "unknown"}, "uncertain", "unknown_skip_reason", None),
+        (
+            {"status": "skipped", "reason": "tenant_or_channel_changed"},
+            "uncertain",
+            "tenant_or_channel_changed",
+            None,
+        ),
     ],
 )
 async def test_explicit_outcomes_are_fenced(setup_execution, result, expected, code, message_id):

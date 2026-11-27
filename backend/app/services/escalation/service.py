@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 import structlog
 from sqlalchemy import case, func, select, update
 
+from app.core.exceptions import EscalationConflictError
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
@@ -459,9 +460,14 @@ class EscalationService:
         now = datetime.now(UTC)
         async with tenant.db_session() as session:
             result = await session.execute(
-                select(Escalation).where(Escalation.id == escalation_id),
+                select(Escalation).where(Escalation.id == escalation_id).with_for_update(),
             )
             escalation = result.scalar_one()
+            if escalation.status != EscalationStatus.pending:
+                raise EscalationConflictError(
+                    "Escalade déjà attribuée ou clôturée",
+                    details={"escalation_id": str(escalation_id), "current_status": escalation.status.value},
+                )
 
             escalation.assigned_to = admin_id
             escalation.status = EscalationStatus.assigned
@@ -541,9 +547,14 @@ class EscalationService:
         """
         async with tenant.db_session() as session:
             result = await session.execute(
-                select(Escalation).where(Escalation.id == escalation_id),
+                select(Escalation).where(Escalation.id == escalation_id).with_for_update(),
             )
             escalation = result.scalar_one()
+            if escalation.status not in (EscalationStatus.assigned, EscalationStatus.in_progress):
+                raise EscalationConflictError(
+                    "Escalade non disponible pour réponse",
+                    details={"escalation_id": str(escalation_id), "current_status": escalation.status.value},
+                )
 
             # Get the phone number via conversation → contact
             conv_result = await session.execute(
@@ -626,9 +637,14 @@ class EscalationService:
         now = datetime.now(UTC)
         async with tenant.db_session() as session:
             result = await session.execute(
-                select(Escalation).where(Escalation.id == escalation_id),
+                select(Escalation).where(Escalation.id == escalation_id).with_for_update(),
             )
             escalation = result.scalar_one()
+            if escalation.status in (EscalationStatus.resolved, EscalationStatus.closed):
+                raise EscalationConflictError(
+                    "Escalade déjà clôturée",
+                    details={"escalation_id": str(escalation_id), "current_status": escalation.status.value},
+                )
 
             escalation.status = EscalationStatus.resolved
             escalation.resolution_notes = resolution_notes

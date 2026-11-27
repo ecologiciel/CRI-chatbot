@@ -21,9 +21,26 @@ import time
 from pathlib import Path
 
 REQUIRED_WRITERS = ("backend", "ingestion-worker", "learning-worker", "purge-worker")
-OPTIONAL_WRITERS = ("whatsapp-inbox-worker",)
+OPTIONAL_WRITERS = (
+    "whatsapp-inbox-worker",
+    "dossier-import-worker",
+    "dossier-outbox-worker",
+)
 WRITERS = REQUIRED_WRITERS + OPTIONAL_WRITERS
 STATE_NAME = ".kms-maintenance"
+
+
+def valid_writer_services(services: object) -> bool:
+    """Accept required writers and any ordered, unique optional subset."""
+    if not isinstance(services, list) or not all(
+        isinstance(item, str) for item in services
+    ):
+        return False
+    required = list(REQUIRED_WRITERS)
+    optional = services[len(required) :]
+    return services[: len(required)] == required and optional == [
+        item for item in OPTIONAL_WRITERS if item in optional
+    ]
 
 
 def command(*args: str, capture: bool = False) -> str:
@@ -134,6 +151,10 @@ class RotationOperator:
             str(self.compose_files[1]),
             "--profile",
             "whatsapp-durable",
+            "--profile",
+            "dossier-import",
+            "--profile",
+            "dossier-outbox",
             *args,
             capture=capture,
         )
@@ -228,7 +249,7 @@ class RotationOperator:
             if self.inspect(cid)["State"]["Running"]:
                 # Ingestion jobs are allowed up to ten minutes; give workers
                 # time to finish rather than killing an active transaction.
-                command("docker", "stop", "--time", "660", cid)
+                command("docker", "stop", "--time", "780", cid)
         for cid in ids:
             info = self.inspect(cid)
             if (
@@ -311,7 +332,7 @@ class RotationOperator:
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", data.get("image", "")):
             raise ValueError("Invalid maintenance image identifier")
         services = data.get("writer_services", list(REQUIRED_WRITERS))
-        if services not in (list(REQUIRED_WRITERS), list(WRITERS)):
+        if not valid_writer_services(services):
             raise ValueError("Invalid maintenance writer services")
         refs = data.get("image_references")
         if not isinstance(refs, list) or len(refs) != len(services):

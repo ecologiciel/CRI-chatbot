@@ -10,11 +10,11 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/chatbot-demo}"
 BACKUP_DIR="${BACKUP_DIR:-/root/chatbot-backups}"
 PROJECT="${COMPOSE_PROJECT_NAME:-chatbot-demo}"
 RECIPIENT="${BACKUP_RECIPIENT_FILE:-}"
-STOP_TIMEOUT="${BACKUP_STOP_TIMEOUT_SECONDS:-660}"
+STOP_TIMEOUT="${BACKUP_STOP_TIMEOUT_SECONDS:-780}"
 [[ "$STOP_TIMEOUT" =~ ^[1-9][0-9]*$ && ${#STOP_TIMEOUT} -le 5 ]] || { echo "Invalid backup stop timeout." >&2; exit 2; }
 MODE="${1:-backup}"
 [[ "$MODE" == backup || "$MODE" == --recover ]] || { echo "Usage: $0 [--recover]" >&2; exit 2; }
-COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$DEPLOY_DIR/.env.demo" -f "$DEPLOY_DIR/docker-compose.hostinger.yml" -f "$DEPLOY_DIR/docker-compose.hostinger.local.yml" --profile whatsapp-durable)
+COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$DEPLOY_DIR/.env.demo" -f "$DEPLOY_DIR/docker-compose.hostinger.yml" -f "$DEPLOY_DIR/docker-compose.hostinger.local.yml" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox)
 
 command -v docker >/dev/null
 command -v flock >/dev/null

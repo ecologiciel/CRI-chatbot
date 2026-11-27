@@ -104,7 +104,7 @@ async def reply_mode(
         try:
             seen = bool(await get_redis().exists(HEARTBEAT_KEY))
         except Exception:
-            pass
+            seen = None
     return {"durable": enabled, "worker_seen": seen}
 
 

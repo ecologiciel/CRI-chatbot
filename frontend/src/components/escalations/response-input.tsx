@@ -19,11 +19,13 @@ export function ResponseInput({
   const [message, setMessage] = useState("");
   const [reviewRequired, setReviewRequired] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inFlightRef = useRef(false);
   const respondMutation = useRespondEscalation();
 
   const handleSend = useCallback(() => {
     const trimmed = message.trim();
-    if (!trimmed || disabled || reviewRequired || respondMutation.isPending) return;
+    if (!trimmed || disabled || reviewRequired || respondMutation.isPending || inFlightRef.current) return;
+    inFlightRef.current = true;
 
     respondMutation.mutate(
       { id: escalationId, data: { message: trimmed } },
@@ -37,6 +39,7 @@ export function ResponseInput({
           setReviewRequired(true);
           toast.error("Résultat de l’envoi non confirmé.");
         },
+        onSettled: () => { inFlightRef.current = false; },
       },
     );
   }, [message, escalationId, respondMutation, disabled, reviewRequired]);

@@ -21,7 +21,10 @@ from app.services.whatsapp.inbox import persist_incoming_message
 from app.services.whatsapp.inbox_leases import claim_next, finish_claim
 from app.services.whatsapp.inbox_payload import decrypt_claim
 from app.services.whatsapp.inbox_retention import _redact_tenant
-from app.services.whatsapp.legacy_reconciliation import LegacyReconciliationError, reconcile_legacy_text
+from app.services.whatsapp.legacy_reconciliation import (
+    LegacyReconciliationError,
+    reconcile_legacy_text,
+)
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated PostgreSQL")

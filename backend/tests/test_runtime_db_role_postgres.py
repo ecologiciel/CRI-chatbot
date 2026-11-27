@@ -22,6 +22,11 @@ async def test_runtime_role_cannot_mutate_audit_or_schema_version():
         .read_text()
         .replace("\\set ON_ERROR_STOP on", "")
     )
+    refresh_sql = (
+        (Path(__file__).parents[2] / "scripts/rehearse-refresh-runtime-grants.sql")
+        .read_text()
+        .replace("\\set ON_ERROR_STOP on", "")
+    )
     async with engine.begin() as conn:
         await conn.execute(
             text(
@@ -67,6 +72,32 @@ async def test_runtime_role_cannot_mutate_audit_or_schema_version():
             with pytest.raises(DBAPIError):
                 await conn.execute(text(statement))
             await conn.rollback()
+        # Migration-created tables do not inherit broad default privileges.
+        await conn.execute(text("RESET ROLE"))
+        await conn.execute(text("CREATE TABLE public.fixture_new_table (id integer)"))
+        await conn.execute(text("CREATE TABLE tenant_template.fixture_new_table (id integer)"))
+        await conn.commit()
+        await conn.execute(text("SET ROLE cri_runtime_access"))
+        await conn.commit()
+        for statement in [
+            "SELECT * FROM public.fixture_new_table",
+            "SELECT * FROM tenant_template.fixture_new_table",
+        ]:
+            with pytest.raises(DBAPIError):
+                await conn.execute(text(statement))
+            await conn.rollback()
+        await conn.execute(text("RESET ROLE"))
+        await conn.commit()
+        raw = await conn.get_raw_connection()
+        await raw.driver_connection.execute(refresh_sql)
+        await conn.execute(text("SET ROLE cri_runtime_access"))
+        await conn.commit()
+        await conn.execute(text("INSERT INTO public.fixture_new_table VALUES (1)"))
+        await conn.execute(text("INSERT INTO tenant_template.fixture_new_table VALUES (1)"))
+        await conn.commit()
+        with pytest.raises(DBAPIError):
+            await conn.execute(text("UPDATE public.audit_logs SET action='modified'"))
+        await conn.rollback()
         await conn.execute(text("DROP SCHEMA tenant_new CASCADE"))
         await conn.commit()
         for slug in ["existing", "template", "existing; DROP SCHEMA public", "missing"]:

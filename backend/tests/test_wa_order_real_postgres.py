@@ -35,7 +35,7 @@ pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated Po
 async def test_legacy_stop_reconciliation_is_atomic_and_never_sends():
     engine = create_async_engine(URL)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    tenant_id, event_id, fail_id, ordinary_id, actor = (uuid.uuid4() for _ in range(5))
+    tenant_id, event_id, fail_id, ordinary_id, invalid_id, actor = (uuid.uuid4() for _ in range(6))
     tenant = TenantContext(tenant_id, "fixture_reconcile", "Fixture", "active", {"phone_number_id": "888"})
     async with engine.begin() as conn:
         assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
@@ -52,6 +52,9 @@ async def test_legacy_stop_reconciliation_is_atomic_and_never_sends():
         envelope = await cipher.encrypt(json.dumps(payload).encode(), tenant_id=tenant_id, purpose="wa_inbox", record_id=eid)
         async with engine.begin() as conn:
             await conn.execute(text("INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,state) VALUES (:id,:tenant,:mid,'888',:cipher,:version,'uncertain')"), {"id": eid, "tenant": tenant_id, "mid": mid, "cipher": envelope.ciphertext, "version": envelope.version})
+    invalid = await cipher.encrypt(b'{"phone_number_id":"888","message":{"private":"fixture-secret-text"}}', tenant_id=tenant_id, purpose="wa_inbox", record_id=invalid_id)
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,state) VALUES (:id,:tenant,'legacy-invalid','888',:cipher,:version,'uncertain')"), {"id": invalid_id, "tenant": tenant_id, "cipher": invalid.ciphertext, "version": invalid.version})
     with (patch("app.core.tenant_lifecycle.get_session_factory", return_value=factory),
           patch("app.services.whatsapp.legacy_reconciliation.get_session_factory", return_value=factory)):
         with patch("app.api.v1.whatsapp_operations.get_session_factory", return_value=factory):
@@ -60,6 +63,9 @@ async def test_legacy_stop_reconciliation_is_atomic_and_never_sends():
             assert all(event["requires_reconciliation"] for event in before["events"])
         with pytest.raises(LegacyReconciliationError):
             await reconcile_legacy_text(tenant, ordinary_id, actor, cipher=cipher)
+        with pytest.raises(LegacyReconciliationError) as invalid_error:
+            await reconcile_legacy_text(tenant, invalid_id, actor, cipher=cipher)
+        assert "fixture-secret-text" not in str(invalid_error.value)
         assert await reconcile_legacy_text(tenant, event_id, actor, cipher=cipher)
         with patch("app.api.v1.whatsapp_operations.get_session_factory", return_value=factory):
             after = await list_events(kind="message", state="uncertain", limit=50, offset=0,

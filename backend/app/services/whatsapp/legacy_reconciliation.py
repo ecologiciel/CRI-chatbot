@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 
+from pydantic import ValidationError
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 
@@ -59,10 +60,17 @@ async def reconcile_legacy_text(
             VersionedEnvelope(version, ciphertext), tenant_id=tenant.id,
             purpose="wa_inbox", record_id=event_id,
         )
-        payload = json.loads(plaintext)
+        try:
+            payload = json.loads(plaintext)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise LegacyReconciliationError("Contenu du message illisible") from None
         if not isinstance(payload, dict) or payload.get("phone_number_id") != channel:
             raise LegacyReconciliationError("Canal du message incohérent")
-        message = IncomingMessage.model_validate(payload.get("message"))
+        try:
+            message = IncomingMessage.model_validate(payload.get("message"))
+        except ValidationError:
+            # Pydantic exceptions can contain private message contents.
+            raise LegacyReconciliationError("Message invalide : examen spécifique requis") from None
         if message.id != provider_id or message.type != "text" or not message.text:
             raise LegacyReconciliationError("Message non textuel ou incohérent : examen spécifique requis")
         is_stop = SegmentationService.is_stop_command(message.text.body)

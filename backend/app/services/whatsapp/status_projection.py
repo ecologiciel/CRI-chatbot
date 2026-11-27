@@ -12,7 +12,8 @@ from app.core.database import get_session_factory
 from app.core.exceptions import TenantInactiveError
 from app.core.tenant import TenantResolver
 from app.core.tenant_lifecycle import protect_ingestion
-from app.models.conversation import Message
+from app.models.contact import Contact
+from app.models.conversation import Conversation, Message
 from app.models.enums import MessageDirection, TenantStatus
 from app.models.tenant import Tenant
 from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
@@ -81,17 +82,19 @@ async def apply_status_event(event_id: uuid.UUID, *, cipher: VersionedEnvelopeSe
             text("SELECT set_config('search_path', :schema, true)"),
             {"schema": f"{initial.db_schema}, public"},
         )
-        message = (
+        matched = (
             await session.execute(
-                select(Message)
+                select(Message, Contact.phone)
+                .join(Conversation, Conversation.id == Message.conversation_id)
+                .join(Contact, Contact.id == Conversation.contact_id)
                 .where(
                     Message.whatsapp_message_id == status.id,
                     Message.direction == MessageDirection.outbound,
                 )
-                .with_for_update()
+                .with_for_update(of=Message)
             )
-        ).scalar_one_or_none()
-        if message is None:
+        ).one_or_none()
+        if matched is None:
             event.attempts += 1
             event.updated_at = database_now
             if event.attempts >= 288:
@@ -102,6 +105,17 @@ async def apply_status_event(event_id: uuid.UUID, *, cipher: VersionedEnvelopeSe
                 result = "waiting"
             await session.commit()
             return result
+        message, contact_phone = matched
+        # Provider recipient IDs and stored E.164 numbers may differ by a
+        # leading '+'. Other differences are ambiguous: do not attach a
+        # delivery result to a different citizen's conversation.
+        recipient = status.recipient_id.removeprefix("+")
+        stored = contact_phone.removeprefix("+") if contact_phone else ""
+        if not (recipient.isascii() and recipient.isdecimal() and recipient == stored):
+            event.state = "uncertain"
+            event.updated_at = func.now()
+            await session.commit()
+            return "uncertain"
         metadata = dict(message.metadata_ or {})
         decision = decide_status(metadata.get("delivery_state"), status.status)
         if decision.uncertain:

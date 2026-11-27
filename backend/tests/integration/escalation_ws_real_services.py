@@ -5,11 +5,13 @@ Run only in the explicitly named isolated fixture environment.
 
 import asyncio
 import json
+import os
 import socket
 import uuid
 
+import httpx
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
@@ -75,15 +77,28 @@ async def main():
     redis = await init_redis()
     token, jti = JWTManager.create_access_token(admin_id, "supervisor", tenant_id)
     sessions = SessionManager(redis)
-    await sessions.register_session(str(admin_id), jti, "127.0.0.1")
-
     app = FastAPI()
     app.add_api_websocket_route("/ws/escalations/{tenant_id}", escalation_ws_endpoint)
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
+
+    @app.get("/api/fixture-peer")
+    async def fixture_peer(request: Request):
+        return {"ip": request.client.host}
+
+    proxy = os.environ.get("WS_FIXTURE_PROXY") == "1"
+    if proxy:
+        port = 8000
+    else:
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
     server = uvicorn.Server(
-        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error", access_log=False)
+        uvicorn.Config(
+            app,
+            host="0.0.0.0" if proxy else "127.0.0.1",
+            port=port,
+            log_level="error",
+            access_log=False,
+        )
     )
     task = asyncio.create_task(server.serve())
     try:
@@ -93,7 +108,23 @@ async def main():
             await asyncio.sleep(0.05)
         else:
             raise RuntimeError("Fixture API did not start")
-        url = f"ws://127.0.0.1:{port}/ws/escalations"
+        if proxy:
+            async with httpx.AsyncClient(trust_env=False) as client:
+                for _ in range(100):
+                    try:
+                        response = await client.get("http://codex-ws-traefik:8080/api/fixture-peer")
+                        response.raise_for_status()
+                        ip_address = response.json()["ip"]
+                        break
+                    except (httpx.HTTPError, KeyError):
+                        await asyncio.sleep(0.1)
+                else:
+                    raise RuntimeError("Fixture proxy did not route API")
+            url = "ws://codex-ws-traefik:8080/ws/escalations"
+        else:
+            ip_address = "127.0.0.1"
+            url = f"ws://127.0.0.1:{port}/ws/escalations"
+        await sessions.register_session(str(admin_id), jti, ip_address)
         async with connect(f"{url}/{tenant_id}") as one, connect(f"{url}/{tenant_id}") as two:
             for ws in (one, two):
                 await ws.send(json.dumps({"type": "auth", "token": token}))
@@ -121,7 +152,10 @@ async def main():
                     raise AssertionError("Revoked session received a message")
                 except ConnectionClosed as exc:
                     assert exc.code == 4001
-        print("REAL_WS_POSTGRES_REDIS_ISOLATION_OK", flush=True)
+        print(
+            "REAL_WS_POSTGRES_REDIS_PROXY_OK" if proxy else "REAL_WS_POSTGRES_REDIS_ISOLATION_OK",
+            flush=True,
+        )
     finally:
         server.should_exit = True
         await task

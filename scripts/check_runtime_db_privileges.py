@@ -40,6 +40,15 @@ async def inspect_role(connection, role_name):
                      OR has_table_privilege(r.oid,'public.alembic_version','TRUNCATE')) AS migration_modify,
           EXISTS (SELECT 1 FROM reachable r
                   WHERE has_schema_privilege(r.oid,'public','CREATE')) AS public_create,
+          EXISTS (SELECT 1 FROM reachable r
+                  JOIN pg_proc p ON has_function_privilege(r.oid,p.oid,'EXECUTE')
+                  JOIN pg_namespace n ON n.oid=p.pronamespace
+                  JOIN pg_roles owner ON owner.oid=p.proowner
+                  WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog','information_schema')
+                    AND (owner.rolsuper
+                         OR has_table_privilege(owner.oid,'public.audit_logs','UPDATE')
+                         OR has_table_privilege(owner.oid,'public.audit_logs','DELETE')
+                         OR has_table_privilege(owner.oid,'public.audit_logs','TRUNCATE'))) AS privileged_function,
           has_table_privilege(c.oid,'public.audit_logs','INSERT') AS audit_insert,
           has_table_privilege(c.oid,'public.audit_logs','SELECT') AS audit_select
         FROM candidate c
@@ -57,6 +66,10 @@ async def inspect_role(connection, role_name):
         ("audit_modify", "candidate can modify audit records"),
         ("migration_modify", "candidate can modify migration state"),
         ("public_create", "candidate can create objects in public"),
+        (
+            "privileged_function",
+            "candidate can execute a privileged security-definer function; review required",
+        ),
     ):
         if row[name]:
             failures.append(message)

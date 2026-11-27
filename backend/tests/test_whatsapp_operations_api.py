@@ -158,6 +158,7 @@ async def test_review_clears_only_expired_resolved_message_fingerprint(redacted,
     session = AsyncMock()
     session.__aenter__.return_value = session
     session.execute.return_value = result
+    session.add = MagicMock()
     with patch("app.api.v1.whatsapp_operations.get_session_factory", return_value=lambda: session):
         await review_event(event_id, ReviewRequest(action="resolve"), kind="message",
                            tenant=tenant, admin=MagicMock(sub=str(uuid.uuid4())))

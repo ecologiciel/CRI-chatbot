@@ -27,6 +27,12 @@ empreintes et l'ordre ; ne pas rétrograder ou supprimer ces données sans
 procédure vérifiée. Les données fournisseur réelles, les changements de canal,
 les performances et les interruptions restent à valider avant activation.
 
+**Blocage connu :** un message STOP peut rester derrière un message incertain
+de la même conversation. Le traitement du désabonnement doit être prioritaire
+et ses interactions avec les envois en cours doivent être vérifiées avant
+toute activation. Le planificateur prend actuellement au plus un message par
+appel toutes les dix secondes ; le débit doit être mesuré et amélioré.
+
 À expiration de la conservation, l'empreinte d'un événement terminé ou résolu
 est supprimée. Celle d'un événement non résolu est conservée pour empêcher
 une réponse hors ordre, puis supprimée lors de sa résolution après expiration.

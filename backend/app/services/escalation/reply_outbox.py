@@ -129,11 +129,15 @@ async def register_agent_reply(
             return replay
         if escalation is None or escalation.status not in {EscalationStatus.assigned, EscalationStatus.in_progress}:
             raise AgentReplyConflictError("Escalade indisponible pour réponse")
+        # Different escalations may reference the same conversation. This
+        # lock serializes acceptance order across all of them until commit.
+        conversation = (await session.execute(
+            select(Conversation).where(Conversation.id == escalation.conversation_id).with_for_update()
+        )).scalar_one_or_none()
+        if conversation is None:
+            raise AgentReplyConflictError("Conversation indisponible")
         contact = (await session.execute(
-            select(Contact)
-            .join(Conversation, Conversation.contact_id == Contact.id)
-            .where(Conversation.id == escalation.conversation_id)
-            .with_for_update(of=Contact)
+            select(Contact).where(Contact.id == conversation.contact_id).with_for_update()
         )).scalar_one_or_none()
         config = current.whatsapp_config or {}
         channel = config.get("phone_number_id", "")

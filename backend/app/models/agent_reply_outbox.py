@@ -31,7 +31,12 @@ class AgentReplyOutboxEvent(UUIDMixin, Base):
             "state IN ('pending', 'processing', 'accepted', 'uncertain', 'follow_up', 'resolved', 'canceled')",
             name="ck_agent_reply_state",
         ),
-        CheckConstraint("attempts >= 0 AND key_version > 0", name="ck_agent_reply_counters"),
+        CheckConstraint("attempts IN (0, 1) AND key_version > 0", name="ck_agent_reply_counters"),
+        CheckConstraint("state <> 'pending' OR attempts = 0", name="ck_agent_reply_no_requeue"),
+        CheckConstraint(
+            "state <> 'accepted' OR (provider_message_id IS NOT NULL AND length(provider_message_id) > 0)",
+            name="ck_agent_reply_accepted_id",
+        ),
         CheckConstraint(
             "(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) "
             "OR (state <> 'processing' AND lease_token IS NULL AND lease_until IS NULL)",
@@ -41,7 +46,7 @@ class AgentReplyOutboxEvent(UUIDMixin, Base):
         Index("uq_agent_reply_request", "tenant_id", "request_key", unique=True),
         Index("uq_agent_reply_sequence", "sequence", unique=True),
         Index("ix_agent_reply_queue", "state", "created_at"),
-        Index("ix_agent_reply_escalation", "tenant_id", "escalation_id", "created_at"),
+        Index("ix_agent_reply_conversation", "tenant_id", "conversation_id", "sequence"),
         {"schema": "public"},
     )
 

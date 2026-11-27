@@ -7,12 +7,19 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.tenant import TenantContext
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.escalation.reply_leases import (
+    AgentReplyClaim,
+    AgentReplyLeaseLostError,
+    claim_next_reply,
+    finish_reply,
+    quarantine_expired_replies,
+)
 from app.services.escalation.reply_outbox import AgentReplyConflictError, register_agent_reply
 from app.services.tenant.provisioning import TenantProvisioningService
 
@@ -102,4 +109,60 @@ async def test_reply_registration_is_idempotent_scoped_and_audited():
             await conn.execute(text("UPDATE tenant_fixture_reply_a.contacts SET opt_in_status='opted_out' WHERE id=:id"), {"id": ca})
         with pytest.raises(AgentReplyConflictError):
             await register_agent_reply(a, ea, aa, uuid.uuid4(), "fixture", cipher=cipher)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_claims_keep_conversation_order_and_quarantine_expiry():
+    engine = create_async_engine(URL, pool_size=12)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    ta, tb, conversation, other = (uuid.uuid4() for _ in range(4))
+    a1, a2, b1, c1 = (uuid.uuid4() for _ in range(4))
+    async with engine.begin() as conn:
+        assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status) VALUES (:a,'A','fixture_lease_a','Test','active'),(:b,'B','fixture_lease_b','Test','active')"), {"a": ta, "b": tb})
+        for event_id, tenant_id, conversation_id in ((a1, ta, conversation), (a2, ta, conversation), (b1, ta, other), (c1, tb, conversation)):
+            await conn.execute(text("""
+                INSERT INTO public.agent_reply_outbox_events
+                  (id,tenant_id,request_key,actor_id,escalation_id,conversation_id,contact_id,
+                   phone_number_id,recipient_fingerprint,ciphertext,key_version)
+                VALUES (:id,:tenant,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),:conversation,
+                        gen_random_uuid(),'123',repeat('a',64),'fixture',1)
+            """), {"id": event_id, "tenant": tenant_id, "conversation": conversation_id})
+
+    async def claim():
+        async with factory() as session:
+            item = await claim_next_reply(session)
+            await session.commit()
+            return item
+
+    claims = [claim for claim in await asyncio.gather(*(claim() for _ in range(12))) if claim]
+    assert {claim.id for claim in claims} == {a1, b1, c1}
+    async with factory() as session:
+        for item in claims:
+            await finish_reply(session, item, provider_message_id=None if item.id == a1 else f"fixture-{item.id}")
+        await session.commit()
+    assert await claim() is None
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": a1})
+    second = await claim()
+    assert second and second.id == a2
+    async with factory() as session:
+        with pytest.raises(AgentReplyLeaseLostError):
+            await finish_reply(session, AgentReplyClaim(second.id, second.tenant_id, uuid.uuid4()), provider_message_id="fixture")
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE public.agent_reply_outbox_events SET lease_until=now()-interval '1 second' WHERE id=:id"), {"id": a2})
+    async with factory() as session:
+        with pytest.raises(AgentReplyLeaseLostError):
+            await finish_reply(session, second, provider_message_id="fixture")
+    async with factory() as session:
+        assert await quarantine_expired_replies(session) == 1
+        await session.commit()
+    with pytest.raises(IntegrityError):
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='pending' WHERE id=:id"), {"id": a2})
+    assert await claim() is None
+    async with engine.connect() as conn:
+        row = (await conn.execute(text("SELECT state,attempts FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": a2})).one()
+        assert row.state == "uncertain" and row.attempts == 1
     await engine.dispose()

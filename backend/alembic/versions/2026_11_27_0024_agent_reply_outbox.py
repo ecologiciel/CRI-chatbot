@@ -42,7 +42,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["tenant_id"], ["public.tenants.id"], ondelete="RESTRICT"),
         sa.CheckConstraint("state IN ('pending', 'processing', 'accepted', 'uncertain', 'follow_up', 'resolved', 'canceled')", name="ck_agent_reply_state"),
-        sa.CheckConstraint("attempts >= 0 AND key_version > 0", name="ck_agent_reply_counters"),
+        sa.CheckConstraint("attempts IN (0, 1) AND key_version > 0", name="ck_agent_reply_counters"),
+        sa.CheckConstraint("state <> 'pending' OR attempts = 0", name="ck_agent_reply_no_requeue"),
+        sa.CheckConstraint("state <> 'accepted' OR (provider_message_id IS NOT NULL AND length(provider_message_id) > 0)", name="ck_agent_reply_accepted_id"),
         sa.CheckConstraint("(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) OR (state <> 'processing' AND lease_token IS NULL AND lease_until IS NULL)", name="ck_agent_reply_lease"),
         sa.CheckConstraint("recipient_fingerprint ~ '^[0-9a-f]{64}$'", name="ck_agent_reply_recipient"),
         schema="public",
@@ -50,7 +52,7 @@ def upgrade() -> None:
     op.create_index("uq_agent_reply_request", "agent_reply_outbox_events", ["tenant_id", "request_key"], unique=True, schema="public")
     op.create_index("uq_agent_reply_sequence", "agent_reply_outbox_events", ["sequence"], unique=True, schema="public")
     op.create_index("ix_agent_reply_queue", "agent_reply_outbox_events", ["state", "created_at"], schema="public")
-    op.create_index("ix_agent_reply_escalation", "agent_reply_outbox_events", ["tenant_id", "escalation_id", "created_at"], schema="public")
+    op.create_index("ix_agent_reply_conversation", "agent_reply_outbox_events", ["tenant_id", "conversation_id", "sequence"], schema="public")
 
 
 def downgrade() -> None:

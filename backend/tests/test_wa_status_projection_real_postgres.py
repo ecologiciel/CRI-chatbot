@@ -45,6 +45,8 @@ async def test_status_projection_checks_recipient_and_institution():
         (first, "901", StatusInfo(id="fixture-message", status="delivered", timestamp="1", recipient_id="212600000001")),
         (first, "901", StatusInfo(id="fixture-message", status="read", timestamp="2", recipient_id="212600000002")),
         (second, "902", StatusInfo(id="fixture-message", status="read", timestamp="3", recipient_id="212600000001")),
+        (first, "901", StatusInfo(id="fixture-message", status="sent", timestamp="4", recipient_id="212600000001")),
+        (first, "901", StatusInfo(id="fixture-message", status="failed", timestamp="5", recipient_id="212600000001")),
     ]
     with (
         patch("app.core.tenant_lifecycle.get_session_factory", return_value=factory),
@@ -54,10 +56,11 @@ async def test_status_projection_checks_recipient_and_institution():
     ):
         for tenant, channel, status in statuses:
             assert await persist_delivery_status(tenant, channel, status, cipher=cipher, fingerprint_key=b"a" * 32)
+        assert not await persist_delivery_status(first, "901", statuses[0][2], cipher=cipher, fingerprint_key=b"a" * 32)
         async with engine.connect() as conn:
             events = (await conn.execute(text("SELECT id,tenant_id FROM public.whatsapp_status_events WHERE tenant_id IN (:a,:b) ORDER BY created_at,id"), {"a": ta, "b": tb})).all()
-        assert len(events) == 3
-        first_id, mismatch_id, other_id = (row.id for row in events)
+        assert len(events) == 5
+        first_id, mismatch_id, other_id, stale_id, conflict_id = (row.id for row in events)
         assert await apply_status_event(first_id, cipher=cipher) == "waiting"
         async with engine.begin() as conn:
             await conn.execute(text("INSERT INTO tenant_fixture_status_a.contacts (id,phone) VALUES (:id,'+212600000001')"), {"id": contact})
@@ -68,6 +71,8 @@ async def test_status_projection_checks_recipient_and_institution():
         assert await apply_status_event(first_id, cipher=cipher) == "applied"
         assert await apply_status_event(mismatch_id, cipher=cipher) == "uncertain"
         assert await apply_status_event(other_id, cipher=cipher) == "waiting"
+        assert await apply_status_event(stale_id, cipher=cipher) == "applied"
+        assert await apply_status_event(conflict_id, cipher=cipher) == "uncertain"
         async with engine.connect() as conn:
             assert (await conn.scalar(text("SELECT metadata->>'delivery_state' FROM tenant_fixture_status_a.messages WHERE id=:id"), {"id": message})) == "delivered"
     await engine.dispose()

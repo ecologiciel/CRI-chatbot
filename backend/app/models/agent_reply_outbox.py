@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -34,7 +35,7 @@ class AgentReplyOutboxEvent(UUIDMixin, Base):
         CheckConstraint("attempts IN (0, 1) AND key_version > 0", name="ck_agent_reply_counters"),
         CheckConstraint("state <> 'pending' OR attempts = 0", name="ck_agent_reply_no_requeue"),
         CheckConstraint(
-            "state <> 'accepted' OR (provider_message_id IS NOT NULL AND length(provider_message_id) > 0)",
+            "state <> 'accepted' OR redacted_at IS NOT NULL OR (provider_message_id IS NOT NULL AND length(provider_message_id) > 0)",
             name="ck_agent_reply_accepted_id",
         ),
         CheckConstraint(
@@ -48,11 +49,24 @@ class AgentReplyOutboxEvent(UUIDMixin, Base):
             "OR (state <> 'processing' AND lease_token IS NULL AND lease_until IS NULL)",
             name="ck_agent_reply_lease",
         ),
-        CheckConstraint("recipient_fingerprint ~ '^[0-9a-f]{64}$'", name="ck_agent_reply_recipient"),
+        CheckConstraint(
+            "(redacted_at IS NULL AND contact_id IS NOT NULL AND phone_number_id IS NOT NULL "
+            "AND recipient_fingerprint IS NOT NULL AND recipient_fingerprint ~ '^[0-9a-f]{64}$') OR "
+            "(redacted_at IS NOT NULL AND contact_id IS NULL AND phone_number_id IS NULL "
+            "AND recipient_fingerprint IS NULL)", name="ck_agent_reply_recipient",
+        ),
+        CheckConstraint(
+            "redacted_at IS NULL OR (state IN ('accepted', 'resolved', 'canceled') "
+            "AND ciphertext = '' AND provider_message_id IS NULL)", name="ck_agent_reply_redaction",
+        ),
         Index("uq_agent_reply_request", "tenant_id", "request_key", unique=True),
         Index("uq_agent_reply_sequence", "sequence", unique=True),
         Index("ix_agent_reply_queue", "state", "created_at"),
         Index("ix_agent_reply_conversation", "tenant_id", "conversation_id", "sequence"),
+        Index(
+            "ix_agent_reply_retention", "tenant_id", "updated_at", "id",
+            postgresql_where=text("redacted_at IS NULL AND state IN ('accepted', 'resolved', 'canceled')"),
+        ),
         {"schema": "public"},
     )
 
@@ -63,10 +77,10 @@ class AgentReplyOutboxEvent(UUIDMixin, Base):
     actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     escalation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    contact_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     sequence: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
-    phone_number_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    recipient_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    phone_number_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    recipient_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")

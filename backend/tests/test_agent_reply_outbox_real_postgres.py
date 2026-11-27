@@ -3,6 +3,7 @@
 import asyncio
 import os
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,11 +24,70 @@ from app.services.escalation.reply_leases import (
 )
 from app.services.escalation.reply_outbox import AgentReplyConflictError, register_agent_reply
 from app.services.escalation.reply_review import review_agent_reply
+from app.services.escalation.reply_retention import redact_tenant_replies
 from app.services.tenant.provisioning import TenantProvisioningService
 from app.workers.agent_reply_outbox import process_one_reply
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated PostgreSQL")
+
+
+@pytest.mark.asyncio
+async def test_retention_redacts_only_terminal_payloads_with_atomic_audit_and_replay_fence():
+    engine = create_async_engine(URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    ta, tb, accepted, resolved, recent, pending, processing, other, request = (uuid.uuid4() for _ in range(9))
+    async with engine.begin() as conn:
+        assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status) VALUES (:a,'A','fixture_retention_a','Test','active'),(:b,'B','fixture_retention_b','Test','active')"), {"a": ta, "b": tb})
+        for event_id, tenant_id, state, old in (
+            (accepted, ta, "accepted", True), (resolved, ta, "resolved", True),
+            (recent, ta, "accepted", False), (pending, ta, "pending", True),
+            (processing, ta, "processing", True), (other, tb, "accepted", True),
+        ):
+            await conn.execute(text("""
+                INSERT INTO public.agent_reply_outbox_events
+                  (id,tenant_id,request_key,actor_id,escalation_id,conversation_id,contact_id,
+                   phone_number_id,recipient_fingerprint,ciphertext,key_version,state,attempts,
+                   provider_message_id,lease_token,lease_until,review_decision,reviewed_by,reviewed_at,updated_at)
+                VALUES (:id,:tenant,:key,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),
+                        '123',repeat('a',64),'synthetic-ciphertext',1,:state,
+                        CASE WHEN :state IN ('accepted','processing') THEN 1 ELSE 0 END,
+                        CASE WHEN :state='accepted' THEN 'synthetic-provider-id' ELSE NULL END,
+                        CASE WHEN :state='processing' THEN gen_random_uuid() ELSE NULL END,
+                        CASE WHEN :state='processing' THEN now()+interval '1 hour' ELSE NULL END,
+                        CASE WHEN :state='resolved' THEN 'unknown_no_retry' ELSE NULL END,
+                        CASE WHEN :state='resolved' THEN gen_random_uuid() ELSE NULL END,
+                        CASE WHEN :state='resolved' THEN now() ELSE NULL END,
+                        CASE WHEN :old THEN now()-interval '40 days' ELSE now() END)
+            """), {"id": event_id, "tenant": tenant_id, "state": state, "old": old,
+                     "key": request if event_id == accepted else uuid.uuid4()})
+        await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_agent_purge CHECK (action <> 'agent_reply_purge') NOT VALID"))
+    with patch("app.services.escalation.reply_retention.get_session_factory", return_value=factory):
+        try:
+            with pytest.raises(DBAPIError):
+                await redact_tenant_replies(ta, "fixture_retention_a", 30, datetime.now(UTC))
+            async with engine.connect() as conn:
+                assert (await conn.scalar(text("SELECT ciphertext FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": accepted})) == "synthetic-ciphertext"
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_agent_purge"))
+        assert await redact_tenant_replies(ta, "fixture_retention_a", 30, datetime.now(UTC)) == {"redacted": 2, "overdue_unresolved": 2}
+        assert await redact_tenant_replies(ta, "fixture_retention_a", 30, datetime.now(UTC)) == {"redacted": 0, "overdue_unresolved": 2}
+    async with engine.connect() as conn:
+        row = (await conn.execute(text("SELECT state,ciphertext,contact_id,phone_number_id,recipient_fingerprint,provider_message_id,redacted_at FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": accepted})).one()
+        assert row.state == "accepted" and row.ciphertext == "" and row.redacted_at is not None
+        assert all(value is None for value in (row.contact_id, row.phone_number_id, row.recipient_fingerprint, row.provider_message_id))
+        for event_id in (recent, pending, processing, other):
+            assert (await conn.scalar(text("SELECT ciphertext FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": event_id})) == "synthetic-ciphertext"
+        assert (await conn.scalar(text("SELECT count(*) FROM public.audit_logs WHERE tenant_slug='fixture_retention_a' AND action='agent_reply_purge'"))) == 1
+    with pytest.raises(IntegrityError):
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET request_key=:key WHERE id=:id"), {"key": request, "id": recent})
+    with pytest.raises(IntegrityError):
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET redacted_at=now(),ciphertext='' WHERE id=:id"), {"id": pending})
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

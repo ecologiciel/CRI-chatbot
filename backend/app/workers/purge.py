@@ -27,6 +27,7 @@ from sqlalchemy import and_, case, delete, func, or_, select, text
 
 from app.core.config import get_settings
 from app.services.dossier.import_retention import purge_import_sources
+from app.services.escalation.reply_retention import redact_expired_agent_replies
 from app.services.notification.outbox_retention import redact_expired_outbox
 from app.services.whatsapp.inbox_retention import redact_expired_inbox
 
@@ -312,6 +313,7 @@ class WorkerSettings:
         cron(redact_expired_inbox, minute=20),  # Hourly; includes inactive tenants.
         cron(redact_expired_outbox, minute=30),  # Hourly; includes inactive tenants.
         cron(purge_import_sources, minute=40),  # Opt-in terminal import snapshots.
+        cron(redact_expired_agent_replies, minute=50),  # Terminal replies only.
     ]
     on_startup = startup
     on_shutdown = shutdown

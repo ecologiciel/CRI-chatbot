@@ -23,6 +23,17 @@ mkfifo "$fixture/release"
 holder=$!
 while [[ ! -f "$fixture/ready" ]]; do sleep 0.1; done
 BACKUP_DIR="$fixture" bash "$script_dir/check-hostinger-backup.sh"
+mkdir "$fixture/broken-tools"
+printf '#!/bin/sh\nexit 127\n' > "$fixture/broken-tools/flock"
+chmod +x "$fixture/broken-tools/flock"
+if PATH="$fixture/broken-tools:$PATH" BACKUP_DIR="$fixture" bash "$script_dir/check-hostinger-backup.sh"; then exit 1; fi
+touch -d '2 hours ago' "$fixture/.cold-backup-services"
+if BACKUP_DIR="$fixture" bash "$script_dir/check-hostinger-backup.sh"; then exit 1; fi
+touch -d '10 minutes' "$fixture/.cold-backup-services"
+if BACKUP_DIR="$fixture" bash "$script_dir/check-hostinger-backup.sh"; then exit 1; fi
+rm "$fixture/.cold-backup-services"
+ln -s "$fixture/scheduled-backup.status" "$fixture/.cold-backup-services"
+if BACKUP_DIR="$fixture" bash "$script_dir/check-hostinger-backup.sh"; then exit 1; fi
 printf 'release\n' > "$fixture/release"
 wait "$holder"
 echo 'Backup monitoring checks: OK'

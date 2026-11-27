@@ -4,7 +4,8 @@ set -Eeuo pipefail
 BACKUP_DIR="${BACKUP_DIR:-/root/chatbot-backups}"
 MAX_BACKUP_AGE_SECONDS="${BACKUP_MAX_AGE_SECONDS:-108000}"
 MAX_GUARD_AGE_SECONDS="${BACKUP_GUARD_MAX_AGE_SECONDS:-300}"
-for limit in "$MAX_BACKUP_AGE_SECONDS" "$MAX_GUARD_AGE_SECONDS"; do
+MAX_RUNNING_SECONDS="${BACKUP_MAX_RUNNING_SECONDS:-3600}"
+for limit in "$MAX_BACKUP_AGE_SECONDS" "$MAX_GUARD_AGE_SECONDS" "$MAX_RUNNING_SECONDS"; do
     [[ "$limit" =~ ^[1-9][0-9]*$ && ${#limit} -le 9 ]] || exit 2
 done
 fail() { echo "BACKUP_ALERT: $*" >&2; exit 1; }
@@ -24,10 +25,17 @@ finished=$(date -u -d "${lines[0]#finished_utc=}" +%s) || fail 'invalid backup t
 guard_time=$(stat -c %Y "$heartbeat")
 (( finished <= now && now - finished <= MAX_BACKUP_AGE_SECONDS )) || fail 'last backup is stale or timestamp is in the future'
 (( guard_time <= now && now - guard_time <= MAX_GUARD_AGE_SECONDS )) || fail 'recovery guard heartbeat is stale or in the future'
-if [[ -e "$BACKUP_DIR/.cold-backup-services" ]]; then
+if [[ -e "$BACKUP_DIR/.cold-backup-services" || -L "$BACKUP_DIR/.cold-backup-services" ]]; then
+    journal="$BACKUP_DIR/.cold-backup-services"
+    [[ -f "$journal" && ! -L "$journal" ]] || fail 'backup recovery journal is unsafe'
     [[ ! -L "$BACKUP_DIR/.cold-backup.lock" ]] || fail 'backup lock is unsafe'
     exec 8> "$BACKUP_DIR/.cold-backup.lock"
-    if flock -n 8; then fail 'backup recovery journal is present'; fi
+    lock_status=0
+    flock -n -E 75 8 || lock_status=$?
+    (( lock_status == 0 )) && fail 'backup recovery journal is present'
+    (( lock_status == 75 )) || fail 'could not inspect backup lock'
+    started=$(stat -c %Y "$journal")
+    (( started <= now && now - started <= MAX_RUNNING_SECONDS )) || fail 'backup has been running too long or journal timestamp is in the future'
     echo 'BACKUP_OK: backup is currently running'
     exit 0
 fi

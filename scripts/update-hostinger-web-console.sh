@@ -8,14 +8,24 @@ COMPOSE=(docker compose --env-file .env.demo -f docker-compose.hostinger.yml -f 
 
 cd "$DEPLOY_DIR"
 test -f .env.demo
+command -v flock >/dev/null
+[[ ! -L .kms-rotation.lock ]] || { echo "Unsafe maintenance lock." >&2; exit 1; }
+exec 8> .kms-rotation.lock
+chmod 600 .kms-rotation.lock
+flock -x -n 8 || { echo "Backup or KMS maintenance in progress." >&2; exit 1; }
+[[ ! -L .kms-maintenance && ! -e .kms-maintenance/journal && ! -L .kms-maintenance/journal ]] || { echo "Unfinished or unsafe KMS maintenance." >&2; exit 1; }
 # This simple updater has no recovery journal for optional durable workers.
 # Refuse before the backup/build/migration rather than leave an old worker
 # writing against a new schema or silently stop it during a rollout.
-profile_running=$("${COMPOSE[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies ps --status running --services)
-if grep -Eq '^(whatsapp-inbox-worker|dossier-import-worker|dossier-outbox-worker|agent-reply-worker)$' <<< "$profile_running"; then
-  echo "A durable worker is running; use a coordinated maintenance procedure." >&2
-  exit 1
-fi
+ensure_no_durable_workers() {
+  local profile_running
+  profile_running=$("${COMPOSE[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies ps --status running --services)
+  if grep -Eq '^(whatsapp-inbox-worker|dossier-import-worker|dossier-outbox-worker|agent-reply-worker)$' <<< "$profile_running"; then
+    echo "A durable worker is running; use a coordinated maintenance procedure." >&2
+    return 1
+  fi
+}
+ensure_no_durable_workers
 umask 077
 mkdir -p "$BACKUP_DIR"
 
@@ -27,6 +37,7 @@ echo "PostgreSQL backup catalog verified: $backup_file"
 
 # Builds happen while the existing services remain available.
 "${COMPOSE[@]}" build backend frontend-demo frontend-admin
+ensure_no_durable_workers
 
 # Drain the API and workers before modifying the schema. Provider requests
 # interrupted by a forced shutdown may still require manual reconciliation.

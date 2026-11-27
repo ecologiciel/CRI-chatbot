@@ -6,6 +6,8 @@ have been validated. A provider attempt is never retried automatically.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from time import monotonic
 
 import structlog
@@ -27,10 +29,28 @@ from app.services.escalation.reply_leases import (
     finish_reply,
     quarantine_expired_replies,
 )
+from app.services.escalation.reply_presence import presence_loop
 from app.services.whatsapp.sender import WhatsAppSenderService
-from app.workers.notification import _get_redis_settings, shutdown, startup
+from app.workers.notification import _get_redis_settings
+from app.workers.notification import shutdown as infrastructure_shutdown
+from app.workers.notification import startup as infrastructure_startup
 
 logger = structlog.get_logger()
+
+
+async def startup(ctx: dict) -> None:
+    await infrastructure_startup(ctx)
+    ctx["agent_reply_presence_task"] = asyncio.create_task(presence_loop())
+
+
+async def shutdown(ctx: dict) -> None:
+    task = ctx.pop("agent_reply_presence_task", None)
+    if task is not None:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+    # Do not delete a signal that might belong to another running worker.
+    await infrastructure_shutdown(ctx)
 
 
 async def process_one_reply(ctx: dict) -> str:

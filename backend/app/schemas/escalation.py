@@ -80,6 +80,13 @@ class EscalationRespond(BaseModel):
     message: str = Field(..., min_length=1)
 
 
+class AgentReplyRequest(BaseModel):
+    """Stable client reference and bounded text for durable agent replies."""
+
+    request_key: uuid.UUID
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
 class EscalationStats(BaseModel):
     """Dashboard statistics for the escalation queue."""
 

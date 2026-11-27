@@ -17,27 +17,29 @@ export function ResponseInput({
   disabled,
 }: ResponseInputProps) {
   const [message, setMessage] = useState("");
+  const [reviewRequired, setReviewRequired] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const respondMutation = useRespondEscalation();
 
   const handleSend = useCallback(() => {
     const trimmed = message.trim();
-    if (!trimmed) return;
+    if (!trimmed || disabled || reviewRequired || respondMutation.isPending) return;
 
     respondMutation.mutate(
       { id: escalationId, data: { message: trimmed } },
       {
         onSuccess: () => {
           setMessage("");
-          toast.success("Message envoyé via WhatsApp");
+          toast.success("Message accepté par WhatsApp ; livraison non confirmée.");
           textareaRef.current?.focus();
         },
         onError: () => {
-          toast.error("Échec de l'envoi du message");
+          setReviewRequired(true);
+          toast.error("Résultat de l’envoi non confirmé.");
         },
       },
     );
-  }, [message, escalationId, respondMutation]);
+  }, [message, escalationId, respondMutation, disabled, reviewRequired]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -65,7 +67,7 @@ export function ResponseInput({
         <Button
           size="icon"
           onClick={handleSend}
-          disabled={disabled || respondMutation.isPending || !message.trim()}
+          disabled={disabled || respondMutation.isPending || reviewRequired || !message.trim()}
           className="shrink-0 h-10 w-10"
         >
           {respondMutation.isPending ? (
@@ -75,6 +77,14 @@ export function ResponseInput({
           )}
         </Button>
       </div>
+      {reviewRequired && (
+        <div role="alert" className="mt-2 text-sm text-destructive space-y-2">
+          <p>Le résultat de l’envoi est incertain. Vérifiez la conversation et, si nécessaire, WhatsApp avant de renvoyer : le message peut déjà avoir été accepté.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setReviewRequired(false)}>
+            J’ai vérifié
+          </Button>
+        </div>
+      )}
       <p className="text-[10px] text-muted-foreground mt-1.5">
         Ctrl+Entrée pour envoyer
       </p>

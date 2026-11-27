@@ -23,7 +23,8 @@ La plateforme CRI Chatbot est une solution SaaS multi-tenant de chatbots convers
 ### 1.2 Architecture multi-tenant
 
 Chaque CRI régional constitue un tenant isolé avec :
-- Base de données PostgreSQL dédiée (schéma `tenant_{slug}`)
+- Schéma PostgreSQL `tenant_{slug}` dans une base partagée ; l'isolation SQL
+  effective dépend notamment des droits du rôle applicatif et reste à vérifier.
 - Collection Qdrant dédiée pour la base de connaissances (`kb_{slug}`)
 - Espace Redis préfixé (`{slug}:`)
 - Bucket MinIO dédié (`cri-{slug}`)
@@ -292,11 +293,18 @@ L'isolation opère à 5 niveaux :
 - **Fichier** : `backend/app/models/audit.py`
 - **Table** : `public.audit_logs` (schéma public, cross-tenant)
 - **Colonnes** : `id` (UUID), `tenant_slug`, `user_id`, `user_type`, `action`, `resource_type`, `resource_id`, `ip_address`, `user_agent`, `details` (JSONB), `created_at`
-- **Propriété clé** : Pas de colonne `updated_at` — la table est immuable par design
+- **Propriété clé** : L'absence de colonne `updated_at` ne garantit pas
+  l'immuabilité ; celle-ci dépend des privilèges effectifs et de protections
+  complémentaires contre leur modification.
 
 **Politique INSERT ONLY** :
 - **Fichier** : `backend/scripts/apply_audit_policy.sql`
-- **Permissions PostgreSQL** : Le rôle applicatif (`cri_admin`) ne dispose que des droits `INSERT` et `SELECT` sur `audit_logs`. Les droits `UPDATE` et `DELETE` sont explicitement refusés au niveau RDBMS. Seul le superuser PostgreSQL peut modifier la table.
+- **Permissions PostgreSQL** : La politique citée décrit un objectif, pas une
+  preuve de son application. Le déploiement Hostinger observé utilise encore
+  un rôle applicatif superutilisateur, qui peut modifier ce journal. Le contrôle
+  de `scripts/check_runtime_db_privileges.py` doit être exécuté sur le rôle
+  cible avant toute affirmation de protection ; même réussi, il ne prouve pas
+  à lui seul l'isolation des institutions.
 
 **Service d'audit** :
 - **Fichier** : `backend/app/services/audit/service.py`

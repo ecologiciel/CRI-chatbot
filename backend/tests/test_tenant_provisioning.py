@@ -228,11 +228,11 @@ class TestProvisionDuplicateSlug:
 
 
 class TestProvisionRollback:
-    """Test rollback when a step fails."""
+    """Test compensation and retention when a step fails."""
 
     @pytest.mark.asyncio
     async def test_provision_rollback_on_qdrant_failure(self):
-        """If Qdrant fails, PG schema and DB record should be rolled back."""
+        """If Qdrant fails, compensate the schema but keep an inactive record."""
         data = _make_tenant_create_data(whatsapp_config=None)
         tenant_orm = _make_tenant_orm()
 
@@ -278,13 +278,97 @@ class TestProvisionRollback:
             patch("app.services.tenant.provisioning.get_minio", return_value=AsyncMock()),
         ):
             service = TenantProvisioningService()
-            with pytest.raises(TenantProvisioningError, match="Qdrant connection refused"):
-                await service.provision_tenant(data)
+            with patch.object(
+                service, "_deactivate_failed_provisioning", new_callable=AsyncMock
+            ) as deactivate:
+                with pytest.raises(TenantProvisioningError, match="inactive tenant retained"):
+                    await service.provision_tenant(data)
+            deactivate.assert_awaited_once()
 
-        # Verify rollback happened — schema drop and record delete
+        # Verify the schema compensation while retaining the tenant record.
         rollback_calls = rollback_session.execute.call_args_list
         rollback_sql = [str(c[0][0]) for c in rollback_calls]
         assert any("DROP SCHEMA" in s for s in rollback_sql)
+        assert not any("DELETE FROM public.tenants" in s for s in rollback_sql)
+
+    @pytest.mark.asyncio
+    async def test_failed_compensation_keeps_record_and_reports_step(self):
+        data = _make_tenant_create_data(whatsapp_config=None)
+        tenant = _make_tenant_orm()
+        service = TenantProvisioningService()
+        with (
+            patch.object(service, "_create_tenant_record", new=AsyncMock(return_value=tenant)),
+            patch.object(service, "_create_schema", new=AsyncMock()),
+            patch.object(
+                service,
+                "_create_qdrant_collection",
+                new=AsyncMock(side_effect=RuntimeError("lost response")),
+            ),
+            patch.object(service, "_deactivate_failed_provisioning", new=AsyncMock()) as deactivate,
+            patch.object(
+                service, "_drop_schema", new=AsyncMock(side_effect=RuntimeError("db unavailable"))
+            ),
+        ):
+            with pytest.raises(TenantProvisioningError) as error:
+                await service.provision_tenant(data)
+        deactivate.assert_awaited_once_with(tenant.id, data.slug)
+        assert error.value.details == {
+            "cleanup_failures": ["pg_schema"],
+            "tenant_id": str(tenant.id),
+        }
+        assert "lost response" not in str(error.value)
+
+    @pytest.mark.asyncio
+    async def test_unconfirmed_deactivation_stops_compensation(self):
+        data = _make_tenant_create_data(whatsapp_config=None)
+        tenant = _make_tenant_orm()
+        service = TenantProvisioningService()
+        with (
+            patch.object(service, "_create_tenant_record", new=AsyncMock(return_value=tenant)),
+            patch.object(service, "_create_schema", new=AsyncMock()),
+            patch.object(
+                service,
+                "_create_qdrant_collection",
+                new=AsyncMock(side_effect=RuntimeError("lost response")),
+            ),
+            patch.object(
+                service,
+                "_deactivate_failed_provisioning",
+                new=AsyncMock(side_effect=RuntimeError("db unavailable")),
+            ),
+            patch.object(service, "_drop_schema", new=AsyncMock()) as drop,
+        ):
+            with pytest.raises(TenantProvisioningError, match="cleanup not attempted"):
+                await service.provision_tenant(data)
+        drop.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_busy_lifecycle_lock_preserves_resources_for_review(self):
+        data = _make_tenant_create_data(whatsapp_config=None)
+        tenant = _make_tenant_orm()
+        service = TenantProvisioningService()
+
+        @asynccontextmanager
+        async def busy(_slug):
+            raise RuntimeError("busy")
+            yield
+
+        with (
+            patch.object(service, "_create_tenant_record", new=AsyncMock(return_value=tenant)),
+            patch.object(service, "_create_schema", new=AsyncMock()),
+            patch.object(
+                service,
+                "_create_qdrant_collection",
+                new=AsyncMock(side_effect=RuntimeError("lost response")),
+            ),
+            patch.object(service, "_deactivate_failed_provisioning", new=AsyncMock()),
+            patch.object(service, "_drop_schema", new=AsyncMock()) as drop,
+            patch("app.services.tenant.provisioning.protect_removal", busy),
+        ):
+            with pytest.raises(TenantProvisioningError) as error:
+                await service.provision_tenant(data)
+        assert error.value.details["cleanup_failures"] == ["lifecycle_lock"]
+        drop.assert_not_awaited()
 
 
 class TestDeprovisionTenant:

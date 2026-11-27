@@ -212,6 +212,9 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
         first = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-one", cipher=cipher)
         first_claim = await claim()
         assert first_claim and first_claim.id == first.id
+        with pytest.raises(AgentReplyLeaseLostError):
+            await execute_agent_reply(AgentReplyClaim(first.id, tenant_id, uuid.uuid4()), cipher=cipher, sender=sender)
+        sender.send_text.assert_not_awaited()
         sending = asyncio.create_task(execute_agent_reply(first_claim, cipher=cipher, sender=sender))
         await asyncio.wait_for(started.wait(), timeout=10)
         async with engine.connect() as stopper:
@@ -285,4 +288,30 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
             assert rows == [("fixture-one", "accepted"), ("fixture-two", "unconfirmed")]
             assert (await conn.scalar(text("SELECT state FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": third.id})) == "uncertain"
         assert sender.send_text.await_count == 3
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": third.id})
+        for scenario in ("actor", "channel", "recipient"):
+            event = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), f"fixture-{scenario}", cipher=cipher)
+            item = await claim()
+            assert item and item.id == event.id
+            async with engine.begin() as conn:
+                if scenario == "actor":
+                    await conn.execute(text("UPDATE public.admins SET is_active=false WHERE id=:id"), {"id": actor_id})
+                elif scenario == "channel":
+                    await conn.execute(text("UPDATE public.tenants SET whatsapp_config='{\"phone_number_id\":\"974\",\"access_token\":\"fixture\"}' WHERE id=:id"), {"id": tenant_id})
+                else:
+                    await conn.execute(text("UPDATE tenant_fixture_reply_exec.contacts SET phone='+212600000097' WHERE id=:id"), {"id": contact_id})
+            with pytest.raises(AgentReplyPreconditionError):
+                await execute_agent_reply(item, cipher=cipher, sender=sender)
+            assert sender.send_text.await_count == 3
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE public.admins SET is_active=true WHERE id=:id"), {"id": actor_id})
+                await conn.execute(text("UPDATE public.tenants SET whatsapp_config='{\"phone_number_id\":\"973\",\"access_token\":\"fixture\"}' WHERE id=:id"), {"id": tenant_id})
+                await conn.execute(text("UPDATE tenant_fixture_reply_exec.contacts SET phone='+212600000098' WHERE id=:id"), {"id": contact_id})
+                await conn.execute(text("UPDATE public.agent_reply_outbox_events SET lease_until=now()-interval '1 second' WHERE id=:id"), {"id": event.id})
+            async with factory() as session:
+                assert await quarantine_expired_replies(session) >= 1
+                await session.commit()
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": event.id})
     await engine.dispose()

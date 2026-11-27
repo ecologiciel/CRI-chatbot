@@ -318,46 +318,21 @@ archive dans un environnement jetable, voir
 [Vérification locale d’une sauvegarde Hostinger réelle](securite/verification-sauvegarde-locale.md).
 Une procédure de restauration en production complète et testée reste à établir.
 
-### 8.1. PostgreSQL
+La sauvegarde à froid chiffrée couvre les volumes PostgreSQL, Qdrant et MinIO
+ainsi que la configuration nécessaire ; Redis est exclu. Sa fréquence effective,
+la conservation des archives, une copie hors site et leur surveillance doivent
+être vérifiées sur l'installation. Une archive présente ne prouve pas qu'elle
+est déchiffrable ni qu'elle pourra être restaurée. Les objectifs de délai et de
+perte de données doivent être définis et mesurés lors d'exercices de reprise.
 
-```bash
-# Sauvegarde quotidienne
-docker compose exec postgres pg_dump -U cri_admin cri_platform > backup_$(date +%Y%m%d).sql
-
-# Restauration
-docker compose exec -T postgres psql -U cri_admin cri_platform < backup_20260327.sql
-```
-
-### 8.2. Qdrant
-
-```bash
-# Snapshot d'une collection
-curl -X POST http://localhost:6333/collections/kb_rabat_sale_kenitra/snapshots
-
-# Lister les snapshots
-curl http://localhost:6333/collections/kb_rabat_sale_kenitra/snapshots
-```
-
-### 8.3. MinIO
-
-```bash
-# Installer mc (MinIO Client)
-# Configurer l'alias
-mc alias set cri http://localhost:9000 cri_minio <MOT_DE_PASSE>
-
-# Miroir vers un stockage secondaire
-mc mirror cri/ /chemin/backup/minio/
-```
-
-### 8.4. Frequence et retention
-
-| Composant | Frequence | Retention |
-|-----------|-----------|-----------|
-| PostgreSQL | Quotidien (incremental) | 30 jours glissants + mensuels 12 mois |
-| Qdrant | Hebdomadaire | 30 jours glissants |
-| MinIO | Hebdomadaire | 30 jours glissants |
-
-**Objectifs :** RTO < 4 heures, RPO < 24 heures.
+Après une restauration, **ne redémarrez pas automatiquement les workers ni
+les canaux externes**. Les files durables sont dans PostgreSQL : même avec un
+Redis vide, une ancienne intention en attente peut avoir déjà été envoyée après
+la date de la sauvegarde. Les événements et changements reçus depuis cette date
+peuvent aussi manquer. Il faut d'abord isoler la restauration, rapprocher cet
+intervalle avec les systèmes externes et établir une procédure de reprise
+validée avant toute remise en service. La désactivation d'une option ne peut
+pas annuler un appel déjà commencé auprès d'un fournisseur.
 
 ---
 

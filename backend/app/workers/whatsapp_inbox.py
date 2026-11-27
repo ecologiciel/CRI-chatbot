@@ -44,6 +44,8 @@ async def shutdown(ctx: dict) -> None:
 
 async def poll_incoming(ctx: dict) -> str:
     """Claim at most one message; an ambiguous send is never retried here."""
+    if not get_settings().whatsapp_durable_inbox_enabled:
+        return "disabled"
     claim = await claim_next(lease_seconds=120)
     if claim is None:
         return "empty"
@@ -63,6 +65,9 @@ async def drain_incoming(ctx: dict) -> dict[str, int]:
         if index and monotonic() - started >= 30:
             break
         result = await poll_incoming(ctx)
+        if result == "disabled":
+            counts["disabled"] = 1
+            break
         if result == "empty":
             break
         counts["claimed"] += 1
@@ -79,6 +84,8 @@ async def recover_expired(ctx: dict) -> int:
 
 
 async def poll_statuses(ctx: dict) -> dict[str, int]:
+    if not get_settings().whatsapp_durable_inbox_enabled:
+        return {"disabled": 1}
     cipher = VersionedEnvelopeService(get_session_factory(), get_settings().kms_master_key)
     return await run_status_batch(cipher=cipher, limit=50)
 

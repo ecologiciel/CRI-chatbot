@@ -1,9 +1,34 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 import app.workers.whatsapp_inbox as worker
 from app.services.whatsapp import worker_presence
+
+
+@pytest.fixture(autouse=True)
+def enable_worker_by_default(monkeypatch):
+    settings = MagicMock(whatsapp_durable_inbox_enabled=True)
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker_presence, "get_settings", lambda: settings)
+
+
+@pytest.mark.asyncio
+async def test_disabled_worker_does_not_claim_process_status_or_publish(monkeypatch):
+    disabled = MagicMock(whatsapp_durable_inbox_enabled=False)
+    monkeypatch.setattr(worker, "get_settings", lambda: disabled)
+    monkeypatch.setattr(worker_presence, "get_settings", lambda: disabled)
+    claim, run_status, redis = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(worker, "claim_next", claim)
+    monkeypatch.setattr(worker, "run_status_batch", run_status)
+    monkeypatch.setattr(worker_presence, "get_redis", lambda: redis)
+    assert await worker.poll_incoming({}) == "disabled"
+    assert await worker.drain_incoming({}) == {"claimed": 0, "lease_lost": 0, "disabled": 1}
+    assert await worker.poll_statuses({}) == {"disabled": 1}
+    await worker_presence.publish_presence()
+    claim.assert_not_awaited()
+    run_status.assert_not_awaited()
+    redis.set.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -55,11 +80,24 @@ async def test_drain_respects_batch_and_time_limits(monkeypatch):
 async def test_presence_is_not_refreshed_when_database_is_unavailable(monkeypatch):
     session = AsyncMock()
     session.__aenter__.return_value = session
-    session.execute.side_effect = RuntimeError("db unavailable")
+    session.scalar.side_effect = RuntimeError("db unavailable")
     redis = AsyncMock()
     monkeypatch.setattr(worker_presence, "get_session_factory", lambda: lambda: session)
     monkeypatch.setattr(worker_presence, "get_redis", lambda: redis)
     with pytest.raises(RuntimeError):
+        await worker_presence.publish_presence()
+    redis.set.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_presence_requires_both_durable_tables(monkeypatch):
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.scalar.return_value = False
+    redis = AsyncMock()
+    monkeypatch.setattr(worker_presence, "get_session_factory", lambda: lambda: session)
+    monkeypatch.setattr(worker_presence, "get_redis", lambda: redis)
+    with pytest.raises(RuntimeError, match="tables unavailable"):
         await worker_presence.publish_presence()
     redis.set.assert_not_awaited()
 

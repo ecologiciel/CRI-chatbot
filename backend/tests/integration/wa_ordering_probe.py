@@ -12,6 +12,7 @@ from arq import cron
 from arq.worker import Worker
 from sqlalchemy import text
 
+from app.core.config import get_settings
 from app.core.database import close_engine, get_session_factory
 from app.services.whatsapp import inbox_execution
 from app.services.whatsapp.handler import HandlingOutcome
@@ -21,6 +22,8 @@ from app.workers.whatsapp_inbox import _get_redis_settings, drain_incoming
 async def main() -> None:
     if os.environ.get("POSTGRES_DB") != "ragtest_wa_order" or os.environ.get("POSTGRES_USER") != "fixture":
         raise RuntimeError("Refusing to run outside the WhatsApp ordering fixture")
+    os.environ["WHATSAPP_DURABLE_INBOX_ENABLED"] = "true"
+    get_settings.cache_clear()
     factory = get_session_factory()
     tenant_id = uuid.uuid4()
     first_id, second_id, other_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()

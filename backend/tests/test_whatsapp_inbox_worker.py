@@ -103,6 +103,20 @@ async def test_presence_requires_both_durable_tables(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_presence_published_only_when_enabled_and_tables_exist(monkeypatch):
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.scalar.return_value = True
+    redis = AsyncMock()
+    monkeypatch.setattr(worker_presence, "get_session_factory", lambda: lambda: session)
+    monkeypatch.setattr(worker_presence, "get_redis", lambda: redis)
+    await worker_presence.publish_presence()
+    redis.set.assert_awaited_once_with(
+        worker_presence.HEARTBEAT_KEY, "1", ex=worker_presence.HEARTBEAT_TTL_SECONDS,
+    )
+
+
+@pytest.mark.asyncio
 async def test_worker_starts_and_cancels_presence_task(monkeypatch):
     startup, shutdown = AsyncMock(), AsyncMock()
     async def complete():

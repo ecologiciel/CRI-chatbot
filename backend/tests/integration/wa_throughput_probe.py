@@ -23,8 +23,7 @@ from app.workers.whatsapp_inbox import _get_redis_settings, drain_incoming
 async def main() -> None:
     if os.environ.get("POSTGRES_DB") != "ragtest_wa_load" or os.environ.get("POSTGRES_USER") != "fixture":
         raise RuntimeError("Refusing to run outside the WhatsApp load fixture")
-    os.environ["WHATSAPP_DURABLE_INBOX_ENABLED"] = "true"
-    get_settings.cache_clear()
+    get_settings().whatsapp_durable_inbox_enabled = True
     factory = get_session_factory()
     tenant_id = uuid.uuid4()
     async with factory() as session:

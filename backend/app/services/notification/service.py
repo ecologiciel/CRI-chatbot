@@ -351,6 +351,8 @@ class NotificationService:
         self,
         event: DossierChangeEvent,
         tenant: TenantContext,
+        *,
+        durable: bool = False,
     ) -> dict[str, Any]:
         """Process a single dossier-change event end-to-end.
 
@@ -419,7 +421,7 @@ class NotificationService:
             return {"status": "skipped", "reason": "opted_out"}
 
         # 4. Deduplication
-        if await self.is_duplicate(
+        if not durable and await self.is_duplicate(
             event.contact_id,
             decision.event_type.value,
             event.dossier_id,

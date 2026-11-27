@@ -6,7 +6,10 @@ import asyncio
 import importlib.util
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
@@ -14,6 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from app.services.notification import outbox_execution as execution
 from app.services.notification.outbox import (
     claim_notification,
     enqueue_notification,
@@ -28,7 +32,7 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.asyncio()
-async def test_outbox_transaction_isolation_and_fenced_leases():
+async def test_outbox_transaction_isolation_and_fenced_leases(monkeypatch):
     engine = create_async_engine(DB_URL)
     migration_path = (
         Path(__file__).parents[1] / "alembic/versions/2026_11_27_0020_notification_outbox.py"
@@ -91,13 +95,28 @@ async def test_outbox_transaction_isolation_and_fenced_leases():
 
     async with sessions.begin() as session:
         assert not await finish_notification(
-            session, tenant_b, claim, outcome="sent", outcome_code="provider_accepted"
+            session,
+            tenant_b,
+            claim,
+            outcome="sent",
+            outcome_code="provider_accepted",
+            provider_message_id="wamid.test",
         )
         assert await finish_notification(
-            session, tenant_a, claim, outcome="sent", outcome_code="provider_accepted"
+            session,
+            tenant_a,
+            claim,
+            outcome="sent",
+            outcome_code="provider_accepted",
+            provider_message_id="wamid.test",
         )
         assert not await finish_notification(
-            session, tenant_a, claim, outcome="sent", outcome_code="provider_accepted"
+            session,
+            tenant_a,
+            claim,
+            outcome="sent",
+            outcome_code="provider_accepted",
+            provider_message_id="wamid.test",
         )
         await session.execute(
             text(
@@ -109,7 +128,12 @@ async def test_outbox_transaction_isolation_and_fenced_leases():
         assert await quarantine_expired_notifications(session, tenant_a) == 0
         assert await quarantine_expired_notifications(session, tenant_b) == 1
         assert not await finish_notification(
-            session, tenant_b, other, outcome="sent", outcome_code="provider_accepted"
+            session,
+            tenant_b,
+            other,
+            outcome="sent",
+            outcome_code="provider_accepted",
+            provider_message_id="wamid.test",
         )
         assert await claim_notification(session, tenant_b) is None
         rows = (
@@ -121,4 +145,30 @@ async def test_outbox_transaction_isolation_and_fenced_leases():
             (tenant_a, "sent", "provider_accepted"),
             (tenant_b, "uncertain", "lease_expired"),
         }
+
+    @asynccontextmanager
+    async def db_session():
+        async with sessions.begin() as session:
+            yield session
+
+    tenant = SimpleNamespace(id=tenant_a, db_session=db_session)
+    service = SimpleNamespace(
+        send_notification=AsyncMock(return_value={"status": "sent", "wamid": "wamid.integration"})
+    )
+    monkeypatch.setattr(execution, "_load_change", AsyncMock(return_value=object()))
+    async with sessions.begin() as session:
+        assert await enqueue_notification(session, tenant_a, uuid.uuid4())
+    assert await execution.process_one_notification(tenant, service) == "sent"
+    assert await execution.process_one_notification(tenant, service) == "empty"
+    service.send_notification.assert_awaited_once()
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM public.notification_outbox_events "
+                    "WHERE tenant_id=:tenant AND state='sent' AND provider_message_id='wamid.integration'"
+                ),
+                {"tenant": tenant_a},
+            )
+        ).scalar_one() == 1
     await engine.dispose()

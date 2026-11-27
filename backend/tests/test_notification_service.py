@@ -359,6 +359,23 @@ class TestSendNotification:
         sender.send_template.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_durable_path_does_not_use_redis_dedup(self) -> None:
+        sender = AsyncMock()
+        sender.send_template.return_value = "wamid.durable"
+        service = _make_service(sender=sender, audit=AsyncMock())
+        contact = _make_contact(opt_in_status=OptInStatus.opted_in)
+        tenant = _make_tenant()
+        event = _make_event(contact_id=str(contact.id))
+        with (
+            patch.object(service, "_load_contact", return_value=contact),
+            patch.object(service, "is_duplicate", new_callable=AsyncMock) as dedup,
+        ):
+            result = await service.send_notification(event, tenant, durable=True)
+        dedup.assert_not_awaited()
+        sender.send_template.assert_awaited_once()
+        assert result["status"] == "sent"
+
+    @pytest.mark.asyncio
     async def test_no_contact_id_skips(self) -> None:
         """Event without contact_id → skip."""
         audit = AsyncMock()

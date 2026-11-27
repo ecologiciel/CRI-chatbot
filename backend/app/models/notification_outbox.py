@@ -43,6 +43,7 @@ class NotificationOutboxEvent(UUIDMixin, Base):
     lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     outcome_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

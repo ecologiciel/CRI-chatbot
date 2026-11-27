@@ -73,12 +73,19 @@ async def finish_notification(
     *,
     outcome: str,
     outcome_code: str,
+    provider_message_id: str | None = None,
 ) -> bool:
     """Finish only a current, unexpired claim; sent means provider acceptance."""
     if outcome not in {"sent", "skipped", "uncertain"}:
         raise ValueError("invalid outcome")
     if not outcome_code or len(outcome_code) > 64 or not outcome_code.replace("_", "").isalnum():
         raise ValueError("invalid outcome code")
+    if provider_message_id is not None and (
+        outcome != "sent" or not provider_message_id or len(provider_message_id) > 255
+    ):
+        raise ValueError("invalid provider message id")
+    if outcome == "sent" and provider_message_id is None:
+        raise ValueError("provider acceptance requires a message id")
     result = await session.execute(
         update(NotificationOutboxEvent)
         .where(
@@ -91,6 +98,7 @@ async def finish_notification(
         .values(
             state=outcome,
             outcome_code=outcome_code,
+            provider_message_id=provider_message_id,
             lease_token=None,
             lease_until=None,
             updated_at=func.now(),

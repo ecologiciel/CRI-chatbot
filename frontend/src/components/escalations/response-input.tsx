@@ -20,11 +20,12 @@ export function ResponseInput({
   const [reviewRequired, setReviewRequired] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inFlightRef = useRef(false);
+  const reviewRequiredRef = useRef(false);
   const respondMutation = useRespondEscalation();
 
   const handleSend = useCallback(() => {
     const trimmed = message.trim();
-    if (!trimmed || disabled || reviewRequired || respondMutation.isPending || inFlightRef.current) return;
+    if (!trimmed || disabled || reviewRequiredRef.current || respondMutation.isPending || inFlightRef.current) return;
     inFlightRef.current = true;
 
     respondMutation.mutate(
@@ -36,13 +37,14 @@ export function ResponseInput({
           textareaRef.current?.focus();
         },
         onError: () => {
+          reviewRequiredRef.current = true;
           setReviewRequired(true);
           toast.error("Résultat de l’envoi non confirmé.");
         },
         onSettled: () => { inFlightRef.current = false; },
       },
     );
-  }, [message, escalationId, respondMutation, disabled, reviewRequired]);
+  }, [message, escalationId, respondMutation, disabled]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -83,7 +85,7 @@ export function ResponseInput({
       {reviewRequired && (
         <div role="alert" className="mt-2 text-sm text-destructive space-y-2">
           <p>Le résultat de l’envoi est incertain. Vérifiez la conversation et, si nécessaire, WhatsApp avant de renvoyer : le message peut déjà avoir été accepté.</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => setReviewRequired(false)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => { reviewRequiredRef.current = false; setReviewRequired(false); }}>
             J’ai vérifié
           </Button>
         </div>

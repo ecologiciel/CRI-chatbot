@@ -20,6 +20,7 @@ from app.models.tenant import Tenant
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.whatsapp.conversation_lock import lock_for_acceptance
 
 PURPOSE = "wa_inbox"
 
@@ -58,6 +59,9 @@ async def persist_incoming_message(
     plaintext = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
     async with protect_ingestion(tenant):
+        sender_fingerprint = await cipher.whatsapp_sender_fingerprint(
+            tenant_id=tenant.id, channel_id=phone_number_id, sender_id=message.from_
+        )
         envelope = await cipher.encrypt(
             plaintext, tenant_id=tenant.id, purpose=PURPOSE, record_id=event_id
         )
@@ -73,12 +77,17 @@ async def persist_incoming_message(
                 or (current.whatsapp_config or {}).get("phone_number_id") != phone_number_id
             ):
                 raise TenantInactiveError("WhatsApp channel is inactive or has changed")
+            # Serializing acceptance with claims makes sequence order reflect
+            # commit order within this conversation. Provider arrival order can
+            # still differ from the order in which the user sent messages.
+            await lock_for_acceptance(session, tenant.id, sender_fingerprint)
             statement = (
                 insert(WhatsAppInboxEvent)
                 .values(
                     id=event_id,
                     tenant_id=tenant.id,
                     phone_number_id=phone_number_id,
+                    sender_fingerprint=sender_fingerprint,
                     provider_message_id=message.id,
                     ciphertext=envelope.ciphertext,
                     key_version=envelope.version,

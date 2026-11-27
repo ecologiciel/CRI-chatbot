@@ -10,9 +10,11 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     String,
@@ -48,7 +50,7 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
         Index("ix_wa_inbox_pending", "state", "created_at"),
         Index(
             "ix_wa_inbox_conversation_order",
-            "tenant_id", "sender_fingerprint", "created_at", "id",
+            "tenant_id", "sender_fingerprint", "arrival_sequence",
             postgresql_where=text("state IN ('pending', 'processing', 'uncertain', 'follow_up')"),
         ),
         Index(
@@ -67,6 +69,7 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
     phone_number_id: Mapped[str] = mapped_column(String(32), nullable=False)
     # Nullable only for pre-migration events; they must be reconciled before use.
     sender_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    arrival_sequence: Mapped[int] = mapped_column(BigInteger, Identity(), nullable=False)
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)

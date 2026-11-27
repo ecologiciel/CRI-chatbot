@@ -5,6 +5,7 @@ This module is not yet connected to the production webhook or a worker.
 
 from __future__ import annotations
 
+import hmac
 import json
 from dataclasses import dataclass
 
@@ -34,6 +35,11 @@ async def decrypt_claim(claim: InboxClaim, cipher: VersionedEnvelopeService) -> 
     message = IncomingMessage.model_validate(payload.get("message"))
     if message.id != claim.provider_message_id:
         raise ValueError("Inbox message identifier mismatch")
+    expected = await cipher.whatsapp_sender_fingerprint(
+        tenant_id=claim.tenant_id, channel_id=claim.phone_number_id, sender_id=message.from_
+    )
+    if not claim.sender_fingerprint or not hmac.compare_digest(expected, claim.sender_fingerprint):
+        raise ValueError("Inbox conversation identifier mismatch")
     raw_contacts = payload.get("contacts")
     if not isinstance(raw_contacts, list):
         raise ValueError("Invalid inbox contacts")

@@ -53,10 +53,14 @@ async def test_persist_is_encrypted_deduplicated_and_committed(inserted, commit_
     async def guard(_tenant):
         yield
 
-    cipher = SimpleNamespace(encrypt=AsyncMock(return_value=VersionedEnvelope(3, "encrypted")))
+    cipher = SimpleNamespace(
+        encrypt=AsyncMock(return_value=VersionedEnvelope(3, "encrypted")),
+        whatsapp_sender_fingerprint=AsyncMock(return_value="a" * 64),
+    )
     with (
         patch("app.services.whatsapp.inbox.get_session_factory", return_value=factory),
         patch("app.services.whatsapp.inbox.protect_ingestion", guard),
+        patch("app.services.whatsapp.inbox.lock_for_acceptance", new=AsyncMock()),
     ):
         if commit_fails:
             with pytest.raises(RuntimeError, match="database unavailable"):
@@ -72,6 +76,7 @@ async def test_persist_is_encrypted_deduplicated_and_committed(inserted, commit_
     params = statement.compile().params
     assert "privé" not in str(params)
     assert "encrypted" in params.values()
+    assert "a" * 64 in params.values()
 
 
 @pytest.mark.asyncio
@@ -100,7 +105,10 @@ async def test_changed_channel_is_not_stored():
     async def guard(_tenant):
         yield
 
-    cipher = SimpleNamespace(encrypt=AsyncMock(return_value=VersionedEnvelope(1, "encrypted")))
+    cipher = SimpleNamespace(
+        encrypt=AsyncMock(return_value=VersionedEnvelope(1, "encrypted")),
+        whatsapp_sender_fingerprint=AsyncMock(return_value="a" * 64),
+    )
     with (
         patch("app.services.whatsapp.inbox.get_session_factory", return_value=factory),
         patch("app.services.whatsapp.inbox.protect_ingestion", guard),

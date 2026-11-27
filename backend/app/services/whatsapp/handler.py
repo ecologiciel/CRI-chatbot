@@ -36,6 +36,7 @@ from app.services.conversation.service import get_conversation_service
 from app.services.feedback.service import get_feedback_service
 from app.services.rag.prompts import PromptTemplates
 from app.services.whatsapp.media import WhatsAppMediaHandler
+from app.services.whatsapp.outbound_fence import OutboundSuperseded
 from app.services.whatsapp.privacy import NoticeResult, get_privacy_notice_service
 from app.services.whatsapp.sender import WhatsAppSenderService
 from app.services.whatsapp.session import WhatsAppSessionManager
@@ -64,6 +65,7 @@ FEEDBACK_ACK_KEYS: dict[FeedbackRating, str] = {
 class HandlingOutcome(str, Enum):
     accepted = "accepted"
     uncertain = "uncertain"
+    suppressed = "suppressed"
 
 
 class MessageHandler:
@@ -111,6 +113,8 @@ class MessageHandler:
                     tenant, phone, _extract_sender_name(contacts, phone)
                 )
                 confirmed = await self._handle_stop_request(tenant, phone, contact)
+            except OutboundSuperseded:
+                return HandlingOutcome.suppressed
             except Exception as exc:
                 self._logger.error(
                     "stop_command_failed",
@@ -170,6 +174,8 @@ class MessageHandler:
                 )
                 if durable and notice != NoticeResult.accepted:
                     uncertain = True
+            except OutboundSuperseded:
+                raise
             except Exception:
                 uncertain = True
 
@@ -290,6 +296,8 @@ class MessageHandler:
             out_wamid = None
             try:
                 out_wamid = await self._sender.send_text(tenant, phone, response_text)
+            except OutboundSuperseded:
+                return HandlingOutcome.uncertain if uncertain else HandlingOutcome.suppressed
             except Exception as send_err:
                 uncertain = True
                 self._logger.error(
@@ -379,6 +387,8 @@ class MessageHandler:
                 uncertain = True
             return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
 
+        except OutboundSuperseded:
+            return HandlingOutcome.uncertain if uncertain else HandlingOutcome.suppressed
         except Exception as exc:
             self._logger.error(
                 "e2e_processing_failed",
@@ -570,6 +580,8 @@ class MessageHandler:
         ack_text = PromptTemplates.get_message(ack_key, "fr")
         try:
             acknowledged = await self._sender.send_text(tenant, phone, ack_text)
+        except OutboundSuperseded:
+            raise
         except Exception:
             return False
         return recorded and bool(acknowledged)

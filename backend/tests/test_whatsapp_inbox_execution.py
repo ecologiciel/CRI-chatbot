@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
@@ -25,14 +26,14 @@ def claim():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("outcome", [HandlingOutcome.accepted, HandlingOutcome.uncertain])
+@pytest.mark.parametrize("outcome", [HandlingOutcome.accepted, HandlingOutcome.uncertain, HandlingOutcome.suppressed])
 async def test_fenced_completion_reflects_handler_outcome(monkeypatch, claim, outcome):
     monkeypatch.setattr(execution, "_process", AsyncMock(return_value=outcome))
     finish = AsyncMock(return_value=True)
     monkeypatch.setattr(execution, "finish_claim", finish)
     assert await execution.execute_claim(claim)
     finish.assert_awaited_once_with(
-        claim.id, claim.lease_token, uncertain=outcome != HandlingOutcome.accepted
+        claim.id, claim.lease_token, uncertain=outcome == HandlingOutcome.uncertain
     )
 
 
@@ -63,3 +64,26 @@ async def test_handler_exception_is_uncertain(monkeypatch, claim):
     monkeypatch.setattr(execution, "finish_claim", finish)
     assert await execution.execute_claim(claim)
     finish.assert_awaited_once_with(claim.id, claim.lease_token, uncertain=True)
+
+
+@pytest.mark.asyncio
+async def test_earlier_ambiguous_send_is_not_hidden_by_later_suppression(monkeypatch, claim):
+    from types import SimpleNamespace
+
+    from app.services.whatsapp.outbound_fence import mark_outbound_uncertain
+
+    @asynccontextmanager
+    async def channel(_claim):
+        yield object()
+
+    async def handler(*_args, **_kwargs):
+        mark_outbound_uncertain()
+        return HandlingOutcome.suppressed
+
+    monkeypatch.setattr(execution, "protect_claim_channel", channel)
+    monkeypatch.setattr(execution, "get_settings", lambda: SimpleNamespace(kms_master_key="00" * 32))
+    monkeypatch.setattr(execution, "get_session_factory", lambda: object())
+    monkeypatch.setattr(execution, "VersionedEnvelopeService", lambda *_args: object())
+    monkeypatch.setattr(execution, "decrypt_claim", AsyncMock(return_value=SimpleNamespace(message=SimpleNamespace(from_="fixture"), contacts=[])))
+    monkeypatch.setattr(execution, "get_message_handler", lambda: SimpleNamespace(handle_message=handler))
+    assert await execution._process(claim) == HandlingOutcome.uncertain

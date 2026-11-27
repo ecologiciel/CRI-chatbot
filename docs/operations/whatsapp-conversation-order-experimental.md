@@ -31,9 +31,11 @@ Un message STOP reconnu en texte met le contact en opposition dans la même
 transaction que son entrée en file, avant l'accusé de réception. Sa prise en
 charge est prioritaire devant les événements en attente ou incertains, mais
 attend une opération déjà en cours sur la conversation ; un envoi fournisseur
-déjà commencé ne peut pas être annulé. Un traitement conversationnel déjà en
-cours peut aussi envoyer une réponse après l'enregistrement du STOP : ce cas
-reste à corriger. Les interactions avec tous les canaux et les pannes doivent
+déjà commencé ne peut pas être annulé. Les envois du traitement durable prennent
+le même verrou que l'enregistrement de STOP, contrôlent le bail et refusent un
+nouvel appel fournisseur lorsqu'un STOP ultérieur est enregistré. Une réponse
+supprimée est auditée ; un envoi antérieur ambigu reste en examen. Les interactions
+avec tous les canaux et les pannes doivent
 encore être éprouvées avant activation. Le planificateur
 utilise des lots bornés ; le débit réel avec les services externes reste à mesurer.
 

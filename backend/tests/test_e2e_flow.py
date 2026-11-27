@@ -265,6 +265,28 @@ class TestHappyPath:
     """Full pipeline: text message → LangGraph → response."""
 
     @pytest.mark.asyncio()
+    @pytest.mark.parametrize("notice,expected", [("accepted", "suppressed"), ("uncertain", "uncertain")])
+    async def test_suppressed_response_never_records_a_fake_outbound(self, handler_env, notice, expected):
+        from app.services.whatsapp.outbound_fence import OutboundSuperseded
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult(notice)
+        mocks["sender"].send_text.side_effect = OutboundSuperseded("stopped")
+        tracking = AsyncMock()
+        tracking.get_state.return_value = MagicMock(step=MagicMock(value="idle"))
+        with (
+            patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()),
+            patch("app.services.orchestrator.tracking_state.TrackingStateManager", return_value=tracking),
+        ):
+            outcome = await handler.handle_message(TEST_TENANT, _make_text_message(), None, durable=True)
+        assert outcome.value == expected
+        assert all(call.args[2] != MessageDirection.outbound for call in mocks["conv_svc"].add_message.await_args_list)
+        mocks["session_mgr"].increment_quota.assert_not_awaited()
+
+    @pytest.mark.asyncio()
     async def test_happy_path_text_faq(self, handler_env):
         handler, mocks = handler_env
         contact, conversation, run_result = _setup_happy_path(mocks)

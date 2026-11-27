@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.tenant import TenantContext
+from app.services.whatsapp.outbound_fence import OutboundSuperseded
 from app.services.whatsapp.privacy import (
     PRIVACY_FALLBACK_TEXT,
     NoticeResult,
@@ -34,9 +35,12 @@ class FakeRedis:
     async def get(self, key):
         return self.values.get(key)
 
-    async def eval(self, script, key_count, key, expected, state):
+    async def eval(self, script, key_count, key, expected, state=None):
         if self.values.get(key) != expected:
             return 0
+        if state is None:
+            del self.values[key]
+            return 1
         self.values[key] = state
         return 1
 
@@ -63,6 +67,14 @@ def service():
     instance._sender = AsyncMock()
     instance._sender.send_text.return_value = "wamid.synthetic"
     return instance
+
+
+@pytest.mark.asyncio
+async def test_suppressed_notice_does_not_leave_a_false_pending_or_uncertain_marker(service, tenant, redis):
+    service._sender.send_text.side_effect = OutboundSuperseded("stopped")
+    with patch(_REDIS_PATCH, return_value=redis), pytest.raises(OutboundSuperseded):
+        await service.send_privacy_notice(tenant, TEST_PHONE)
+    assert f"rabat:privacy_sent:{TEST_PHONE}" not in redis.values
 
 
 def test_fallback_does_not_invent_institution_specific_commitments():

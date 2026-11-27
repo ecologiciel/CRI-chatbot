@@ -14,6 +14,7 @@ from app.services.whatsapp.handler import HandlingOutcome, get_message_handler
 from app.services.whatsapp.inbox_channel import protect_claim_channel
 from app.services.whatsapp.inbox_leases import InboxClaim, finish_claim, renew_claim
 from app.services.whatsapp.inbox_payload import decrypt_claim
+from app.services.whatsapp.outbound_fence import outbound_scope
 
 logger = structlog.get_logger()
 
@@ -22,9 +23,11 @@ async def _process(claim: InboxClaim) -> HandlingOutcome:
     cipher = VersionedEnvelopeService(get_session_factory(), get_settings().kms_master_key)
     async with protect_claim_channel(claim) as tenant:
         payload = await decrypt_claim(claim, cipher)
-        return await get_message_handler().handle_message(
-            tenant, payload.message, payload.contacts, durable=True
-        )
+        with outbound_scope(claim, payload.message.from_) as scope:
+            outcome = await get_message_handler().handle_message(
+                tenant, payload.message, payload.contacts, durable=True
+            )
+            return HandlingOutcome.uncertain if scope.uncertain else outcome
 
 
 async def _heartbeat(claim: InboxClaim, lease_seconds: int) -> None:
@@ -52,7 +55,7 @@ async def execute_claim(
             {job, heartbeat}, timeout=timeout_seconds, return_when=asyncio.FIRST_COMPLETED
         )
         if job in done and heartbeat not in done:
-            uncertain = job.result() != HandlingOutcome.accepted
+            uncertain = job.result() not in {HandlingOutcome.accepted, HandlingOutcome.suppressed}
         else:
             logger.warning("inbox_execution_interrupted", event_id=str(claim.id))
     except asyncio.CancelledError:

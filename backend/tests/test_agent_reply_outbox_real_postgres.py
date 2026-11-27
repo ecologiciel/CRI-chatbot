@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.tenant import TenantContext
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
-from app.services.escalation.reply_outbox import AgentReplyConflict, register_agent_reply
+from app.services.escalation.reply_outbox import AgentReplyConflictError, register_agent_reply
 from app.services.tenant.provisioning import TenantProvisioningService
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
@@ -71,11 +71,11 @@ async def test_reply_registration_is_idempotent_scoped_and_audited():
             assert "fixture-private-text" not in row.ciphertext and "212600000099" not in row.recipient_fingerprint
             assert row.state == "pending"
             assert (await conn.scalar(text("SELECT count(*) FROM public.audit_logs WHERE tenant_slug='fixture_reply_a' AND action='agent_reply_queued'"))) == 1
-        with pytest.raises(AgentReplyConflict):
+        with pytest.raises(AgentReplyConflictError):
             await register_agent_reply(a, ea, aa, request, "changed private text", cipher=cipher)
-        with pytest.raises(AgentReplyConflict):
+        with pytest.raises(AgentReplyConflictError):
             await register_agent_reply(a, ea, ab, request, "fixture-private-text", cipher=cipher)
-        with pytest.raises(AgentReplyConflict):
+        with pytest.raises(AgentReplyConflictError):
             await register_agent_reply(a, ea, ac, request, "fixture-private-text", cipher=cipher)
         other = await register_agent_reply(b, eb, ab, request, "fixture-private-text", cipher=cipher)
         assert other.created and other.id != first
@@ -84,7 +84,7 @@ async def test_reply_registration_is_idempotent_scoped_and_audited():
         async with engine.begin() as conn:
             await conn.execute(text("UPDATE tenant_fixture_reply_a.escalations SET status='resolved' WHERE id=:id"), {"id": ea})
         assert not (await register_agent_reply(a, ea, aa, request, "fixture-private-text", cipher=cipher)).created
-        with pytest.raises(AgentReplyConflict):
+        with pytest.raises(AgentReplyConflictError):
             await register_agent_reply(a, ea, aa, uuid.uuid4(), "another", cipher=cipher)
         async with engine.begin() as conn:
             await conn.execute(text("UPDATE tenant_fixture_reply_a.escalations SET status='assigned' WHERE id=:id"), {"id": ea})
@@ -100,6 +100,6 @@ async def test_reply_registration_is_idempotent_scoped_and_audited():
                 await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_agent_reply"))
         async with engine.begin() as conn:
             await conn.execute(text("UPDATE tenant_fixture_reply_a.contacts SET opt_in_status='opted_out' WHERE id=:id"), {"id": ca})
-        with pytest.raises(AgentReplyConflict):
+        with pytest.raises(AgentReplyConflictError):
             await register_agent_reply(a, ea, aa, uuid.uuid4(), "fixture", cipher=cipher)
     await engine.dispose()

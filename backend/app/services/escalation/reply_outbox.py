@@ -30,7 +30,7 @@ from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedE
 PURPOSE = "agent_reply"
 
 
-class AgentReplyConflict(ValueError):
+class AgentReplyConflictError(ValueError):
     """Request identity or current state is incompatible with a safe enqueue."""
 
 
@@ -71,7 +71,7 @@ async def register_agent_reply(
             select(Tenant).where(Tenant.id == tenant.id).with_for_update(read=True)
         )).scalar_one_or_none()
         if current is None or current.slug != tenant.slug or current.status != TenantStatus.active:
-            raise AgentReplyConflict("Institution indisponible")
+            raise AgentReplyConflictError("Institution indisponible")
         actor = (await session.execute(
             select(Admin.id).where(
                 Admin.id == actor_id, Admin.tenant_id == tenant.id, Admin.is_active.is_(True),
@@ -79,7 +79,7 @@ async def register_agent_reply(
             ).with_for_update(read=True)
         )).scalar_one_or_none()
         if actor is None:
-            raise AgentReplyConflict("Agent indisponible ou non autorisé")
+            raise AgentReplyConflictError("Agent indisponible ou non autorisé")
 
         async def existing_reply() -> RegisteredReply | None:
             event = (await session.execute(
@@ -91,13 +91,13 @@ async def register_agent_reply(
             if event is None:
                 return None
             if event.actor_id != actor_id or event.escalation_id != escalation_id or event.redacted_at is not None:
-                raise AgentReplyConflict("Référence de demande incompatible ou expirée")
+                raise AgentReplyConflictError("Référence de demande incompatible ou expirée")
             previous = await cipher.decrypt(
                 VersionedEnvelope(event.key_version, event.ciphertext),
                 tenant_id=tenant.id, purpose=PURPOSE, record_id=event.id, session=session,
             )
             if not hmac.compare_digest(previous, plaintext):
-                raise AgentReplyConflict("Référence de demande incompatible ou expirée")
+                raise AgentReplyConflictError("Référence de demande incompatible ou expirée")
             return RegisteredReply(event.id, event.state, False)
 
         replay = await existing_reply()
@@ -116,7 +116,7 @@ async def register_agent_reply(
             "escalations": f"{tenant.db_schema}.escalations",
         })).one()
         if any(table is None for table in tables):
-            raise AgentReplyConflict("Schéma institutionnel indisponible")
+            raise AgentReplyConflictError("Schéma institutionnel indisponible")
         await session.execute(text("SELECT set_config('search_path', :path, true)"), {"path": f"{tenant.db_schema}, public"})
         escalation = (await session.execute(
             select(Escalation).where(Escalation.id == escalation_id).with_for_update()
@@ -128,7 +128,7 @@ async def register_agent_reply(
         if replay is not None:
             return replay
         if escalation is None or escalation.status not in {EscalationStatus.assigned, EscalationStatus.in_progress}:
-            raise AgentReplyConflict("Escalade indisponible pour réponse")
+            raise AgentReplyConflictError("Escalade indisponible pour réponse")
         contact = (await session.execute(
             select(Contact)
             .join(Conversation, Conversation.contact_id == Contact.id)
@@ -141,7 +141,7 @@ async def register_agent_reply(
         if (contact is None or contact.opt_in_status == OptInStatus.opted_out or len(variants) != 2
                 or not isinstance(channel, str) or not channel.isascii() or not channel.isdecimal()
                 or len(channel) > 32 or not config.get("access_token")):
-            raise AgentReplyConflict("Contact, consentement ou canal indisponible")
+            raise AgentReplyConflictError("Contact, consentement ou canal indisponible")
         fingerprint = await cipher.whatsapp_sender_fingerprint(
             tenant_id=tenant.id, channel_id=channel, sender_id=variants[0],
             session=session,
@@ -161,7 +161,7 @@ async def register_agent_reply(
         if inserted is None:
             replay = await existing_reply()
             if replay is None:
-                raise AgentReplyConflict("Référence de demande indisponible")
+                raise AgentReplyConflictError("Référence de demande indisponible")
             return replay
         session.add(AuditLog(
             tenant_slug=tenant.slug, user_id=actor_id, user_type="admin", action="agent_reply_queued",

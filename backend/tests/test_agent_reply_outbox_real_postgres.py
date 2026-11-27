@@ -23,8 +23,8 @@ from app.services.escalation.reply_leases import (
     quarantine_reply,
 )
 from app.services.escalation.reply_outbox import AgentReplyConflictError, register_agent_reply
-from app.services.escalation.reply_review import review_agent_reply
 from app.services.escalation.reply_retention import redact_tenant_replies
+from app.services.escalation.reply_review import review_agent_reply
 from app.services.tenant.provisioning import TenantProvisioningService
 from app.workers.agent_reply_outbox import process_one_reply
 

@@ -22,6 +22,11 @@ class DossierImportRequest(UUIDMixin, Base):
         ),
         CheckConstraint("attempts >= 0", name="ck_dossier_import_request_attempts"),
         CheckConstraint(
+            "(review_state IN ('open', 'follow_up') AND review_outcome IS NULL) OR "
+            "(review_state = 'closed' AND review_outcome IS NOT NULL AND review_outcome IN ('applied', 'not_applied'))",
+            name="ck_dossier_import_request_review",
+        ),
+        CheckConstraint(
             "(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) "
             "OR (state <> 'processing' AND lease_token IS NULL AND lease_until IS NULL)",
             name="ck_dossier_import_request_lease",
@@ -52,6 +57,8 @@ class DossierImportRequest(UUIDMixin, Base):
     lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     outcome_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    review_state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="open")
+    review_outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

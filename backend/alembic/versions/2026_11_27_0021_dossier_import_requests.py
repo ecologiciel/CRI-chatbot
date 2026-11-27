@@ -32,6 +32,8 @@ def upgrade() -> None:
         sa.Column("lease_token", sa.UUID(), nullable=True),
         sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("outcome_code", sa.String(64), nullable=True),
+        sa.Column("review_state", sa.String(16), nullable=False, server_default="open"),
+        sa.Column("review_outcome", sa.String(16), nullable=True),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -45,6 +47,11 @@ def upgrade() -> None:
             name="ck_dossier_import_request_state",
         ),
         sa.CheckConstraint("attempts >= 0", name="ck_dossier_import_request_attempts"),
+        sa.CheckConstraint(
+            "(review_state IN ('open', 'follow_up') AND review_outcome IS NULL) OR "
+            "(review_state = 'closed' AND review_outcome IS NOT NULL AND review_outcome IN ('applied', 'not_applied'))",
+            name="ck_dossier_import_request_review",
+        ),
         sa.CheckConstraint(
             "(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) "
             "OR (state <> 'processing' AND lease_token IS NULL AND lease_until IS NULL)",

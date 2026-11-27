@@ -138,6 +138,8 @@ export interface DurableImportRequest {
   request_id: string;
   state: "pending" | "processing" | "completed" | "failed" | "uncertain";
   outcome_code: string | null;
+  review_state: "open" | "follow_up" | "closed";
+  review_outcome: "applied" | "not_applied" | null;
   sync_log_id: string | null;
   created_at: string;
   updated_at: string;

@@ -186,9 +186,15 @@ async def test_import_request_list_rejects_supervisor():
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get("/api/v1/dossiers/imports", headers=_headers())
+                review_response = await client.post(
+                    f"/api/v1/dossiers/imports/{uuid.uuid4()}/review",
+                    headers=_headers(),
+                    json={"action": "follow_up"},
+                )
     finally:
         _clear_overrides()
     assert response.status_code == 403
+    assert review_response.status_code == 403
 
 
 @pytest.mark.asyncio

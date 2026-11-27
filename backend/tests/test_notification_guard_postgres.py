@@ -21,7 +21,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from app.api.v1.dossiers import get_import_request, list_import_requests
+from app.api.v1.dossiers import (
+    DossierImportReview,
+    get_import_request,
+    list_import_requests,
+    review_import_request,
+)
 from app.api.v1.dossiers import import_dossiers as accept_import
 from app.models.admin import Admin
 from app.models.audit import AuditLog
@@ -564,6 +569,8 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             "request_id",
             "state",
             "outcome_code",
+            "review_state",
+            "review_outcome",
             "sync_log_id",
             "created_at",
             "updated_at",
@@ -573,6 +580,59 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             state="uncertain", limit=25, offset=0, tenant=other_tenant, _admin=admin
         )
         assert [entry["request_id"] for entry in other_entries["items"]] == [str(other_request_id)]
+        changed_id = uuid.UUID(changed["request_id"])
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as foreign:
+            await review_import_request(
+                changed_id,
+                DossierImportReview(action="follow_up"),
+                tenant=other_tenant,
+                admin=admin,
+            )
+        assert foreign.value.status_code == 404
+        async with sessions.begin() as session:
+            await session.execute(
+                sa.text(
+                    "ALTER TABLE public.audit_logs ADD CONSTRAINT test_reject_review CHECK (action <> 'dossier_imp_review') NOT VALID"
+                )
+            )
+        with pytest.raises(IntegrityError):
+            await review_import_request(
+                changed_id, DossierImportReview(action="follow_up"), tenant=tenant, admin=admin
+            )
+        async with sessions.begin() as session:
+            assert (
+                await session.execute(
+                    sa.text("SELECT review_state FROM public.dossier_import_requests WHERE id=:id"),
+                    {"id": changed_id},
+                )
+            ).scalar_one() == "open"
+            await session.execute(
+                sa.text("ALTER TABLE public.audit_logs DROP CONSTRAINT test_reject_review")
+            )
+        follow_up = await review_import_request(
+            changed_id, DossierImportReview(action="follow_up"), tenant=tenant, admin=admin
+        )
+        assert follow_up["review_state"] == "follow_up" and follow_up["state"] == "uncertain"
+        closed = await review_import_request(
+            changed_id, DossierImportReview(action="close_not_applied"), tenant=tenant, admin=admin
+        )
+        assert closed["review_state"] == "closed" and closed["review_outcome"] == "not_applied"
+        with pytest.raises(HTTPException) as repeat:
+            await review_import_request(
+                changed_id, DossierImportReview(action="close_applied"), tenant=tenant, admin=admin
+            )
+        assert repeat.value.status_code == 409
+        async with sessions.begin() as session:
+            assert (
+                await session.execute(
+                    sa.text(
+                        "SELECT count(*) FROM public.audit_logs WHERE action='dossier_imp_review' AND resource_id=:id"
+                    ),
+                    {"id": str(changed_id)},
+                )
+            ).scalar_one() == 2
     async with sessions.begin() as session:
         assert (
             await session.execute(

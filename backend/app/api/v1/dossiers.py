@@ -18,6 +18,7 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -345,6 +346,8 @@ async def list_import_requests(
                 "request_id": str(row.id),
                 "state": row.state,
                 "outcome_code": row.outcome_code,
+                "review_state": row.review_state,
+                "review_outcome": row.review_outcome,
                 "sync_log_id": str(row.sync_log_id) if row.sync_log_id else None,
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
@@ -378,9 +381,66 @@ async def get_import_request(
             "request_id": str(request.id),
             "state": request.state,
             "outcome_code": request.outcome_code,
+            "review_state": request.review_state,
+            "review_outcome": request.review_outcome,
             "sync_log_id": str(request.sync_log_id) if request.sync_log_id else None,
             "created_at": request.created_at,
             "updated_at": request.updated_at,
+        }
+
+
+class DossierImportReview(BaseModel):
+    action: Literal["follow_up", "close_applied", "close_not_applied"]
+
+
+@router.post("/imports/{request_id}/review")
+async def review_import_request(
+    request_id: uuid.UUID,
+    data: DossierImportReview,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+) -> dict:
+    """Record a human assessment, without changing the result or retrying the import."""
+    async with tenant.db_session() as session:
+        request = (
+            await session.execute(
+                select(DossierImportRequest)
+                .where(
+                    DossierImportRequest.id == request_id,
+                    DossierImportRequest.tenant_id == tenant.id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if request is None:
+            raise HTTPException(status_code=404, detail="Demande introuvable")
+        allowed = {"open"} if data.action == "follow_up" else {"open", "follow_up"}
+        if request.state != "uncertain" or request.review_state not in allowed:
+            raise HTTPException(status_code=409, detail="État de la demande modifié")
+        previous = request.review_state
+        request.review_state = "follow_up" if data.action == "follow_up" else "closed"
+        request.review_outcome = {
+            "close_applied": "applied",
+            "close_not_applied": "not_applied",
+        }.get(data.action)
+        request.updated_at = func.clock_timestamp()
+        session.add(
+            AuditLog(
+                tenant_slug=tenant.slug,
+                user_id=uuid.UUID(admin.sub),
+                user_type="admin",
+                action="dossier_imp_review",
+                resource_type="dossier_import_request",
+                resource_id=str(request.id),
+                details={"previous_review": previous, "decision": data.action},
+            )
+        )
+        await session.flush()
+        return {
+            "request_id": str(request.id),
+            "state": request.state,
+            "review_state": request.review_state,
+            "review_outcome": request.review_outcome,
         }
 
 

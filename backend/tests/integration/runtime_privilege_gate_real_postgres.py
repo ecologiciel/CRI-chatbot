@@ -19,7 +19,11 @@ async def main():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     connection = await asyncpg.connect(
-        settings.database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        host=settings.postgres_host,
+        port=settings.postgres_port,
+        database=settings.postgres_db,
+        user=settings.postgres_user,
+        password=settings.postgres_password,
     )
     try:
         await connection.execute("""

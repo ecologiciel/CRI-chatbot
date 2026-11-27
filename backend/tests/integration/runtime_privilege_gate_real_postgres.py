@@ -40,6 +40,16 @@ async def main():
             connection, "fixture_runtime"
         )
         await connection.execute("REVOKE fixture_inherited FROM fixture_runtime")
+        await connection.execute("""
+          CREATE FUNCTION public.fixture_privileged() RETURNS void
+          LANGUAGE sql SECURITY DEFINER
+          AS 'UPDATE public.audit_logs SET id = 1';
+        """)
+        assert any(
+            "security-definer" in failure
+            for failure in await module.inspect_role(connection, "fixture_runtime")
+        )
+        await connection.execute("DROP FUNCTION public.fixture_privileged()")
         await connection.execute("ALTER TABLE public.audit_logs OWNER TO fixture_runtime")
         assert "candidate can assume the audit table owner" in await module.inspect_role(
             connection, "fixture_runtime"

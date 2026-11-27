@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -25,6 +26,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import {
   useImportDossiers,
+  useDurableImportRequest,
   useCreateSyncConfig,
   useSyncConfigs,
   useSyncLogs,
@@ -78,15 +80,17 @@ export function ImportWizard({ open, onOpenChange }: ImportWizardProps) {
 
   // Progress state
   const [importFilePath, setImportFilePath] = useState<string | null>(null);
+  const [importRequestId, setImportRequestId] = useState<string | null>(null);
   const [matchedLog, setMatchedLog] = useState<SyncLog | null>(null);
-  const isPolling = step === "progress" && !matchedLog?.status?.match(/completed|failed/);
+  const isPolling = step === "progress" && !importRequestId && !matchedLog?.status?.match(/completed|failed/);
 
   // Hooks
   const { data: syncConfigs } = useSyncConfigs();
   const importMutation = useImportDossiers();
   const createConfigMutation = useCreateSyncConfig();
+  const durableRequest = useDurableImportRequest(step === "progress" ? importRequestId : null);
   const { data: syncLogsData } = useSyncLogs(
-    isPolling ? { page: 1, page_size: 5 } : undefined,
+    isPolling ? { page: 1, page_size: 5 } : undefined, isPolling,
   );
 
   // Poll sync-logs to find matching entry
@@ -114,6 +118,7 @@ export function ImportWizard({ open, onOpenChange }: ImportWizardProps) {
     setMapping({});
     setSelectedConfigId(null);
     setImportFilePath(null);
+    setImportRequestId(null);
     setMatchedLog(null);
   }
 
@@ -195,11 +200,17 @@ export function ImportWizard({ open, onOpenChange }: ImportWizardProps) {
         syncConfigId: configId ?? undefined,
       });
 
-      setImportFilePath(result.file_path);
+      if (!result.request_id && !result.file_path) throw new Error("Réponse d’import incomplète");
+      setImportFilePath(result.file_path ?? null);
+      setImportRequestId(result.request_id ?? null);
       setStep("progress");
-      toast.success("Import lancé");
-    } catch {
-      toast.error("Erreur lors du lancement de l'import");
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(error instanceof ApiError && error.status === 503
+        ? "Le service d’import est temporairement indisponible. Réessayez plus tard."
+        : error instanceof ApiError && error.status === 409
+          ? "Ce fichier est déjà enregistré avec un autre paramétrage."
+          : "Erreur lors du lancement de l'import");
     }
   }
 
@@ -329,7 +340,23 @@ export function ImportWizard({ open, onOpenChange }: ImportWizardProps) {
         )}
 
         {/* Step 3 — Progress */}
-        {step === "progress" && (
+        {step === "progress" && importRequestId && (
+          <div className="space-y-3 py-4 text-center" aria-live="polite">
+            <p className="text-sm">Référence : {importRequestId}</p>
+            {durableRequest.isError ? (
+              <div role="alert"><p>Impossible de vérifier l’état de la demande.</p><Button variant="outline" onClick={() => durableRequest.refetch()}>Réessayer</Button></div>
+            ) : !durableRequest.data || durableRequest.data.state === "pending" || durableRequest.data.state === "processing" ? (
+              <div><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /><p className="mt-2">{durableRequest.data?.state === "pending" ? "En attente de traitement" : "Traitement en cours"}</p></div>
+            ) : durableRequest.data.state === "completed" ? (
+              <p>{durableRequest.data.outcome_code === "completed_with_errors" ? "Import terminé avec des erreurs. Consultez les journaux de synchronisation." : durableRequest.data.outcome_code === "duplicate" ? "Ce fichier avait déjà été importé." : "Import terminé."}</p>
+            ) : durableRequest.data.state === "failed" ? (
+              <p role="alert">L’import a échoué. Consultez les journaux de synchronisation.</p>
+            ) : (
+              <p role="alert">Le résultat doit être examiné par un administrateur avant toute nouvelle tentative.</p>
+            )}
+          </div>
+        )}
+        {step === "progress" && !importRequestId && (
           <div className="space-y-4 py-4">
             {!matchedLog || matchedLog.status === "pending" || matchedLog.status === "running" ? (
               <div className="flex flex-col items-center gap-4 py-4">
@@ -433,7 +460,8 @@ export function ImportWizard({ open, onOpenChange }: ImportWizardProps) {
             </>
           )}
           {step === "progress" && (
-            matchedLog?.status === "completed" || matchedLog?.status === "failed"
+            (importRequestId && (durableRequest.isError || ["completed", "failed", "uncertain"].includes(durableRequest.data?.state ?? ""))) ||
+            (!importRequestId && (matchedLog?.status === "completed" || matchedLog?.status === "failed"))
           ) && (
             <Button
               onClick={() => {

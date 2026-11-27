@@ -71,7 +71,7 @@ export function useDossierStats() {
   });
 }
 
-export function useSyncLogs(params?: SyncLogsParams) {
+export function useSyncLogs(params?: SyncLogsParams, poll = false) {
   const api = useApiClient();
   return useQuery({
     queryKey: ["sync-logs", params] as const,
@@ -81,6 +81,7 @@ export function useSyncLogs(params?: SyncLogsParams) {
         page_size: params?.page_size,
         status: params?.status || undefined,
       }),
+    refetchInterval: poll ? 3000 : false,
   });
 }
 
@@ -120,7 +121,7 @@ export function useImportDossiers() {
       const formData = new FormData();
       formData.append("file", file);
       const qs = syncConfigId ? `?sync_config_id=${syncConfigId}` : "";
-      return api.upload<{ message: string; file_path: string }>(
+      return api.upload<{ message: string; file_path?: string; request_id?: string; deduplicated?: boolean }>(
         `/dossiers/import${qs}`,
         formData,
       );
@@ -129,6 +130,26 @@ export function useImportDossiers() {
       queryClient.invalidateQueries({ queryKey: ["dossiers"] });
       queryClient.invalidateQueries({ queryKey: ["dossier-stats"] });
       queryClient.invalidateQueries({ queryKey: ["sync-logs"] });
+    },
+  });
+}
+
+export interface DurableImportRequest {
+  request_id: string;
+  state: "pending" | "processing" | "completed" | "failed" | "uncertain";
+  outcome_code: string | null;
+  sync_log_id: string | null;
+}
+
+export function useDurableImportRequest(requestId: string | null) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: ["dossier-import-request", requestId],
+    queryFn: () => api.get<DurableImportRequest>(`/dossiers/imports/${requestId}`),
+    enabled: !!requestId,
+    refetchInterval: (query) => {
+      const state = query.state.data?.state;
+      return state === "completed" || state === "failed" || state === "uncertain" ? false : 3000;
     },
   });
 }

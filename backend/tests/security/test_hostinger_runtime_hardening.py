@@ -39,3 +39,7 @@ def test_dossier_workers_are_staged_and_outbox_defaults_off():
             services[name]["environment"]["DOSSIER_IMPORT_WORKER_ENABLED"]
             == "${DOSSIER_IMPORT_WORKER_ENABLED:-false}"
         )
+        assert (
+            services[name]["environment"]["DOSSIER_DURABLE_IMPORTS_ENABLED"]
+            == "${DOSSIER_DURABLE_IMPORTS_ENABLED:-false}"
+        )

@@ -49,6 +49,11 @@ async def startup(ctx: dict) -> None:
     """Initialize infrastructure for the import worker process."""
     if not get_settings().dossier_import_worker_enabled:
         raise RuntimeError("Dossier import worker is disabled")
+    if (
+        get_settings().dossier_durable_imports_enabled
+        and not get_settings().dossier_notification_outbox_enabled
+    ):
+        raise RuntimeError("Durable imports require the transactional notification outbox")
     from app.core.database import get_engine
     from app.core.logging import setup_logging
     from app.core.minio import init_minio
@@ -130,6 +135,8 @@ async def task_import_dossier(
 
     # 1. Resolve tenant
     tenant = await TenantResolver.from_slug(tenant_slug)
+    if get_settings().dossier_durable_imports_enabled is True and durable_claim is None:
+        raise ValueError("legacy import job rejected while durable imports are enabled")
     if durable_claim is not None and (
         durable_claim.tenant_id != tenant.id
         or durable_claim.object_key != file_path
@@ -247,6 +254,8 @@ async def task_import_dossier(
                     select(SyncConfig).where(SyncConfig.is_active.is_(True)).limit(1),
                 )
             config = result.scalar_one_or_none()
+            if sync_config_id and (config is None or not config.is_active):
+                raise ValueError("import configuration is unavailable or inactive")
             if config and config.column_mapping:
                 column_mapping = config.column_mapping
 
@@ -380,7 +389,7 @@ async def task_watch_import_folder(
     objects = minio.list_objects(bucket, prefix=watched_folder, recursive=False)
     files_to_process = []
     async for obj in objects:
-        if obj.object_name.startswith(("imports/direct/", "imports/staged/")):
+        if obj.object_name.startswith(("imports/direct/", "imports/staged/", "imports/requests/")):
             continue
         ext = PurePosixPath(obj.object_name).suffix.lower()
         if ext in _IMPORT_EXTENSIONS:
@@ -418,6 +427,51 @@ async def task_watch_import_folder(
             # The snapshot contains exactly the bytes hashed above. Keep the
             # source untouched until a separate, safe retention process exists.
             ext = PurePosixPath(obj.object_name).suffix.lower()
+            if get_settings().dossier_durable_imports_enabled:
+                from app.services.dossier.import_requests import (
+                    find_existing_import,
+                    register_import,
+                )
+
+                config_uuid = uuid.UUID(sync_config_id) if sync_config_id else None
+                async with tenant.db_session() as session:
+                    existing_id = await find_existing_import(
+                        session, tenant.id, file_hash, config_uuid
+                    )
+                if existing_id is not None:
+                    files_skipped += 1
+                    continue
+                request_id = uuid.uuid4()
+                snapshot_path = f"imports/requests/{request_id.hex}/source{ext}"
+                await minio.put_object(
+                    bucket, snapshot_path, data=io.BytesIO(file_bytes), length=len(file_bytes)
+                )
+                async with tenant.db_session() as session:
+                    _, created = await register_import(
+                        session,
+                        request_id=request_id,
+                        tenant_id=tenant.id,
+                        object_key=snapshot_path,
+                        content_sha256=file_hash,
+                        sync_config_id=config_uuid,
+                        requested_by=None,
+                    )
+                    if created:
+                        from app.models.audit import AuditLog
+
+                        session.add(
+                            AuditLog(
+                                tenant_slug=tenant.slug,
+                                user_type="system",
+                                action="dossier_import_req",
+                                resource_type="dossier_import_request",
+                                resource_id=str(request_id),
+                                details={"source": "watched_folder"},
+                            )
+                        )
+                files_enqueued += int(created)
+                files_skipped += int(not created)
+                continue
             snapshot_path = f"imports/staged/{file_hash}/source{ext}"
             await minio.put_object(
                 bucket, snapshot_path, data=io.BytesIO(file_bytes), length=len(file_bytes)
@@ -553,19 +607,60 @@ def _get_redis_settings() -> RedisSettings:
     )
 
 
+async def poll_durable_imports(ctx: dict) -> str:
+    """Poll PostgreSQL directly; Redis schedules the poll but is not the source of truth."""
+    from sqlalchemy import func, or_
+
+    from app.core.database import get_session_factory
+    from app.core.tenant import TenantResolver
+    from app.models.dossier_import_request import DossierImportRequest
+    from app.models.tenant import Tenant
+    from app.services.dossier.import_execution import process_one_durable_import
+
+    if not get_settings().dossier_durable_imports_enabled:
+        return "disabled"
+    async with get_session_factory()() as session:
+        slug = (
+            await session.execute(
+                select(Tenant.slug)
+                .join(DossierImportRequest, DossierImportRequest.tenant_id == Tenant.id)
+                .where(
+                    Tenant.status == TenantStatus.active,
+                    or_(
+                        DossierImportRequest.state == "pending",
+                        (DossierImportRequest.state == "processing")
+                        & (DossierImportRequest.lease_until <= func.clock_timestamp()),
+                    ),
+                )
+                .order_by(DossierImportRequest.created_at, DossierImportRequest.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if slug is None:
+        return "empty"
+    tenant = await TenantResolver.from_slug(slug)
+    return await process_one_durable_import(tenant)
+
+
 class WorkerSettings:
     """ARQ worker configuration for dossier import."""
 
     functions = [task_import_dossier, task_watch_import_folder]
     queue_name = DOSSIER_IMPORT_QUEUE
+    health_check_key = (
+        DOSSIER_IMPORT_QUEUE + ":durable:health-check"
+        if get_settings().dossier_durable_imports_enabled
+        else DOSSIER_IMPORT_QUEUE + ":health-check"
+    )
     cron_jobs = [
         cron(task_scheduled_import_all, hour=6, minute=0),  # Daily 06:00 UTC
+        cron(poll_durable_imports, second={0, 10, 20, 30, 40, 50}, timeout=720, max_tries=1),
     ]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _get_redis_settings()
     max_jobs = 3  # Conservative: imports are I/O heavy
     job_timeout = 600  # 10 minutes
-    job_completion_wait = 630
+    job_completion_wait = 720
     health_check_interval = 15
     max_tries = 3

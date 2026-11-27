@@ -1,4 +1,4 @@
-"""Execute one staged durable import; not yet scheduled by a production worker."""
+"""Execute one durable import; the guarded worker is disabled by default."""
 
 from __future__ import annotations
 

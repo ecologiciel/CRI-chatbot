@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,13 @@ class DossierImportRequest(UUIDMixin, Base):
             name="ck_dossier_import_request_lease",
         ),
         Index("uq_dossier_import_request_object", "tenant_id", "object_key", unique=True),
+        Index(
+            "uq_dossier_import_active_content",
+            "tenant_id",
+            "content_sha256",
+            unique=True,
+            postgresql_where=text("state <> 'failed'"),
+        ),
         Index("ix_dossier_import_request_queue", "tenant_id", "state", "created_at"),
         {"schema": "public"},
     )

@@ -89,6 +89,9 @@ class Settings(BaseSettings):
         default=False,
         description="Accept dossier imports only when the dedicated worker is configured",
     )
+    dossier_durable_imports_enabled: bool = Field(
+        default=False, description="Use the transactional dossier import registry"
+    )
     webhook_proxy_shared_secret: str = Field(
         default="", description="Optional shared secret required from the Cloudflare webhook relay"
     )

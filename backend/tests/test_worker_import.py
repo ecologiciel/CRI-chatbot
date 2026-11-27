@@ -173,6 +173,20 @@ class TestTaskImportDossier:
     """Tests for the task_import_dossier ARQ task."""
 
     @pytest.mark.asyncio
+    async def test_legacy_job_is_rejected_when_durable_mode_is_enabled(self):
+        tenant = _make_tenant_with_session(_make_mock_session())
+        with (
+            patch("app.core.tenant.TenantResolver") as resolver,
+            patch("app.core.minio.get_object_bytes", new=AsyncMock()) as fetch,
+            patch("app.workers.import_dossier.get_settings") as settings,
+        ):
+            resolver.from_slug = AsyncMock(return_value=tenant)
+            settings.return_value.dossier_durable_imports_enabled = True
+            with pytest.raises(ValueError, match="legacy import job"):
+                await task_import_dossier({}, "imports/direct/test.csv", None, TEST_TENANT_SLUG)
+        fetch.assert_not_awaited()
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "duplicate,expected_state,expected_code",
         [
@@ -233,6 +247,17 @@ class TestTaskImportDossier:
         with patch("app.workers.import_dossier.get_settings") as settings:
             settings.return_value.dossier_import_worker_enabled = False
             with pytest.raises(RuntimeError, match="disabled"):
+                await startup({})
+
+    @pytest.mark.asyncio
+    async def test_durable_worker_requires_transactional_notification_outbox(self):
+        from app.workers.import_dossier import startup
+
+        with patch("app.workers.import_dossier.get_settings") as settings:
+            settings.return_value.dossier_import_worker_enabled = True
+            settings.return_value.dossier_durable_imports_enabled = True
+            settings.return_value.dossier_notification_outbox_enabled = False
+            with pytest.raises(RuntimeError, match="notification outbox"):
                 await startup({})
 
     @pytest.mark.asyncio
@@ -595,6 +620,44 @@ class TestTaskImportDossier:
 
 class TestTaskWatchImportFolder:
     """Tests for the task_watch_import_folder ARQ task."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("duplicate", [False, True])
+    async def test_durable_watcher_registers_once_without_redis_job(self, duplicate):
+        config = MagicMock(id=TEST_CONFIG_ID, watched_folder="imports/pending/")
+        config_result, hash_result = MagicMock(), MagicMock()
+        config_result.scalar_one_or_none.return_value = config
+        hash_result.scalar_one_or_none.return_value = None
+        tenant = _make_tenant_with_session(
+            _make_mock_session(execute_results=[config_result, hash_result])
+        )
+        minio = AsyncMock()
+        minio.list_objects = MagicMock(
+            return_value=MockAsyncIter([MagicMock(object_name="imports/pending/source.csv")])
+        )
+        minio.get_object.return_value = _make_minio_response(b"data")
+        queue = AsyncMock()
+        existing = AsyncMock(return_value=uuid.uuid4() if duplicate else None)
+        register = AsyncMock(return_value=(uuid.uuid4(), True))
+        with (
+            patch("app.core.tenant.TenantResolver") as resolver,
+            patch("app.core.minio.get_minio", return_value=minio),
+            patch("app.workers.import_dossier.get_settings") as settings,
+            patch("app.services.dossier.import_requests.find_existing_import", existing),
+            patch("app.services.dossier.import_requests.register_import", register),
+        ):
+            resolver.from_slug = AsyncMock(return_value=tenant)
+            settings.return_value.dossier_durable_imports_enabled = True
+            result = await task_watch_import_folder({"redis": queue}, TEST_TENANT_SLUG)
+        assert result["files_enqueued"] == (0 if duplicate else 1)
+        queue.enqueue_job.assert_not_awaited()
+        minio.remove_object.assert_not_awaited()
+        if duplicate:
+            minio.put_object.assert_not_awaited()
+            register.assert_not_awaited()
+        else:
+            minio.put_object.assert_awaited_once()
+            register.assert_awaited_once()
 
     def test_import_worker_uses_dedicated_queue(self):
         from app.core.arq import DOSSIER_IMPORT_QUEUE

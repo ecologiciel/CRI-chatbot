@@ -327,6 +327,115 @@ class TestDossierStats:
 
 class TestImportDossiers:
     @pytest.mark.asyncio
+    async def test_same_content_with_different_config_is_rejected(self):
+        from app.services.dossier.import_requests import ImportConfigurationConflictError
+
+        _setup_overrides()
+        storage, queue = MagicMock(), AsyncMock()
+        storage.put_object = AsyncMock()
+        queue.exists.return_value = 1
+        session = AsyncMock()
+        session.__aenter__.return_value = session
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as resolver,
+                patch("app.api.v1.dossiers.get_minio", return_value=storage),
+                patch("app.api.v1.dossiers.get_arq_pool", return_value=queue),
+                patch("app.api.v1.dossiers.get_settings") as settings,
+                patch.object(TenantContext, "db_session", return_value=session),
+                patch(
+                    "app.services.dossier.import_requests.find_existing_import",
+                    new=AsyncMock(side_effect=ImportConfigurationConflictError()),
+                ),
+            ):
+                settings.return_value.dossier_import_worker_enabled = True
+                settings.return_value.dossier_durable_imports_enabled = True
+                settings.return_value.dossier_notification_outbox_enabled = True
+                resolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.post(
+                        "/api/v1/dossiers/import",
+                        files={"file": ("dossiers.csv", b"a,b\n1,2", "text/csv")},
+                        headers=_headers(),
+                    )
+            assert response.status_code == 409
+            storage.put_object.assert_not_awaited()
+            queue.enqueue_job.assert_not_awaited()
+        finally:
+            _clear_overrides()
+
+    @pytest.mark.asyncio
+    async def test_import_request_status_is_tenant_scoped(self):
+        from fastapi import HTTPException
+
+        from app.api.v1.dossiers import get_import_request
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        session = AsyncMock()
+        session.execute.return_value = result
+        session.__aenter__.return_value = session
+        with patch.object(TenantContext, "db_session", return_value=session):
+            with pytest.raises(HTTPException) as error:
+                await get_import_request(
+                    uuid.uuid4(), tenant=TEST_TENANT, _admin=_make_admin_payload()
+                )
+        assert error.value.status_code == 404
+        assert TEST_TENANT.id in session.execute.await_args.args[0].compile().params.values()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("duplicate", [False, True])
+    async def test_durable_import_records_request_without_redis_job(self, duplicate):
+        _setup_overrides()
+        existing_id, new_id = uuid.uuid4(), uuid.uuid4()
+        storage, queue = MagicMock(), AsyncMock()
+        storage.put_object = AsyncMock()
+        queue.exists.return_value = 1
+        session = AsyncMock()
+        session.__aenter__.return_value = session
+        session.add = MagicMock()
+        existing = AsyncMock(return_value=existing_id if duplicate else None)
+        register = AsyncMock(return_value=(new_id, True))
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as resolver,
+                patch("app.api.v1.dossiers.get_minio", return_value=storage),
+                patch("app.api.v1.dossiers.get_arq_pool", return_value=queue),
+                patch("app.api.v1.dossiers.get_settings") as settings,
+                patch.object(TenantContext, "db_session", return_value=session),
+                patch("app.services.dossier.import_requests.find_existing_import", existing),
+                patch("app.services.dossier.import_requests.register_import", register),
+            ):
+                settings.return_value.dossier_import_worker_enabled = True
+                settings.return_value.dossier_durable_imports_enabled = True
+                settings.return_value.dossier_notification_outbox_enabled = True
+                resolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.post(
+                        "/api/v1/dossiers/import",
+                        files={"file": ("dossiers.csv", b"numero,statut\nA,valide", "text/csv")},
+                        headers=_headers(),
+                    )
+            assert response.status_code == 202
+            assert response.json()["request_id"] == str(existing_id if duplicate else new_id)
+            assert response.json()["deduplicated"] is duplicate
+            queue.exists.assert_awaited_once_with("arq:queue:dossier-import:durable:health-check")
+            queue.enqueue_job.assert_not_awaited()
+            if duplicate:
+                storage.put_object.assert_not_awaited()
+                register.assert_not_awaited()
+            else:
+                storage.put_object.assert_awaited_once()
+                register.assert_awaited_once()
+                assert register.await_args.kwargs["tenant_id"] == TEST_TENANT.id
+        finally:
+            _clear_overrides()
+
+    @pytest.mark.asyncio
     async def test_import_success_xlsx(self):
         """POST /dossiers/import with valid .xlsx returns 202."""
         _setup_overrides()
@@ -344,6 +453,7 @@ class TestImportDossiers:
                 patch("app.api.v1.dossiers.get_settings") as settings,
             ):
                 settings.return_value.dossier_import_worker_enabled = True
+                settings.return_value.dossier_durable_imports_enabled = False
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
@@ -415,6 +525,7 @@ class TestImportDossiers:
                 patch("app.api.v1.dossiers.get_settings") as settings,
             ):
                 settings.return_value.dossier_import_worker_enabled = True
+                settings.return_value.dossier_durable_imports_enabled = False
                 resolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"

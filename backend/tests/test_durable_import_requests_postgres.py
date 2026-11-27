@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from app.services.dossier.import_requests import (
+    ImportConfigurationConflictError,
     LostImportLeaseError,
     claim_import,
     finish_import,
@@ -157,4 +158,55 @@ async def test_durable_request_transaction_fencing_and_tenant_isolation():
                 {"id": request_b},
             )
         ).scalar_one() == "uncertain"
+
+    # Concurrent submissions of identical content/config produce one request.
+    first_id, second_id = uuid.uuid4(), uuid.uuid4()
+    registered, finish_registration = asyncio.Event(), asyncio.Event()
+
+    async def submit(request_id, wait_for_release):
+        async with sessions.begin() as session:
+            result = await register_import(
+                session,
+                request_id=request_id,
+                tenant_id=tenant_a,
+                object_key=f"imports/requests/{request_id.hex}/source.csv",
+                content_sha256="c" * 64,
+                sync_config_id=None,
+                requested_by=None,
+            )
+            if wait_for_release:
+                registered.set()
+                await finish_registration.wait()
+            return result
+
+    first_task = asyncio.create_task(submit(first_id, True))
+    await asyncio.wait_for(registered.wait(), 5)
+    second_task = asyncio.create_task(submit(second_id, False))
+    await asyncio.sleep(0.1)
+    assert not second_task.done()
+    finish_registration.set()
+    assert await first_task == (first_id, True)
+    assert await second_task == (first_id, False)
+    different_config_id = uuid.uuid4()
+    conflict_id = uuid.uuid4()
+    with pytest.raises(ImportConfigurationConflictError):
+        async with sessions.begin() as session:
+            await register_import(
+                session,
+                request_id=conflict_id,
+                tenant_id=tenant_a,
+                object_key=f"imports/requests/{conflict_id.hex}/source.csv",
+                content_sha256="c" * 64,
+                sync_config_id=different_config_id,
+                requested_by=None,
+            )
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM public.dossier_import_requests WHERE tenant_id=:tenant AND content_sha256=:hash"
+                ),
+                {"tenant": tenant_a, "hash": "c" * 64},
+            )
+        ).scalar_one() == 1
     await engine.dispose()

@@ -64,6 +64,14 @@ def upgrade() -> None:
         ["tenant_id", "state", "created_at"],
         schema="public",
     )
+    op.create_index(
+        "uq_dossier_import_active_content",
+        "dossier_import_requests",
+        ["tenant_id", "content_sha256"],
+        unique=True,
+        postgresql_where=sa.text("state <> 'failed'"),
+        schema="public",
+    )
 
 
 def downgrade() -> None:

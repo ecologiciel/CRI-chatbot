@@ -9,6 +9,7 @@ Wave 25A — Phase 3.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import uuid
 from datetime import UTC, date, datetime
@@ -26,7 +27,9 @@ from app.core.minio import get_minio
 from app.core.rbac import require_role
 from app.core.tenant import TenantContext, get_current_tenant
 from app.core.uploads import validate_upload_filename
+from app.models.audit import AuditLog
 from app.models.dossier import Dossier
+from app.models.dossier_import_request import DossierImportRequest
 from app.models.enums import AdminRole, DossierStatut, SyncStatus
 from app.models.sync import SyncConfig, SyncLog
 from app.schemas.auth import AdminTokenPayload
@@ -143,14 +146,23 @@ async def import_dossiers(
             details={"file_size_at_least": len(file_bytes), "max_size": MAX_IMPORT_SIZE},
         )
 
-    if not get_settings().dossier_import_worker_enabled:
+    settings = get_settings()
+    if not settings.dossier_import_worker_enabled:
         raise HTTPException(
             status_code=503,
             detail="L’import de dossiers est temporairement indisponible. Contactez l’administrateur.",
         )
+    if (
+        settings.dossier_durable_imports_enabled
+        and not settings.dossier_notification_outbox_enabled
+    ):
+        raise HTTPException(status_code=503, detail="La configuration des imports est incomplète.")
     try:
         pool = get_arq_pool()
-        worker_online = await pool.exists(f"{DOSSIER_IMPORT_QUEUE}:health-check")
+        marker = (
+            ":durable:health-check" if settings.dossier_durable_imports_enabled else ":health-check"
+        )
+        worker_online = await pool.exists(f"{DOSSIER_IMPORT_QUEUE}{marker}")
     except Exception as exc:
         raise HTTPException(
             status_code=503, detail="L’import de dossiers est temporairement indisponible."
@@ -159,6 +171,98 @@ async def import_dossiers(
         raise HTTPException(
             status_code=503, detail="Le traitement des imports est temporairement indisponible."
         )
+
+    if settings.dossier_durable_imports_enabled:
+        from app.services.dossier.import_requests import (
+            ImportConfigurationConflictError,
+            find_existing_import,
+            register_import,
+        )
+
+        content_hash = hashlib.sha256(file_bytes).hexdigest()
+        async with tenant.db_session() as session:
+            if sync_config_id is not None:
+                config_id = (
+                    await session.execute(
+                        select(SyncConfig.id).where(
+                            SyncConfig.id == sync_config_id, SyncConfig.is_active.is_(True)
+                        )
+                    )
+                ).scalar_one_or_none()
+                if config_id is None:
+                    raise HTTPException(
+                        status_code=404, detail="Configuration d’import introuvable ou inactive"
+                    )
+            try:
+                existing_id = await find_existing_import(
+                    session, tenant.id, content_hash, sync_config_id
+                )
+            except ImportConfigurationConflictError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ce fichier est déjà enregistré avec un autre paramétrage.",
+                ) from exc
+            if existing_id is not None:
+                session.add(
+                    AuditLog(
+                        tenant_slug=tenant.slug,
+                        user_id=uuid.UUID(admin.sub),
+                        user_type="admin",
+                        action="dossier_import_req",
+                        resource_type="dossier_import_request",
+                        resource_id=str(existing_id),
+                        details={"duplicate": True},
+                    )
+                )
+        if existing_id is not None:
+            return {
+                "message": "Demande déjà enregistrée ; consultez son état.",
+                "request_id": str(existing_id),
+                "deduplicated": True,
+            }
+        request_id = uuid.uuid4()
+        object_path = f"imports/requests/{request_id.hex}/source{ext}"
+        await get_minio().put_object(
+            bucket_name=tenant.minio_bucket,
+            object_name=object_path,
+            data=io.BytesIO(file_bytes),
+            length=len(file_bytes),
+            content_type=CONTENT_TYPE_MAP[ext],
+        )
+        async with tenant.db_session() as session:
+            try:
+                existing_id, created = await register_import(
+                    session,
+                    request_id=request_id,
+                    tenant_id=tenant.id,
+                    object_key=object_path,
+                    content_sha256=content_hash,
+                    sync_config_id=sync_config_id,
+                    requested_by=uuid.UUID(admin.sub),
+                )
+            except ImportConfigurationConflictError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ce fichier est déjà enregistré avec un autre paramétrage.",
+                ) from exc
+            session.add(
+                AuditLog(
+                    tenant_slug=tenant.slug,
+                    user_id=uuid.UUID(admin.sub),
+                    user_type="admin",
+                    action="dossier_import_req",
+                    resource_type="dossier_import_request",
+                    resource_id=str(existing_id),
+                    details={"duplicate": not created},
+                )
+            )
+        return {
+            "message": "Import accepté"
+            if created
+            else "Demande déjà enregistrée ; consultez son état.",
+            "request_id": str(existing_id),
+            "deduplicated": not created,
+        }
 
     # 3. Upload to MinIO
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
@@ -195,6 +299,36 @@ async def import_dossiers(
     )
 
     return {"message": "Import accepté", "file_path": object_path}
+
+
+@router.get("/imports/{request_id}")
+async def get_import_request(
+    request_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_current_tenant),
+    _admin: AdminTokenPayload = Depends(
+        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
+    ),
+) -> dict:
+    """Return minimal progress metadata for this institution only."""
+    async with tenant.db_session() as session:
+        request = (
+            await session.execute(
+                select(DossierImportRequest).where(
+                    DossierImportRequest.id == request_id,
+                    DossierImportRequest.tenant_id == tenant.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if request is None:
+            raise HTTPException(status_code=404, detail="Demande introuvable")
+        return {
+            "request_id": str(request.id),
+            "state": request.state,
+            "outcome_code": request.outcome_code,
+            "sync_log_id": str(request.sync_log_id) if request.sync_log_id else None,
+            "created_at": request.created_at,
+            "updated_at": request.updated_at,
+        }
 
 
 # ---------------------------------------------------------------------------

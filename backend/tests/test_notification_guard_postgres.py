@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib.util
+import io
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -14,11 +15,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import sqlalchemy as sa
+from fastapi import UploadFile
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from app.api.v1.dossiers import get_import_request
+from app.api.v1.dossiers import import_dossiers as accept_import
+from app.models.admin import Admin
+from app.models.audit import AuditLog
 from app.models.contact import Contact
 from app.models.dossier import Dossier, DossierHistory
 from app.models.sync import SyncConfig, SyncLog
@@ -29,6 +35,7 @@ from app.services.dossier.import_service import DossierImportRow, DossierImportS
 from app.services.notification.outbox import claim_notification, enqueue_notification
 from app.services.notification.outbox_execution import process_one_notification
 from app.services.notification.service import NotificationService
+from app.workers.import_dossier import poll_durable_imports
 
 URL = os.environ.get("TEST_NOTIFICATION_GUARD_DB_URL")
 pytestmark = pytest.mark.skipif(
@@ -46,6 +53,8 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
     # Tables use the real mapped columns; constraints unrelated to this test are omitted.
     for model, schema in [
         (Tenant, "public"),
+        (Admin, "public"),
+        (AuditLog, "public"),
         (Dossier, "tenant_guard"),
         (DossierHistory, "tenant_guard"),
         (Contact, "tenant_guard"),
@@ -90,7 +99,7 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
         await conn.run_sync(install)
         await conn.execute(
             sa.text(
-                "INSERT INTO public.tenants (id,status,whatsapp_config) VALUES (:id,'active',CAST(:cfg AS jsonb))"
+                "INSERT INTO public.tenants (id,slug,status,whatsapp_config) VALUES (:id,'guard','active',CAST(:cfg AS jsonb))"
             ),
             {"id": tenant_id, "cfg": '{"phone_number_id":"123","access_token":"test"}'},
         )
@@ -413,4 +422,93 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
                 sa.text("SELECT statut FROM tenant_guard.dossiers WHERE id=:id"), {"id": dossier_id}
             )
         ).scalar_one() == "valide"
+    # Acceptance, deduplication and polling use PostgreSQL as the authority.
+    api_bytes = b"numero,statut\nA,rejete\n"
+    stored = {}
+
+    async def put_object(*, bucket_name, object_name, data, length, content_type):
+        stored[object_name] = data.read()
+        assert len(stored[object_name]) == length
+
+    async def fetch_object(bucket, key, *, max_bytes):
+        assert bucket == tenant.minio_bucket and len(stored[key]) <= max_bytes
+        return stored[key]
+
+    storage = SimpleNamespace(put_object=AsyncMock(side_effect=put_object))
+    queue = SimpleNamespace(exists=AsyncMock(return_value=1), enqueue_job=AsyncMock())
+    settings = SimpleNamespace(
+        dossier_import_worker_enabled=True,
+        dossier_durable_imports_enabled=True,
+        dossier_notification_outbox_enabled=True,
+    )
+    admin = SimpleNamespace(sub=str(uuid.uuid4()))
+    with (
+        patch("app.api.v1.dossiers.get_settings", return_value=settings),
+        patch("app.api.v1.dossiers.get_minio", return_value=storage),
+        patch("app.api.v1.dossiers.get_arq_pool", return_value=queue),
+        patch("app.workers.import_dossier.get_settings", return_value=settings),
+        patch("app.core.tenant.TenantResolver.from_slug", new=AsyncMock(return_value=tenant)),
+        patch("app.core.database.get_session_factory", return_value=sessions),
+        patch("app.core.minio.get_object_bytes", new=AsyncMock(side_effect=fetch_object)),
+    ):
+        first = await accept_import(
+            UploadFile(filename="dossiers.csv", file=io.BytesIO(api_bytes)),
+            sync_config_id=None,
+            tenant=tenant,
+            admin=admin,
+        )
+        duplicate = await accept_import(
+            UploadFile(filename="dossiers.csv", file=io.BytesIO(api_bytes)),
+            sync_config_id=None,
+            tenant=tenant,
+            admin=admin,
+        )
+        assert first["deduplicated"] is False and duplicate["deduplicated"] is True
+        assert first["request_id"] == duplicate["request_id"]
+        storage.put_object.assert_awaited_once()
+        queue.enqueue_job.assert_not_awaited()
+        async with sessions.begin() as session:
+            assert (
+                await session.execute(
+                    sa.text(
+                        "SELECT count(*) FROM public.audit_logs WHERE action='dossier_import_req'"
+                    )
+                )
+            ).scalar_one() == 2
+            await session.execute(
+                sa.text(
+                    "ALTER TABLE public.audit_logs ADD CONSTRAINT test_reject_import_audit CHECK (action <> 'dossier_import_req') NOT VALID"
+                )
+            )
+        rejected_bytes = b"numero,statut\nA,en_attente\n"
+        with pytest.raises(IntegrityError):
+            await accept_import(
+                UploadFile(filename="dossiers.csv", file=io.BytesIO(rejected_bytes)),
+                sync_config_id=None,
+                tenant=tenant,
+                admin=admin,
+            )
+        async with sessions.begin() as session:
+            assert (
+                await session.execute(
+                    sa.text(
+                        "SELECT count(*) FROM public.dossier_import_requests WHERE content_sha256=:hash"
+                    ),
+                    {"hash": hashlib.sha256(rejected_bytes).hexdigest()},
+                )
+            ).scalar_one() == 0
+            await session.execute(
+                sa.text("ALTER TABLE public.audit_logs DROP CONSTRAINT test_reject_import_audit")
+            )
+        assert await poll_durable_imports({}) == "completed"
+        status = await get_import_request(
+            uuid.UUID(first["request_id"]), tenant=tenant, _admin=admin
+        )
+        assert status["state"] == "completed" and status["sync_log_id"] is not None
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                sa.text("SELECT statut FROM tenant_guard.dossiers WHERE id=:id"), {"id": dossier_id}
+            )
+        ).scalar_one() == "rejete"
     await engine.dispose()

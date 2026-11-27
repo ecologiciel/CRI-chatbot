@@ -1,8 +1,8 @@
 """Transactional primitives for staged durable dossier imports.
 
-Acceptance and scheduling are not wired to this registry yet. A successful
-import calls ``finish_import`` in the *same transaction* as the dossier and
-history changes. Expired leases become uncertain and are never auto-replayed.
+The guarded durable mode uses this registry. A successful import calls
+``finish_import`` in the *same transaction* as the dossier and history changes.
+Expired leases become uncertain and are never auto-replayed.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dossier_import_request import DossierImportRequest
@@ -20,6 +21,10 @@ from app.models.dossier_import_request import DossierImportRequest
 
 class LostImportLeaseError(RuntimeError):
     """The enclosing transaction must roll back; the claim is no longer current."""
+
+
+class ImportConfigurationConflictError(ValueError):
+    """The same file already exists with different import configuration."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +38,30 @@ class ImportClaim:
     requested_by: uuid.UUID | None
 
 
+async def find_existing_import(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    content_sha256: str,
+    sync_config_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+    existing = (
+        await session.execute(
+            select(DossierImportRequest.id, DossierImportRequest.sync_config_id).where(
+                DossierImportRequest.tenant_id == tenant_id,
+                DossierImportRequest.content_sha256 == content_sha256,
+                DossierImportRequest.state != "failed",
+            )
+        )
+    ).one_or_none()
+    if existing is None:
+        return None
+    if existing.sync_config_id != sync_config_id:
+        raise ImportConfigurationConflictError(
+            "file already registered with different configuration"
+        )
+    return existing.id
+
+
 async def register_import(
     session: AsyncSession,
     *,
@@ -42,15 +71,16 @@ async def register_import(
     content_sha256: str,
     sync_config_id: uuid.UUID | None,
     requested_by: uuid.UUID | None,
-) -> None:
+) -> tuple[uuid.UUID, bool]:
     """Record only generated object keys, after successful object storage."""
     prefix = f"imports/requests/{request_id.hex}/source."
     if object_key not in {prefix + ext for ext in ("csv", "xls", "xlsx")}:
         raise ValueError("invalid import object key")
     if not re.fullmatch(r"[0-9a-f]{64}", content_sha256):
         raise ValueError("invalid import content hash")
-    session.add(
-        DossierImportRequest(
+    result = await session.execute(
+        insert(DossierImportRequest)
+        .values(
             id=request_id,
             tenant_id=tenant_id,
             object_key=object_key,
@@ -58,8 +88,16 @@ async def register_import(
             sync_config_id=sync_config_id,
             requested_by=requested_by,
         )
+        .on_conflict_do_nothing()
+        .returning(DossierImportRequest.id)
     )
-    await session.flush()
+    inserted_id = result.scalar_one_or_none()
+    if inserted_id is not None:
+        return inserted_id, True
+    existing = await find_existing_import(session, tenant_id, content_sha256, sync_config_id)
+    if existing is None:
+        raise RuntimeError("import request conflict cannot be resolved safely")
+    return existing, False
 
 
 async def claim_import(

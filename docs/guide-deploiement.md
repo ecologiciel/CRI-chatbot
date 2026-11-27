@@ -295,7 +295,7 @@ Chaque service dispose d'un healthcheck Docker :
 | Service | Commande | Intervalle | Retries |
 |---------|----------|-----------|---------|
 | PostgreSQL | `pg_isready` | 10s | 5 |
-| Qdrant | `wget http://localhost:6333/readyz` | 10s | 5 |
+| Qdrant (Hostinger) | Vérification du port interne `6333` par le conteneur | 10s | 5 |
 | Redis | `redis-cli ping` | 10s | 5 |
 | MinIO | `curl http://localhost:9000/minio/health/live` | 10s | 5 |
 | Traefik | `traefik healthcheck` | 10s | 3 |

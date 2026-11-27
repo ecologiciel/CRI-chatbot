@@ -21,8 +21,8 @@ from app.models.enums import ContactSource, OptInStatus, TenantStatus
 from app.models.tenant import Tenant
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
-from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.contact.segmentation import SegmentationService
+from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.whatsapp.conversation_lock import lock_for_acceptance
 
 PURPOSE = "wa_inbox"

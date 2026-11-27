@@ -15,11 +15,11 @@ from app.core.tenant import TenantContext
 from app.schemas.whatsapp import IncomingMessage
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.tenant.provisioning import TenantProvisioningService
 from app.services.whatsapp.inbox import persist_incoming_message
 from app.services.whatsapp.inbox_leases import claim_next, finish_claim
 from app.services.whatsapp.inbox_payload import decrypt_claim
 from app.services.whatsapp.inbox_retention import _redact_tenant
-from app.services.tenant.provisioning import TenantProvisioningService
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated PostgreSQL")
@@ -142,10 +142,10 @@ async def test_stop_commits_consent_before_ack_and_bypasses_uncertain_messages()
     engine = create_async_engine(URL)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     tenant_id = uuid.uuid4()
-    tenant = TenantContext(tenant_id, "fixture_stop", "Fixture", "active", {"phone_number_id": "123"})
+    tenant = TenantContext(tenant_id, "fixture_stop", "Fixture", "active", {"phone_number_id": "777"})
     async with engine.begin() as conn:
         assert (await conn.execute(text("SELECT current_database()"))).scalar_one().startswith("ragtest_")
-        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status,whatsapp_config) VALUES (:id,'Fixture','fixture_stop','Test','active',CAST(:cfg AS jsonb))"), {"id": tenant_id, "cfg": '{"phone_number_id":"123"}'})
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status,whatsapp_config) VALUES (:id,'Fixture','fixture_stop','Test','active',CAST(:cfg AS jsonb))"), {"id": tenant_id, "cfg": '{"phone_number_id":"777"}'})
     with patch("app.services.tenant.provisioning.get_session_factory", return_value=factory):
         await TenantProvisioningService()._create_schema("fixture_stop")
     kms = KMSService(factory, AsyncMock(), "02" * 32)
@@ -153,20 +153,20 @@ async def test_stop_commits_consent_before_ack_and_bypasses_uncertain_messages()
     await kms.generate_tenant_key(tenant_id)
     stop = IncomingMessage.model_validate({"id": "stop-1", "from": "212600000002", "timestamp": "1", "type": "text", "text": {"body": "STOP"}})
     fail_stop = IncomingMessage.model_validate({"id": "stop-fail", "from": "212600000003", "timestamp": "2", "type": "text", "text": {"body": "STOP"}})
-    fingerprint = await cipher.whatsapp_sender_fingerprint(tenant_id=tenant_id, channel_id="123", sender_id=stop.from_)
+    fingerprint = await cipher.whatsapp_sender_fingerprint(tenant_id=tenant_id, channel_id="777", sender_id=stop.from_)
     async with engine.begin() as conn:
         await conn.execute(text("INSERT INTO tenant_fixture_stop.contacts (phone,opt_in_status) VALUES ('212600000002','opted_in'),('212600000003','opted_in')"))
         await conn.execute(text("""
             INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,sender_fingerprint,state)
-            VALUES (gen_random_uuid(),:id,'older','123','fixture',1,:fingerprint,'uncertain'),
-                   (gen_random_uuid(),:id,'legacy-stop-check','123','fixture',1,NULL,'uncertain')
+            VALUES (gen_random_uuid(),:id,'older','777','fixture',1,:fingerprint,'uncertain'),
+                   (gen_random_uuid(),:id,'legacy-stop-check','777','fixture',1,NULL,'uncertain')
         """), {"id": tenant_id, "fingerprint": fingerprint})
     with (
         patch("app.services.whatsapp.inbox.get_session_factory", return_value=factory),
         patch("app.core.tenant_lifecycle.get_session_factory", return_value=factory),
         patch("app.services.whatsapp.inbox_leases.get_session_factory", return_value=factory),
     ):
-        assert await persist_incoming_message(tenant, "123", stop, [], cipher=cipher)
+        assert await persist_incoming_message(tenant, "777", stop, [], cipher=cipher)
         async with engine.connect() as conn:
             assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='212600000002'"))).scalar_one() == "opted_out"
             assert (await conn.execute(text("SELECT count(*) FROM public.audit_logs WHERE tenant_slug='fixture_stop' AND action='opt_in_change'"))).scalar_one() == 1
@@ -175,13 +175,13 @@ async def test_stop_commits_consent_before_ack_and_bypasses_uncertain_messages()
         assert await finish_claim(claim.id, claim.lease_token, uncertain=False)
         async with engine.begin() as conn:
             await conn.execute(text("UPDATE tenant_fixture_stop.contacts SET opt_in_status='opted_in' WHERE phone='212600000002'"))
-        assert not await persist_incoming_message(tenant, "123", stop, [], cipher=cipher)
+        assert not await persist_incoming_message(tenant, "777", stop, [], cipher=cipher)
         async with engine.begin() as conn:
             assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='212600000002'"))).scalar_one() == "opted_in"
             await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_optout CHECK (action <> 'opt_in_change') NOT VALID"))
         try:
             with pytest.raises(DBAPIError):
-                await persist_incoming_message(tenant, "123", fail_stop, [], cipher=cipher)
+                await persist_incoming_message(tenant, "777", fail_stop, [], cipher=cipher)
             async with engine.connect() as conn:
                 assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='212600000003'"))).scalar_one() == "opted_in"
                 assert (await conn.execute(text("SELECT count(*) FROM public.whatsapp_inbox_events WHERE tenant_id=:id AND provider_message_id='stop-fail'"), {"id": tenant_id})).scalar_one() == 0

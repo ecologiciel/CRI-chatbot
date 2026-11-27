@@ -65,4 +65,8 @@ async def test_tenant_search_path_is_transaction_local_and_restored():
         async with factory() as session:
             assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "public"
 
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA tenant_alpha CASCADE"))
+        await conn.execute(text("DROP SCHEMA tenant_beta CASCADE"))
+        await conn.execute(text("DROP TABLE public.pool_probe, public.pool_public_only"))
     await engine.dispose()

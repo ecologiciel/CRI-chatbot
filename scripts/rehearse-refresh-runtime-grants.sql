@@ -35,7 +35,12 @@ BEGIN
     WHERE n.nspname='public' AND c.relname='agent_reply_outbox_events'
       AND (c.relowner = (SELECT oid FROM pg_roles WHERE rolname='cri_runtime_access') OR EXISTS (
         SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
-        WHERE a.grantee=0 AND a.privilege_type IN ('DELETE','TRUNCATE','TRIGGER','REFERENCES')
+        WHERE a.grantee=0 AND a.privilege_type IN ('UPDATE','DELETE','TRUNCATE','TRIGGER','REFERENCES')
+      ) OR EXISTS (
+        SELECT 1 FROM pg_attribute col
+        CROSS JOIN LATERAL aclexplode(coalesce(col.attacl, '{}'::aclitem[])) a
+        WHERE col.attrelid=c.oid AND col.attnum > 0 AND NOT col.attisdropped
+          AND a.grantee=0 AND a.privilege_type='UPDATE'
       ))
   ) THEN
     RAISE EXCEPTION 'Unsafe agent reply outbox ownership or PUBLIC privileges';
@@ -59,8 +64,14 @@ BEGIN
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES ON TABLE %s TO cri_runtime_access', item.relation);
   END LOOP;
   IF to_regclass('public.agent_reply_outbox_events') IS NOT NULL THEN
-    GRANT SELECT, INSERT, UPDATE ON public.agent_reply_outbox_events TO cri_runtime_access;
-    REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.agent_reply_outbox_events FROM cri_runtime_access;
+    REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.agent_reply_outbox_events FROM cri_runtime_access;
+    REVOKE UPDATE (id, tenant_id, request_key, actor_id, escalation_id, conversation_id, sequence, key_version, created_at)
+      ON public.agent_reply_outbox_events FROM cri_runtime_access;
+    GRANT SELECT, INSERT ON public.agent_reply_outbox_events TO cri_runtime_access;
+    GRANT UPDATE (state, attempts, lease_token, lease_until, updated_at, provider_message_id,
+                  outcome_code, review_decision, reviewed_by, reviewed_at, ciphertext,
+                  contact_id, phone_number_id, recipient_fingerprint, redacted_at)
+      ON public.agent_reply_outbox_events TO cri_runtime_access;
   END IF;
   GRANT SELECT, INSERT ON public.audit_logs TO cri_runtime_access;
   REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.audit_logs FROM cri_runtime_access;

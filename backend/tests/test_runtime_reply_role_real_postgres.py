@@ -74,7 +74,7 @@ async def test_restricted_role_can_run_reply_lifecycle_but_cannot_erase_fences()
             assert await review_agent_reply(tenant, escalation_id, registered.id, actor_id, action="resolve", decision="unknown_no_retry") == "resolved"
             counts = await redact_tenant_replies(tenant_id, tenant.slug, 90, datetime.now(UTC) + timedelta(days=91))
             assert counts == {"redacted": 1, "overdue_unresolved": 0}
-        for statement in ("DELETE FROM public.agent_reply_outbox_events", "TRUNCATE public.agent_reply_outbox_events", "UPDATE public.audit_logs SET action='fixture'"):
+        for statement in ("DELETE FROM public.agent_reply_outbox_events", "TRUNCATE public.agent_reply_outbox_events", "UPDATE public.agent_reply_outbox_events SET request_key=gen_random_uuid()", "UPDATE public.audit_logs SET action='fixture'"):
             with pytest.raises(DBAPIError):
                 async with factory() as session:
                     await session.execute(text(statement))

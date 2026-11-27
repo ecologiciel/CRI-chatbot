@@ -19,6 +19,7 @@ from app.models.enums import (
     FeedbackRating,
     Language,
     MessageDirection,
+    OptInStatus,
 )
 from app.schemas.whatsapp import (
     ContactInfo,
@@ -408,6 +409,20 @@ class TestHappyPath:
 
 
 class TestStopPriority:
+    @pytest.mark.asyncio()
+    async def test_stop_already_recorded_at_intake_can_be_acknowledged(self, handler_env):
+        from app.services.whatsapp.handler import HandlingOutcome
+
+        handler, mocks = handler_env
+        contact, _, _ = _setup_happy_path(mocks)
+        contact.opt_in_status = OptInStatus.opted_out
+        segmentation = AsyncMock()
+        segmentation.process_stop_command.return_value = False
+        with patch("app.services.whatsapp.handler.get_segmentation_service", return_value=segmentation):
+            outcome = await handler.handle_message(TEST_TENANT, _make_text_message(body="STOP"), None, durable=True)
+        assert outcome == HandlingOutcome.accepted
+        mocks["sender"].send_text.assert_awaited_once()
+
     @pytest.mark.asyncio()
     async def test_stop_bypasses_dedup_rate_quota_and_privacy_notice(self, handler_env):
         handler, mocks = handler_env

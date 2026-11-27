@@ -25,6 +25,10 @@ def upgrade() -> None:
         "whatsapp_inbox_events", sa.Column("arrival_sequence", sa.BigInteger(), sa.Identity(), nullable=False),
         schema="public",
     )
+    op.add_column(
+        "whatsapp_inbox_events", sa.Column("is_opt_out", sa.Boolean(), nullable=False, server_default=sa.false()),
+        schema="public",
+    )
     op.create_check_constraint(
         "ck_wa_inbox_sender_fingerprint", "whatsapp_inbox_events",
         "sender_fingerprint IS NULL OR sender_fingerprint ~ '^[0-9a-f]{64}$'", schema="public",
@@ -39,5 +43,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_wa_inbox_conversation_order", table_name="whatsapp_inbox_events", schema="public")
     op.drop_constraint("ck_wa_inbox_sender_fingerprint", "whatsapp_inbox_events", schema="public", type_="check")
+    op.drop_column("whatsapp_inbox_events", "is_opt_out", schema="public")
     op.drop_column("whatsapp_inbox_events", "arrival_sequence", schema="public")
     op.drop_column("whatsapp_inbox_events", "sender_fingerprint", schema="public")

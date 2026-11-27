@@ -10,6 +10,7 @@ import json
 from dataclasses import dataclass
 
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
+from app.services.contact.segmentation import SegmentationService
 from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
 from app.services.whatsapp.inbox import PURPOSE
 from app.services.whatsapp.inbox_leases import InboxClaim
@@ -40,6 +41,11 @@ async def decrypt_claim(claim: InboxClaim, cipher: VersionedEnvelopeService) -> 
     )
     if not claim.sender_fingerprint or not hmac.compare_digest(expected, claim.sender_fingerprint):
         raise ValueError("Inbox conversation identifier mismatch")
+    is_opt_out = bool(
+        message.type == "text" and message.text and SegmentationService.is_stop_command(message.text.body)
+    )
+    if claim.is_opt_out != is_opt_out:
+        raise ValueError("Inbox opt-out flag mismatch")
     raw_contacts = payload.get("contacts")
     if not isinstance(raw_contacts, list):
         raise ValueError("Invalid inbox contacts")

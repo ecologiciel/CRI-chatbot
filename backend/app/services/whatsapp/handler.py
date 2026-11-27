@@ -26,6 +26,7 @@ from app.models.enums import (
     Language,
     MessageDirection,
     MessageType,
+    OptInStatus,
 )
 from app.schemas.feedback import FeedbackCreate
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
@@ -397,7 +398,7 @@ class MessageHandler:
 
     async def _handle_stop_request(self, tenant: TenantContext, phone: str, contact) -> bool:
         opted_out = await get_segmentation_service().process_stop_command(tenant, phone)
-        if not opted_out:
+        if not opted_out and contact.opt_in_status != OptInStatus.opted_out:
             return False
         lang = contact.language.value if contact.language else "fr"
         messages = {

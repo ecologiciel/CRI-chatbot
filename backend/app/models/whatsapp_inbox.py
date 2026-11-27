@@ -11,6 +11,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -70,6 +71,7 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
     # Nullable only for pre-migration events; they must be reconciled before use.
     sender_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     arrival_sequence: Mapped[int] = mapped_column(BigInteger, Identity(), nullable=False)
+    is_opt_out: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)

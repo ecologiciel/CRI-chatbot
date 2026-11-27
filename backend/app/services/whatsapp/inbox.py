@@ -8,18 +8,21 @@ from __future__ import annotations
 import json
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.database import get_session_factory
 from app.core.exceptions import TenantInactiveError
 from app.core.tenant import TenantContext
 from app.core.tenant_lifecycle import protect_ingestion
-from app.models.enums import TenantStatus
+from app.models.audit import AuditLog
+from app.models.contact import Contact
+from app.models.enums import ContactSource, OptInStatus, TenantStatus
 from app.models.tenant import Tenant
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.contact.segmentation import SegmentationService
 from app.services.whatsapp.conversation_lock import lock_for_acceptance
 
 PURPOSE = "wa_inbox"
@@ -57,6 +60,9 @@ async def persist_incoming_message(
         ],
     }
     plaintext = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    is_opt_out = bool(
+        message.type == "text" and message.text and SegmentationService.is_stop_command(message.text.body)
+    )
 
     async with protect_ingestion(tenant):
         sender_fingerprint = await cipher.whatsapp_sender_fingerprint(
@@ -88,6 +94,7 @@ async def persist_incoming_message(
                     tenant_id=tenant.id,
                     phone_number_id=phone_number_id,
                     sender_fingerprint=sender_fingerprint,
+                    is_opt_out=is_opt_out,
                     provider_message_id=message.id,
                     ciphertext=envelope.ciphertext,
                     key_version=envelope.version,
@@ -96,5 +103,28 @@ async def persist_incoming_message(
                 .returning(WhatsAppInboxEvent.id)
             )
             inserted = (await session.execute(statement)).scalar_one_or_none() is not None
+            if inserted and is_opt_out:
+                # Commit the consent change with the inbox record before ACK.
+                # Provider sends already holding the contact row may finish;
+                # subsequent consent-checked sends see the committed opt-out.
+                await session.execute(
+                    text("SELECT set_config('search_path', :path, true)"),
+                    {"path": f"{tenant.db_schema}, public"},
+                )
+                contact_insert = insert(Contact).values(
+                    phone=message.from_, source=ContactSource.whatsapp,
+                    opt_in_status=OptInStatus.opted_out,
+                )
+                contact_id = (await session.execute(
+                    contact_insert.on_conflict_do_update(
+                        index_elements=[Contact.phone],
+                        set_={"opt_in_status": OptInStatus.opted_out, "updated_at": func.now()},
+                    ).returning(Contact.id)
+                )).scalar_one()
+                session.add(AuditLog(
+                    tenant_slug=tenant.slug, user_type="system", action="opt_in_change",
+                    resource_type="contact", resource_id=str(contact_id),
+                    details={"new_status": "opted_out", "source": "user_stop"},
+                ))
             await session.commit()
             return inserted

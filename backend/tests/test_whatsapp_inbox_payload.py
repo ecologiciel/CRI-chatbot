@@ -1,5 +1,6 @@
 import json
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
@@ -56,6 +57,15 @@ async def test_claim_rejects_conversation_fingerprint_mismatch(claim, payload):
     cipher.whatsapp_sender_fingerprint.return_value = "b" * 64
     with pytest.raises(ValueError, match="conversation identifier mismatch"):
         await decrypt_claim(claim, cipher)
+
+
+@pytest.mark.asyncio
+async def test_claim_rejects_forged_opt_out_flag(claim, payload):
+    cipher = AsyncMock()
+    cipher.decrypt.return_value = json.dumps(payload).encode()
+    cipher.whatsapp_sender_fingerprint.return_value = "a" * 64
+    with pytest.raises(ValueError, match="opt-out flag mismatch"):
+        await decrypt_claim(replace(claim, is_opt_out=True), cipher)
 
 
 @pytest.mark.asyncio

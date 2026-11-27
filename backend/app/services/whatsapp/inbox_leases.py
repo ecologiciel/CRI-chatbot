@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import exists, func, select, update
+from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.orm import aliased
 
 from app.core.database import get_session_factory
@@ -30,6 +30,7 @@ class InboxClaim:
     lease_token: uuid.UUID
     lease_until: datetime
     sender_fingerprint: str = ""
+    is_opt_out: bool = False
 
 
 def _lease_duration(seconds: int) -> timedelta:
@@ -50,12 +51,12 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
         .where(
             candidate.state == "pending",
             candidate.sender_fingerprint.is_not(None),
-            ~exists(select(1).where(
-                earlier.tenant_id == candidate.tenant_id,
-                earlier.sender_fingerprint == candidate.sender_fingerprint,
-                earlier.arrival_sequence < candidate.arrival_sequence,
-                earlier.state.in_(unresolved),
-            )),
+            or_(candidate.is_opt_out.is_(True), ~exists(select(1).where(
+                    earlier.tenant_id == candidate.tenant_id,
+                    earlier.sender_fingerprint == candidate.sender_fingerprint,
+                    earlier.arrival_sequence < candidate.arrival_sequence,
+                    earlier.state.in_(unresolved),
+            ))),
             ~exists(select(1).where(
                 running.tenant_id == candidate.tenant_id,
                 running.sender_fingerprint == candidate.sender_fingerprint,
@@ -64,7 +65,8 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
             ~exists(select(1).where(
                 legacy.tenant_id == candidate.tenant_id,
                 legacy.sender_fingerprint.is_(None),
-                legacy.state.in_(unresolved),
+                or_(legacy.state == "processing",
+                    and_(candidate.is_opt_out.is_(False), legacy.state.in_(unresolved))),
             )),
         )
         .order_by(candidate.arrival_sequence)
@@ -72,7 +74,9 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
     )
     row = None
     async with get_session_factory()() as session:
-        for event_id, tenant_id, fingerprint in (await session.execute(candidates)).all():
+        for event_id, tenant_id, fingerprint, is_opt_out in (await session.execute(
+            candidates.add_columns(candidate.is_opt_out)
+        )).all():
             if not await try_lock_for_claim(session, tenant_id, fingerprint):
                 continue
             # Re-read after acquiring the stream lock: the candidate query may
@@ -80,7 +84,7 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
             ungrouped = await session.scalar(select(exists().where(
                 candidate.tenant_id == tenant_id,
                 candidate.sender_fingerprint.is_(None),
-                candidate.state.in_(unresolved),
+                candidate.state.in_(("processing",) if is_opt_out else unresolved),
             )))
             if ungrouped:
                 continue
@@ -91,13 +95,15 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
             )))
             if active:
                 continue
-            first = (await session.execute(
+            first_query = (
                 select(candidate.id, candidate.state)
                 .where(candidate.tenant_id == tenant_id,
                        candidate.sender_fingerprint == fingerprint,
                        candidate.state.in_(unresolved))
-                .order_by(candidate.arrival_sequence).limit(1)
-            )).one_or_none()
+            )
+            if is_opt_out:
+                first_query = first_query.where(candidate.state == "pending", candidate.is_opt_out.is_(True))
+            first = (await session.execute(first_query.order_by(candidate.arrival_sequence).limit(1))).one_or_none()
             if first is None or first.id != event_id or first.state != "pending":
                 continue
             # Do not skip to a later event if an unrelated transaction has
@@ -117,7 +123,8 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
                         updated_at=func.clock_timestamp())
                 .returning(candidate.id, candidate.tenant_id, candidate.phone_number_id,
                            candidate.provider_message_id, candidate.key_version,
-                           candidate.ciphertext, candidate.lease_until, candidate.sender_fingerprint)
+                           candidate.ciphertext, candidate.lease_until, candidate.sender_fingerprint,
+                           candidate.is_opt_out)
             )
             row = (await session.execute(statement)).one_or_none()
             if row is not None:
@@ -135,6 +142,7 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
         lease_token=token,
         lease_until=row.lease_until,
         sender_fingerprint=row.sender_fingerprint,
+        is_opt_out=row.is_opt_out,
     )
 
 

@@ -1,6 +1,7 @@
 """Concurrent claiming and blocking rules against a disposable migrated copy."""
 
 import asyncio
+import json
 import os
 import uuid
 from datetime import UTC, datetime
@@ -20,9 +21,54 @@ from app.services.whatsapp.inbox import persist_incoming_message
 from app.services.whatsapp.inbox_leases import claim_next, finish_claim
 from app.services.whatsapp.inbox_payload import decrypt_claim
 from app.services.whatsapp.inbox_retention import _redact_tenant
+from app.services.whatsapp.legacy_reconciliation import LegacyReconciliationError, reconcile_legacy_text
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated PostgreSQL")
+
+
+@pytest.mark.asyncio
+async def test_legacy_stop_reconciliation_is_atomic_and_never_sends():
+    engine = create_async_engine(URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id, event_id, fail_id, actor = (uuid.uuid4() for _ in range(4))
+    tenant = TenantContext(tenant_id, "fixture_reconcile", "Fixture", "active", {"phone_number_id": "888"})
+    async with engine.begin() as conn:
+        assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status,whatsapp_config) VALUES (:id,'Fixture','fixture_reconcile','Test','active',CAST(:cfg AS jsonb))"), {"id": tenant_id, "cfg": '{"phone_number_id":"888"}'})
+    with patch("app.services.tenant.provisioning.get_session_factory", return_value=factory):
+        await TenantProvisioningService()._create_schema(tenant.slug)
+    kms = KMSService(factory, AsyncMock(), "03" * 32)
+    cipher = VersionedEnvelopeService(factory, "03" * 32)
+    await kms.generate_tenant_key(tenant_id)
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO tenant_fixture_reconcile.contacts (phone,opt_in_status) VALUES ('212600000005','opted_in'),('212600000006','opted_in')"))
+    for eid, mid, phone in ((event_id, "legacy-stop-a", "212600000005"), (fail_id, "legacy-stop-b", "212600000006")):
+        payload = {"phone_number_id": "888", "message": {"id": mid, "from": phone, "timestamp": "1", "type": "text", "text": {"body": "STOP"}}, "contacts": []}
+        envelope = await cipher.encrypt(json.dumps(payload).encode(), tenant_id=tenant_id, purpose="wa_inbox", record_id=eid)
+        async with engine.begin() as conn:
+            await conn.execute(text("INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,state) VALUES (:id,:tenant,:mid,'888',:cipher,:version,'uncertain')"), {"id": eid, "tenant": tenant_id, "mid": mid, "cipher": envelope.ciphertext, "version": envelope.version})
+    with (patch("app.core.tenant_lifecycle.get_session_factory", return_value=factory),
+          patch("app.services.whatsapp.legacy_reconciliation.get_session_factory", return_value=factory)):
+        assert await reconcile_legacy_text(tenant, event_id, actor, cipher=cipher)
+        with pytest.raises(LegacyReconciliationError):
+            await reconcile_legacy_text(tenant, event_id, actor, cipher=cipher)
+        async with engine.begin() as conn:
+            assert (await conn.scalar(text("SELECT opt_in_status::text FROM tenant_fixture_reconcile.contacts WHERE phone='212600000005'"))) == "opted_out"
+            row = (await conn.execute(text("SELECT state, sender_fingerprint, is_opt_out FROM public.whatsapp_inbox_events WHERE id=:id"), {"id": event_id})).one()
+            assert row.state == "uncertain" and row.sender_fingerprint and row.is_opt_out
+            assert (await conn.scalar(text("SELECT count(*) FROM public.audit_logs WHERE tenant_slug='fixture_reconcile' AND action='wa_legacy_reconcile'"))) == 1
+            await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_legacy CHECK (action <> 'wa_legacy_reconcile') NOT VALID"))
+        try:
+            with pytest.raises(DBAPIError):
+                await reconcile_legacy_text(tenant, fail_id, actor, cipher=cipher)
+            async with engine.connect() as conn:
+                assert (await conn.scalar(text("SELECT opt_in_status::text FROM tenant_fixture_reconcile.contacts WHERE phone='212600000006'"))) == "opted_in"
+                assert (await conn.scalar(text("SELECT sender_fingerprint FROM public.whatsapp_inbox_events WHERE id=:id"), {"id": fail_id})) is None
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_legacy"))
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

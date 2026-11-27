@@ -6,6 +6,9 @@ cannot accidentally consume jobs they do not implement.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
+
 import structlog
 from arq import cron
 
@@ -15,9 +18,27 @@ from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.whatsapp.inbox_execution import execute_claim
 from app.services.whatsapp.inbox_leases import claim_next, quarantine_expired
 from app.services.whatsapp.status_batch import run_status_batch
-from app.workers.ingestion import _get_redis_settings, shutdown, startup
+from app.services.whatsapp.worker_presence import presence_loop
+from app.workers.ingestion import _get_redis_settings
+from app.workers.ingestion import shutdown as infrastructure_shutdown
+from app.workers.ingestion import startup as infrastructure_startup
 
 logger = structlog.get_logger()
+
+
+async def startup(ctx: dict) -> None:
+    await infrastructure_startup(ctx)
+    ctx["wa_presence_task"] = asyncio.create_task(presence_loop())
+
+
+async def shutdown(ctx: dict) -> None:
+    task = ctx.pop("wa_presence_task", None)
+    if task is not None:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+    # The shared signal expires naturally: deleting it could hide another worker.
+    await infrastructure_shutdown(ctx)
 
 
 async def poll_incoming(ctx: dict) -> str:

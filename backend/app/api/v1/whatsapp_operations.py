@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.rbac import require_role
+from app.core.redis import get_redis
 from app.core.tenant import TenantContext, get_current_tenant
 from app.models.audit import AuditLog
 from app.models.enums import AdminRole
@@ -24,19 +25,69 @@ from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
 from app.schemas.auth import AdminTokenPayload
 from app.schemas.whatsapp import IncomingMessage, StatusInfo
 from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
+from app.services.whatsapp.worker_presence import HEARTBEAT_KEY
 
 router = APIRouter(prefix="/whatsapp/operations", tags=["whatsapp-operations"])
 
 
 @router.get("/availability")
 async def availability(
-    _tenant: TenantContext = Depends(get_current_tenant),
+    tenant: TenantContext = Depends(get_current_tenant),
     _admin: AdminTokenPayload = Depends(
         require_role(AdminRole.super_admin, AdminRole.admin_tenant)
     ),
-) -> dict[str, bool]:
-    """Report the intake switch, not worker health or provider connectivity."""
-    return {"intake_enabled": get_settings().whatsapp_durable_inbox_enabled}
+) -> dict:
+    """Report configuration, recent worker presence and tenant-scoped backlog.
+
+    A heartbeat is not proof of successful message processing or delivery.
+    """
+    enabled = get_settings().whatsapp_durable_inbox_enabled
+    result = {
+        "intake_enabled": enabled,
+        "worker_seen": None,
+        "pending_messages": None,
+        "oldest_pending_seconds": None,
+        "review_messages": None,
+        "review_statuses": None,
+    }
+    if not enabled:
+        return result
+    try:
+        result["worker_seen"] = bool(await get_redis().exists(HEARTBEAT_KEY))
+    except Exception:
+        # Unknown is distinct from an absent heartbeat and from a healthy worker.
+        result["worker_seen"] = None
+    async with get_session_factory()() as session:
+        message = (
+            await session.execute(
+                select(
+                    func.count().filter(WhatsAppInboxEvent.state == "pending"),
+                    func.extract(
+                        "epoch",
+                        func.clock_timestamp()
+                        - func.min(WhatsAppInboxEvent.created_at).filter(
+                            WhatsAppInboxEvent.state == "pending"
+                        ),
+                    ),
+                    func.count().filter(WhatsAppInboxEvent.state.in_(["uncertain", "follow_up"])),
+                ).where(WhatsAppInboxEvent.tenant_id == tenant.id)
+            )
+        ).one()
+        statuses = (
+            await session.execute(
+                select(func.count()).where(
+                    WhatsAppStatusEvent.tenant_id == tenant.id,
+                    WhatsAppStatusEvent.state.in_(["uncertain", "follow_up"]),
+                )
+            )
+        ).scalar_one()
+    result.update(
+        pending_messages=message[0],
+        oldest_pending_seconds=max(0, int(message[1])) if message[1] is not None else None,
+        review_messages=message[2],
+        review_statuses=statuses,
+    )
+    return result
 
 
 @router.get("/events")

@@ -97,13 +97,14 @@ export function useRespondEscalation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    retry: 0,
     mutationFn: ({
       id,
       data,
     }: {
       id: string;
       data: EscalationRespondPayload;
-    }) => api.post<Escalation>(`/escalations/${id}/respond`, data),
+    }) => api.post<{ wamid: string }>(`/escalations/${id}/respond`, data),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["escalations", variables.id, "conversation"],

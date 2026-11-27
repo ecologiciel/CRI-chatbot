@@ -99,8 +99,10 @@ class WhatsAppWebhookService:
         try:
             payload = WhatsAppWebhookPayload.model_validate_json(raw_body)
         except PydanticValidationError as exc:
-            logger.error("whatsapp_webhook_parse_error", error=str(exc))
-            return
+            # Validation messages can include message content. Do not log it,
+            # and do not acknowledge a payload we could not interpret.
+            logger.error("whatsapp_webhook_parse_error", error_count=exc.error_count())
+            raise
 
         # 3. Process each entry/change
         for entry in payload.entry:

@@ -167,6 +167,18 @@ class TestWebhookVerification:
 
 class TestWebhookPost:
     @pytest.mark.asyncio
+    async def test_signed_malformed_payload_is_not_acknowledged(self):
+        body = b'{"private_content":'
+        with patch("app.services.whatsapp.webhook.get_settings", return_value=_mock_settings()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post(
+                    "/api/v1/webhook/whatsapp", content=body,
+                    headers={"X-Hub-Signature-256": _sign_payload(body)},
+                )
+        assert response.status_code == 503
+        assert "private_content" not in response.text
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "failure, expected",
         [(None, 200), (RuntimeError("sensitive diagnostic"), 503),
@@ -386,8 +398,8 @@ class TestWebhookRateLimit:
                     },
                 )
 
-        # Returns 200 to Meta even on rate limit (error is logged, not exposed)
-        assert response.status_code == 200
+        # A rate-limited event was not processed; request a later retry.
+        assert response.status_code == 503
 
 
 # --- HMAC Validation Unit Tests ---

@@ -14,6 +14,7 @@ import io
 import uuid
 from datetime import UTC, date, datetime
 from pathlib import PurePosixPath
+from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
@@ -303,6 +304,54 @@ async def import_dossiers(
     )
 
     return {"message": "Import accepté", "file_path": object_path}
+
+
+@router.get("/imports")
+async def list_import_requests(
+    state: Literal["pending", "processing", "completed", "failed", "uncertain"] | None = None,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10000),
+    tenant: TenantContext = Depends(get_current_tenant),
+    _admin: AdminTokenPayload = Depends(
+        require_role(AdminRole.super_admin, AdminRole.admin_tenant)
+    ),
+) -> dict:
+    """List bounded, minimal request metadata for the authenticated institution."""
+    active = get_settings().dossier_durable_imports_enabled
+    async with tenant.db_session() as session:
+        available = (
+            await session.execute(select(func.to_regclass("public.dossier_import_requests")))
+        ).scalar_one() is not None
+        if not available:
+            return {"available": False, "active": active, "items": [], "has_more": False}
+        stmt = select(DossierImportRequest).where(DossierImportRequest.tenant_id == tenant.id)
+        if state is not None:
+            stmt = stmt.where(DossierImportRequest.state == state)
+        rows = (
+            (
+                await session.execute(
+                    stmt.order_by(
+                        DossierImportRequest.created_at.desc(), DossierImportRequest.id.desc()
+                    )
+                    .offset(offset)
+                    .limit(limit + 1)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        items = [
+            {
+                "request_id": str(row.id),
+                "state": row.state,
+                "outcome_code": row.outcome_code,
+                "sync_log_id": str(row.sync_log_id) if row.sync_log_id else None,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+            for row in rows[:limit]
+        ]
+        return {"available": True, "active": active, "items": items, "has_more": len(rows) > limit}
 
 
 @router.get("/imports/{request_id}")

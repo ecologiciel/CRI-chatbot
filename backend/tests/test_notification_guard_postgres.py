@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from app.api.v1.dossiers import get_import_request
+from app.api.v1.dossiers import get_import_request, list_import_requests
 from app.api.v1.dossiers import import_dossiers as accept_import
 from app.models.admin import Admin
 from app.models.audit import AuditLog
@@ -533,6 +533,46 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
         )
         assert changed_status["state"] == "uncertain"
         assert changed_status["outcome_code"] == "configuration_changed"
+        other_tenant_id, other_request_id = uuid.uuid4(), uuid.uuid4()
+        async with sessions.begin() as session:
+            await session.execute(
+                sa.text(
+                    "INSERT INTO public.tenants (id, slug, status) VALUES (:id, 'other', 'active')"
+                ),
+                {"id": other_tenant_id},
+            )
+            await register_import(
+                session,
+                request_id=other_request_id,
+                tenant_id=other_tenant_id,
+                object_key=f"imports/requests/{other_request_id.hex}/source.csv",
+                content_sha256="e" * 64,
+                sync_config_id=None,
+                requested_by=None,
+            )
+            await session.execute(
+                sa.text("UPDATE public.dossier_import_requests SET state='uncertain' WHERE id=:id"),
+                {"id": other_request_id},
+            )
+        entries = await list_import_requests(
+            state="uncertain", limit=1, offset=0, tenant=tenant, _admin=admin
+        )
+        assert entries["available"] and entries["active"]
+        assert len(entries["items"]) == 1 and entries["has_more"]
+        assert all(entry["request_id"] != str(other_request_id) for entry in entries["items"])
+        assert set(entries["items"][0]) == {
+            "request_id",
+            "state",
+            "outcome_code",
+            "sync_log_id",
+            "created_at",
+            "updated_at",
+        }
+        other_tenant = SimpleNamespace(id=other_tenant_id, db_session=tenant.db_session)
+        other_entries = await list_import_requests(
+            state="uncertain", limit=25, offset=0, tenant=other_tenant, _admin=admin
+        )
+        assert [entry["request_id"] for entry in other_entries["items"]] == [str(other_request_id)]
     async with sessions.begin() as session:
         assert (
             await session.execute(

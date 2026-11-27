@@ -139,6 +139,20 @@ export interface DurableImportRequest {
   state: "pending" | "processing" | "completed" | "failed" | "uncertain";
   outcome_code: string | null;
   sync_log_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function useDurableImportRequests(state: string, offset: number, enabled: boolean) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: ["dossier-import-requests", state, offset],
+    queryFn: () => api.get<{available: boolean; active: boolean; items: DurableImportRequest[]; has_more: boolean}>(
+      "/dossiers/imports", {state: state || undefined, limit: 25, offset},
+    ),
+    enabled,
+    refetchInterval: 15_000,
+  });
 }
 
 export function useDurableImportRequest(requestId: string | null) {

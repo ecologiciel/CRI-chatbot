@@ -176,6 +176,39 @@ def _headers() -> dict:
     }
 
 
+@pytest.mark.asyncio
+async def test_import_request_list_rejects_supervisor():
+    _setup_overrides(role=AdminRole.supervisor.value)
+    try:
+        with patch("app.core.middleware.TenantResolver") as resolver:
+            resolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/v1/dossiers/imports", headers=_headers())
+    finally:
+        _clear_overrides()
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_import_request_list_handles_schema_not_yet_installed():
+    from types import SimpleNamespace
+
+    from app.api.v1.dossiers import list_import_requests
+
+    session = _mock_tenant_db_session()
+    session.execute.return_value.scalar_one.return_value = None
+    tenant = SimpleNamespace(id=uuid.uuid4(), db_session=lambda: session)
+    with patch("app.api.v1.dossiers.get_settings") as settings:
+        settings.return_value.dossier_durable_imports_enabled = False
+        result = await list_import_requests(
+            state=None, limit=25, offset=0, tenant=tenant, _admin=None
+        )
+    assert result == {"available": False, "active": False, "items": [], "has_more": False}
+    assert session.execute.await_count == 1
+
+
 # ---------------------------------------------------------------------------
 # List dossiers
 # ---------------------------------------------------------------------------

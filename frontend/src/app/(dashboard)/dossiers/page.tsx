@@ -4,13 +4,16 @@ import { useState } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDossierStats } from "@/hooks/use-dossiers";
+import { useAuth } from "@/hooks/use-auth";
 import { DossierStats } from "./components/dossier-stats";
 import { DossierTable } from "./components/dossier-table";
 import { ImportWizard } from "./components/import-wizard";
+import { ImportRequests } from "./components/import-requests";
 
 export default function DossiersPage() {
   const [importOpen, setImportOpen] = useState(false);
   const { data: stats, isLoading: statsLoading } = useDossierStats();
+  const { admin } = useAuth();
 
   return (
     <div className="space-y-6">
@@ -33,6 +36,8 @@ export default function DossiersPage() {
 
       {/* Table */}
       <DossierTable />
+
+      <ImportRequests enabled={admin?.role === "super_admin" || admin?.role === "admin_tenant"} />
 
       {/* Import Wizard */}
       <ImportWizard open={importOpen} onOpenChange={setImportOpen} />

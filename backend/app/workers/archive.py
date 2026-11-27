@@ -134,7 +134,7 @@ async def archive_audit_logs(ctx: dict) -> dict:
     # 1. Query audit_logs for the period
     factory = get_session_factory()
     async with factory() as session:
-        await session.execute(text("SET search_path TO public"))
+        await session.execute(text("SET LOCAL search_path TO public"))
         result = await session.execute(
             select(AuditLog)
             .where(AuditLog.created_at >= start_date)

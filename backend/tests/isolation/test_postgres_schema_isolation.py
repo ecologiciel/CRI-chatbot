@@ -1,7 +1,7 @@
 """PostgreSQL schema isolation tests.
 
 Verifies that TenantContext.db_session() scopes each tenant to its own
-schema via SET search_path, and that slug validation prevents SQL injection.
+schema via a transaction-local search path, and rejects SQL injection.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -20,6 +20,7 @@ def _make_mock_session_factory():
     Calling the sessionmaker returns an async context manager yielding a session.
     """
     mock_session = AsyncMock()
+    mock_session.sync_session.info = {}
     mock_session.execute = AsyncMock()
     mock_session.commit = AsyncMock()
     mock_session.rollback = AsyncMock()
@@ -48,11 +49,7 @@ class TestPostgresSchemaIsolation:
             async with tenant_alpha.db_session():
                 pass
 
-        # First execute call is the SET search_path
-        first_call = mock_session.execute.call_args_list[0]
-        sql_text = str(first_call[0][0])
-        assert "tenant_alpha" in sql_text
-        assert "SET search_path TO tenant_alpha, public" in sql_text
+        assert mock_session.sync_session.info["tenant_schema"] == "tenant_alpha"
 
     @pytest.mark.asyncio
     async def test_db_session_search_path_beta(self, tenant_beta):
@@ -63,10 +60,7 @@ class TestPostgresSchemaIsolation:
             async with tenant_beta.db_session():
                 pass
 
-        first_call = mock_session.execute.call_args_list[0]
-        sql_text = str(first_call[0][0])
-        assert "tenant_beta" in sql_text
-        assert "tenant_alpha" not in sql_text
+        assert mock_session.sync_session.info["tenant_schema"] == "tenant_beta"
 
     @pytest.mark.asyncio
     async def test_two_tenants_never_share_search_path(self, tenant_alpha, tenant_beta):
@@ -80,8 +74,7 @@ class TestPostgresSchemaIsolation:
                 async with tenant.db_session():
                     pass
 
-            first_call = mock_session.execute.call_args_list[0]
-            captured_sql.append(str(first_call[0][0]))
+            captured_sql.append(mock_session.sync_session.info["tenant_schema"])
 
         await capture_session(tenant_alpha)
         await capture_session(tenant_beta)

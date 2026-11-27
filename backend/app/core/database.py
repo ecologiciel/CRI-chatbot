@@ -4,8 +4,7 @@ Usage in services:
     async with get_async_session() as session:
         result = await session.execute(select(Model))
 
-For tenant-scoped sessions, the TenantContext (prompt MT.1) will wrap this
-with SET search_path.
+Tenant-scoped sessions set a transaction-local search path on every begin.
 """
 
 from collections.abc import AsyncGenerator
@@ -17,6 +16,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import event, text
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 
@@ -27,6 +28,17 @@ class Base(DeclarativeBase):
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+@event.listens_for(Session, "after_begin")
+def _set_transaction_tenant(session: Session, transaction, connection) -> None:
+    """Apply the tenant for every transaction, including after commit/rollback."""
+    schema = session.info.get("tenant_schema")
+    if schema:
+        connection.execute(
+            text("SELECT set_config('search_path', :path, true)"),
+            {"path": f"{schema}, public"},
+        )
 
 
 def get_engine() -> AsyncEngine:
@@ -41,6 +53,7 @@ def get_engine() -> AsyncEngine:
             max_overflow=10,
             pool_pre_ping=True,
             pool_recycle=3600,
+            connect_args={"server_settings": {"search_path": "public"}},
         )
     return _engine
 

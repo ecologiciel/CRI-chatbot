@@ -141,7 +141,7 @@ async def list_notifications(
     """Return paginated notification history for the current tenant."""
     factory = get_session_factory()
     async with factory() as session:
-        await session.execute(text("SET search_path TO public"))
+        await session.execute(text("SET LOCAL search_path TO public"))
 
         base = select(AuditLog).where(
             AuditLog.tenant_slug == tenant.slug,
@@ -194,7 +194,7 @@ async def get_notification_stats(
 
     factory = get_session_factory()
     async with factory() as session:
-        await session.execute(text("SET search_path TO public"))
+        await session.execute(text("SET LOCAL search_path TO public"))
 
         base_where = [
             AuditLog.tenant_slug == tenant.slug,
@@ -436,7 +436,7 @@ async def update_template(
     # Update whatsapp_config in public.tenants
     factory = get_session_factory()
     async with factory() as session:
-        await session.execute(text("SET search_path TO public"))
+        await session.execute(text("SET LOCAL search_path TO public"))
         result = await session.execute(select(Tenant).where(Tenant.id == tenant.id))
         tenant_row = result.scalar_one()
 

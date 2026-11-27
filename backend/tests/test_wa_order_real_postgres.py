@@ -3,13 +3,21 @@
 import asyncio
 import os
 import uuid
-from unittest.mock import patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.core.tenant import TenantContext
+from app.schemas.whatsapp import IncomingMessage
+from app.services.crypto.kms import KMSService
+from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.whatsapp.inbox import persist_incoming_message
 from app.services.whatsapp.inbox_leases import claim_next, finish_claim
+from app.services.whatsapp.inbox_payload import decrypt_claim
+from app.services.whatsapp.inbox_retention import _redact_tenant
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated PostgreSQL")
@@ -60,5 +68,68 @@ async def test_concurrent_claims_preserve_order_and_isolate_conversations():
             await conn.execute(text("UPDATE public.whatsapp_inbox_events SET state='resolved' WHERE id=:id"), {"id": legacy})
         claim = await claim_next()
         assert claim and claim.id == later
+        assert await finish_claim(claim.id, claim.lease_token, uncertain=False)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_retention_clears_only_terminal_fingerprints():
+    engine = create_async_engine(URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id = uuid.uuid4()
+    completed, uncertain, pending = (uuid.uuid4() for _ in range(3))
+    async with engine.begin() as conn:
+        assert (await conn.execute(text("SELECT current_database()"))).scalar_one().startswith("ragtest_")
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status) VALUES (:id,'Fixture','fixture_retention','Test','active')"), {"id": tenant_id})
+        await conn.execute(text("""
+            INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,sender_fingerprint,state,created_at)
+            VALUES (:a,:tenant,'ret-a','123','fixture',1,repeat('a',64),'completed',now()-interval '5 days'),
+                   (:b,:tenant,'ret-b','123','fixture',1,repeat('b',64),'uncertain',now()-interval '5 days'),
+                   (:c,:tenant,'ret-c','123','fixture',1,repeat('c',64),'pending',now()-interval '5 days')
+        """), {"a": completed, "b": uncertain, "c": pending, "tenant": tenant_id})
+    with patch("app.services.whatsapp.inbox_retention.get_session_factory", return_value=factory):
+        counts = await _redact_tenant(tenant_id, "fixture_retention", 1, datetime.now(UTC))
+    assert counts["messages"] == 3
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text("SELECT id,state,sender_fingerprint,ciphertext FROM public.whatsapp_inbox_events WHERE tenant_id=:id"), {"id": tenant_id})).all()
+    by_id = {row.id: row for row in rows}
+    assert by_id[completed].sender_fingerprint is None
+    assert by_id[uncertain].sender_fingerprint == "b" * 64
+    assert by_id[pending].state == "uncertain" and by_id[pending].sender_fingerprint == "c" * 64
+    assert all(row.ciphertext == "" for row in rows)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_real_encrypted_acceptance_preserves_order_across_key_rotation():
+    engine = create_async_engine(URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id = uuid.uuid4()
+    tenant = TenantContext(tenant_id, "fixture_crypto", "Fixture", "active", {"phone_number_id": "123"})
+    async with engine.begin() as conn:
+        assert (await conn.execute(text("SELECT current_database()"))).scalar_one().startswith("ragtest_")
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status,whatsapp_config) VALUES (:id,'Fixture','fixture_crypto','Test','active',CAST(:cfg AS jsonb))"), {"id": tenant_id, "cfg": '{"phone_number_id":"123"}'})
+    kms = KMSService(factory, AsyncMock(), "01" * 32)
+    cipher = VersionedEnvelopeService(factory, "01" * 32)
+    await kms.generate_tenant_key(tenant_id)
+    first = IncomingMessage.model_validate({"id": "msg-1", "from": "212600000001", "timestamp": "1", "type": "text", "text": {"body": "fixture-private"}})
+    second = IncomingMessage.model_validate({"id": "msg-2", "from": "212600000001", "timestamp": "2", "type": "text", "text": {"body": "fixture-other"}})
+    with (
+        patch("app.services.whatsapp.inbox.get_session_factory", return_value=factory),
+        patch("app.core.tenant_lifecycle.get_session_factory", return_value=factory),
+        patch("app.services.whatsapp.inbox_leases.get_session_factory", return_value=factory),
+    ):
+        assert await persist_incoming_message(tenant, "123", first, [], cipher=cipher)
+        await kms.rotate_key(tenant_id, tenant.slug)
+        assert await persist_incoming_message(tenant, "123", second, [], cipher=cipher)
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text("SELECT sender_fingerprint,key_version,ciphertext FROM public.whatsapp_inbox_events WHERE tenant_id=:id ORDER BY arrival_sequence"), {"id": tenant_id})).all()
+        assert rows[0][0] == rows[1][0] and [row[1] for row in rows] == [1, 2]
+        assert all("212600000001" not in row[0] and "fixture-private" not in row[2] for row in rows)
+        claim = await claim_next()
+        assert claim and (await decrypt_claim(claim, cipher)).message.id == "msg-1"
+        assert await finish_claim(claim.id, claim.lease_token, uncertain=False)
+        claim = await claim_next()
+        assert claim and (await decrypt_claim(claim, cipher)).message.id == "msg-2"
         assert await finish_claim(claim.id, claim.lease_token, uncertain=False)
     await engine.dispose()

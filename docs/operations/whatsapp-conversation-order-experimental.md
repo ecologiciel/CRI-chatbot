@@ -26,3 +26,7 @@ automatique. Une restauration doit conserver les clés historiques, les
 empreintes et l'ordre ; ne pas rétrograder ou supprimer ces données sans
 procédure vérifiée. Les données fournisseur réelles, les changements de canal,
 les performances et les interruptions restent à valider avant activation.
+
+À expiration de la conservation, l'empreinte d'un événement terminé ou résolu
+est supprimée. Celle d'un événement non résolu est conservée pour empêcher
+une réponse hors ordre, puis supprimée lors de sa résolution après expiration.

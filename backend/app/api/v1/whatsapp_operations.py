@@ -294,6 +294,8 @@ async def review_event(
             raise HTTPException(status_code=409, detail="État de l’événement modifié")
         previous = event.state
         event.state = "follow_up" if data.action == "follow_up" else "resolved"
+        if kind == "message" and data.action == "resolve" and event.redacted_at is not None:
+            event.sender_fingerprint = None
         event.updated_at = func.clock_timestamp()
         session.add(
             AuditLog(

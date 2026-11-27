@@ -26,6 +26,7 @@ from arq.cron import cron
 from sqlalchemy import and_, case, delete, func, or_, select, text
 
 from app.core.config import get_settings
+from app.services.dossier.import_retention import purge_import_sources
 from app.services.notification.outbox_retention import redact_expired_outbox
 from app.services.whatsapp.inbox_retention import redact_expired_inbox
 
@@ -58,6 +59,14 @@ async def startup(ctx: dict) -> None:
     get_engine()
     await verify_kms_on_startup()
     await init_redis()
+    settings = get_settings()
+    if (
+        settings.dossier_durable_imports_enabled is True
+        and settings.dossier_import_retention_days > 0
+    ):
+        from app.core.minio import init_minio
+
+        init_minio()
     logger.info("purge_worker_started")
 
 
@@ -302,6 +311,7 @@ class WorkerSettings:
         cron(task_purge_expired_data, hour=3, minute=0),  # Daily 03:00 UTC
         cron(redact_expired_inbox, minute=20),  # Hourly; includes inactive tenants.
         cron(redact_expired_outbox, minute=30),  # Hourly; includes inactive tenants.
+        cron(purge_import_sources, minute=40),  # Opt-in terminal import snapshots.
     ]
     on_startup = startup
     on_shutdown = shutdown

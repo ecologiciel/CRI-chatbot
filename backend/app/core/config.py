@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     dossier_durable_imports_enabled: bool = Field(
         default=False, description="Use the transactional dossier import registry"
     )
+    dossier_import_retention_days: int = Field(
+        default=0,
+        ge=0,
+        le=3650,
+        description="Days to retain completed import snapshots; 0 disables deletion",
+    )
     webhook_proxy_shared_secret: str = Field(
         default="", description="Optional shared secret required from the Cloudflare webhook relay"
     )

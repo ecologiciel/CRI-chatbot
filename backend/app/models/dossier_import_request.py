@@ -41,6 +41,11 @@ class DossierImportRequest(UUIDMixin, Base):
             name="ck_dossier_import_retry_authorized",
         ),
         CheckConstraint(
+            "(source_purge_state IN ('present', 'deleting') AND source_purged_at IS NULL) OR "
+            "(source_purge_state = 'deleted' AND source_purged_at IS NOT NULL)",
+            name="ck_dossier_import_source_purge",
+        ),
+        CheckConstraint(
             "(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) "
             "OR (state <> 'processing' AND lease_token IS NULL AND lease_until IS NULL)",
             name="ck_dossier_import_request_lease",
@@ -74,6 +79,12 @@ class DossierImportRequest(UUIDMixin, Base):
     review_state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="open")
     review_outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
     retry_authorized: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    source_purge_state: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="present"
+    )
+    source_purged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

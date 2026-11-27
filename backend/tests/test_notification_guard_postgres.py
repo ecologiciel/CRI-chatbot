@@ -41,6 +41,7 @@ from app.services.dossier.import_requests import (
     claim_import,
     register_import,
 )
+from app.services.dossier.import_retention import purge_one_import_source
 from app.services.dossier.import_service import DossierImportRow, DossierImportService
 from app.services.notification.outbox import claim_notification, enqueue_notification
 from app.services.notification.outbox_execution import process_one_notification
@@ -715,4 +716,94 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
                 sa.text("SELECT statut FROM tenant_guard.dossiers WHERE id=:id"), {"id": dossier_id}
             )
         ).scalar_one() == "rejete"
+    old_request = uuid.uuid4()
+    old_key = f"imports/requests/{old_request.hex}/source.csv"
+    async with sessions.begin() as session:
+        await register_import(
+            session,
+            request_id=old_request,
+            tenant_id=tenant_id,
+            object_key=old_key,
+            content_sha256="f" * 64,
+            sync_config_id=None,
+            requested_by=None,
+        )
+        await session.execute(
+            sa.text(
+                "UPDATE public.dossier_import_requests SET state='completed', updated_at=now()-interval '10 days' WHERE id=:id"
+            ),
+            {"id": old_request},
+        )
+        await session.execute(
+            sa.text(
+                "UPDATE public.dossier_import_requests SET updated_at=now()-interval '30 days' WHERE id IN (:pending, :uncertain)"
+            ),
+            {"pending": uuid.UUID(new_attempt["request_id"]), "uncertain": changed_id},
+        )
+        await session.execute(
+            sa.text(
+                "ALTER TABLE public.audit_logs ADD CONSTRAINT test_purge_intent CHECK (action <> 'import_purge_intent') NOT VALID"
+            )
+        )
+    storage = SimpleNamespace(remove_object=AsyncMock())
+    with patch("app.services.dossier.import_retention.get_session_factory", return_value=sessions):
+        with pytest.raises(IntegrityError):
+            await purge_one_import_source(tenant_id, "guard", 5, storage)
+        storage.remove_object.assert_not_awaited()
+        async with sessions.begin() as session:
+            assert (
+                await session.execute(
+                    sa.text(
+                        "SELECT source_purge_state FROM public.dossier_import_requests WHERE id=:id"
+                    ),
+                    {"id": old_request},
+                )
+            ).scalar_one() == "present"
+            await session.execute(
+                sa.text("ALTER TABLE public.audit_logs DROP CONSTRAINT test_purge_intent")
+            )
+        storage.remove_object.side_effect = RuntimeError("storage unavailable")
+        with pytest.raises(RuntimeError):
+            await purge_one_import_source(tenant_id, "guard", 5, storage)
+        async with sessions.begin() as session:
+            assert (
+                await session.execute(
+                    sa.text(
+                        "SELECT source_purge_state FROM public.dossier_import_requests WHERE id=:id"
+                    ),
+                    {"id": old_request},
+                )
+            ).scalar_one() == "deleting"
+            await session.execute(
+                sa.text(
+                    "ALTER TABLE public.audit_logs ADD CONSTRAINT test_purge_done CHECK (action <> 'import_purge_done') NOT VALID"
+                )
+            )
+        storage.remove_object.side_effect = None
+        with pytest.raises(IntegrityError):
+            await purge_one_import_source(tenant_id, "guard", 5, storage)
+        async with sessions.begin() as session:
+            assert (
+                await session.execute(
+                    sa.text(
+                        "SELECT source_purge_state FROM public.dossier_import_requests WHERE id=:id"
+                    ),
+                    {"id": old_request},
+                )
+            ).scalar_one() == "deleting"
+            await session.execute(
+                sa.text("ALTER TABLE public.audit_logs DROP CONSTRAINT test_purge_done")
+            )
+        assert await purge_one_import_source(tenant_id, "guard", 5, storage) == "deleted"
+        assert await purge_one_import_source(tenant_id, "guard", 5, storage) == "empty"
+        assert storage.remove_object.await_args.args == ("cri-guard", old_key)
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                sa.text(
+                    "SELECT count(*) FROM public.audit_logs WHERE resource_id=:id AND action IN ('import_purge_intent','import_purge_done')"
+                ),
+                {"id": str(old_request)},
+            )
+        ).scalar_one() == 2
     await engine.dispose()

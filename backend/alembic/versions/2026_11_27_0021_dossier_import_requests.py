@@ -35,6 +35,8 @@ def upgrade() -> None:
         sa.Column("review_state", sa.String(16), nullable=False, server_default="open"),
         sa.Column("review_outcome", sa.String(16), nullable=True),
         sa.Column("retry_authorized", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("source_purge_state", sa.String(16), nullable=False, server_default="present"),
+        sa.Column("source_purged_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -56,6 +58,11 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "NOT retry_authorized OR (state = 'uncertain' AND review_state = 'closed' AND review_outcome = 'not_applied')",
             name="ck_dossier_import_retry_authorized",
+        ),
+        sa.CheckConstraint(
+            "(source_purge_state IN ('present', 'deleting') AND source_purged_at IS NULL) OR "
+            "(source_purge_state = 'deleted' AND source_purged_at IS NOT NULL)",
+            name="ck_dossier_import_source_purge",
         ),
         sa.CheckConstraint(
             "(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) "

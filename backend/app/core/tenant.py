@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import Request
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session_factory
@@ -82,12 +82,12 @@ class TenantContext:
     async def db_session(self) -> AsyncGenerator[AsyncSession]:
         """Yield an async DB session scoped to this tenant's schema.
 
-        Sets search_path to tenant_{slug}, public so all queries
-        resolve to the tenant's schema first.
+        A transaction-local search_path is applied at each transaction begin,
+        including after an explicit commit or rollback inside this context.
         """
         factory = get_session_factory()
         async with factory() as session:
-            await session.execute(text(f"SET search_path TO {self.db_schema}, public"))
+            session.sync_session.info["tenant_schema"] = self.db_schema
             try:
                 yield session
                 await session.commit()

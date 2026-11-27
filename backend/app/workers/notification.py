@@ -232,7 +232,7 @@ async def process_all_notifications(ctx: dict) -> dict[str, Any]:
     # Query active tenant slugs from public schema
     factory = get_session_factory()
     async with factory() as session:
-        await session.execute(text("SET search_path TO public"))
+        await session.execute(text("SET LOCAL search_path TO public"))
         result = await session.execute(
             select(Tenant.slug).where(Tenant.status == TenantStatus.active.value),
         )

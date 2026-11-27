@@ -56,6 +56,7 @@ class TestTenantContext:
         ctx = _make_tenant_context(slug="tanger")
 
         mock_session = AsyncMock()
+        mock_session.sync_session.info = {}
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
@@ -65,10 +66,7 @@ class TestTenantContext:
             async with ctx.db_session() as session:
                 assert session is mock_session
 
-        # Verify SET search_path was called
-        mock_session.execute.assert_called_once()
-        call_args = mock_session.execute.call_args[0][0]
-        assert "tenant_tanger" in str(call_args)
+        assert mock_session.sync_session.info["tenant_schema"] == "tenant_tanger"
         mock_session.commit.assert_called_once()
 
     @pytest.mark.asyncio

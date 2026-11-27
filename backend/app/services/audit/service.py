@@ -42,7 +42,7 @@ class AuditService:
         try:
             factory = get_session_factory()
             async with factory() as session:
-                await session.execute(text("SET search_path TO public"))
+                await session.execute(text("SET LOCAL search_path TO public"))
                 audit_log = AuditLog(
                     tenant_slug=data.tenant_slug,
                     user_id=data.user_id,
@@ -97,7 +97,7 @@ class AuditService:
         """
         factory = get_session_factory()
         async with factory() as session:
-            await session.execute(text("SET search_path TO public"))
+            await session.execute(text("SET LOCAL search_path TO public"))
 
             base = select(AuditLog)
 

@@ -152,7 +152,6 @@ class TenantProvisioningService:
         try:
             # Step 1: Create tenant record (status=provisioning)
             tenant = await self._create_tenant_record(data)
-            rollback_stack.append(("db_record", lambda: self._delete_tenant_record(tenant.id)))
             log.info("step_completed", step="db_record", tenant_id=str(tenant.id))
 
             # Step 2: Clone PostgreSQL schema from tenant_template
@@ -203,13 +202,45 @@ class TenantProvisioningService:
             tenant.status = TenantStatus.active
             return tenant
 
-        except (DuplicateResourceError, DuplicateTenantError, TenantProvisioningError):
-            await self._rollback(rollback_stack, data.slug)
-            raise
         except Exception as exc:
-            log.error("provisioning_failed", error=str(exc))
-            await self._rollback(rollback_stack, data.slug)
-            raise TenantProvisioningError(f"Provisioning failed for {data.slug}: {exc}") from exc
+            if tenant is None:
+                if isinstance(
+                    exc, DuplicateResourceError | DuplicateTenantError | TenantProvisioningError
+                ):
+                    raise
+                log.error("provisioning_record_unconfirmed", error_type=type(exc).__name__)
+                raise TenantProvisioningError(
+                    f"Provisioning failed for {data.slug}; verify whether a tenant record was created"
+                ) from exc
+
+            # Even a failed remote create may have succeeded before the reply
+            # was lost. Retain the tenant record so an operator can reconcile
+            # unknown external resources instead of permitting slug reuse.
+            try:
+                await self._deactivate_failed_provisioning(tenant.id, data.slug)
+            except Exception as deactivate_exc:
+                log.error(
+                    "provisioning_deactivation_failed", error_type=type(deactivate_exc).__name__
+                )
+                raise TenantProvisioningError(
+                    f"Provisioning failed for {data.slug}; could not confirm deactivation, cleanup not attempted"
+                ) from exc
+            try:
+                # Ingestion may have started during an uncertain activation.
+                # No new protected work can begin after deactivation; an
+                # existing protected task must finish before compensation.
+                async with protect_removal(data.slug):
+                    failures = await self._rollback(rollback_stack, data.slug)
+            except Exception as lock_exc:
+                log.error("provisioning_cleanup_lock_failed", error_type=type(lock_exc).__name__)
+                failures = ["lifecycle_lock"]
+            log.error(
+                "provisioning_failed", error_type=type(exc).__name__, cleanup_failures=failures
+            )
+            raise TenantProvisioningError(
+                f"Provisioning failed for {data.slug}; inactive tenant retained for review",
+                details={"cleanup_failures": failures, "tenant_id": str(tenant.id)},
+            ) from exc
 
     async def deprovision_tenant(self, slug: str) -> None:
         """Remove all resources for a tenant.
@@ -478,25 +509,41 @@ class TenantProvisioningService:
 
     # ── Rollback helpers ──
 
+    async def _deactivate_failed_provisioning(self, tenant_id: uuid.UUID, slug: str) -> None:
+        """Keep a failed institution unavailable before compensating resources."""
+        factory = get_session_factory()
+        async with factory() as session:
+            tenant = (
+                await session.execute(
+                    select(Tenant)
+                    .where(Tenant.id == tenant_id, Tenant.slug == slug)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if tenant is None:
+                raise TenantProvisioningError("Tenant identity not found during deactivation")
+            tenant.status = TenantStatus.inactive
+            await session.execute(
+                update(Admin).where(Admin.tenant_id == tenant_id).values(is_active=False)
+            )
+            await session.commit()
+
     async def _rollback(
         self,
         stack: list[tuple[str, Callable[[], Coroutine[Any, Any, None]]]],
         slug: str,
-    ) -> None:
-        """Execute rollback stack in reverse order, logging each step."""
+    ) -> list[str]:
+        """Execute recorded compensations; preserve failures for reconciliation."""
         log = self.logger.bind(slug=slug, action="rollback")
+        failures = []
         for step_name, undo_fn in reversed(stack):
             try:
                 await undo_fn()
                 log.info("rollback_step_completed", step=step_name)
             except Exception as exc:
-                log.error("rollback_step_failed", step=step_name, error=str(exc))
-
-    async def _delete_tenant_record(self, tenant_id: uuid.UUID) -> None:
-        factory = get_session_factory()
-        async with factory() as session:
-            await session.execute(delete(Tenant).where(Tenant.id == tenant_id))
-            await session.commit()
+                failures.append(step_name)
+                log.error("rollback_step_failed", step=step_name, error_type=type(exc).__name__)
+        return failures
 
     async def _drop_schema(self, slug: str) -> None:
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", slug) or slug == "template":

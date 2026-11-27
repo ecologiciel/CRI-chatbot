@@ -16,7 +16,7 @@ from sqlalchemy import text
 from app.core.database import close_engine, get_session_factory
 from app.services.whatsapp import inbox_execution
 from app.services.whatsapp.handler import HandlingOutcome
-from app.workers.whatsapp_inbox import _get_redis_settings, poll_incoming
+from app.workers.whatsapp_inbox import _get_redis_settings, drain_incoming
 
 
 async def main() -> None:
@@ -43,7 +43,7 @@ async def main() -> None:
     original = inbox_execution._process
     inbox_execution._process = fake_process
     worker = Worker(
-        functions=[], cron_jobs=[cron(poll_incoming, second={0, 10, 20, 30, 40, 50})],
+        functions=[], cron_jobs=[cron(drain_incoming, second={0, 10, 20, 30, 40, 50})],
         redis_settings=_get_redis_settings(), queue_name="arq:fixture-wa-load",
         max_jobs=3, max_tries=1, poll_delay=0.2, handle_signals=False,
     )
@@ -62,7 +62,7 @@ async def main() -> None:
     async with factory() as session:
         completed = (await session.execute(text("SELECT count(*) FROM public.whatsapp_inbox_events WHERE tenant_id=:id AND state='completed'"), {"id": tenant_id})).scalar_one()
     elapsed = time.monotonic() - start
-    assert 1 <= completed <= 4, completed
+    assert completed == 12, completed
     print(f"SYNTHETIC_SCHEDULER_CAPACITY completed={completed} queued=12 seconds={elapsed:.1f}", flush=True)
     await close_engine()
 

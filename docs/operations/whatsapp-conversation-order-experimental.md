@@ -33,8 +33,7 @@ charge est prioritaire devant les événements en attente ou incertains, mais
 attend une opération déjà en cours sur la conversation ; un envoi fournisseur
 déjà commencé ne peut pas être annulé. Les interactions avec tous les canaux
 et les pannes doivent encore être éprouvées avant activation. Le planificateur
-prend actuellement au plus un message par appel toutes les dix secondes ; le
-débit doit être mesuré et amélioré.
+utilise des lots bornés ; le débit réel avec les services externes reste à mesurer.
 
 À expiration de la conservation, l'empreinte d'un événement terminé ou résolu
 est supprimée. Celle d'un événement non résolu est conservée pour empêcher

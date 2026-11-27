@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from time import monotonic
 
 import structlog
 from arq import cron
@@ -50,6 +51,25 @@ async def poll_incoming(ctx: dict) -> str:
     return "finalized" if finalized else "lease_lost"
 
 
+async def drain_incoming(ctx: dict) -> dict[str, int]:
+    """Process a bounded sequential batch, without retrying ambiguous sends.
+
+    A single slow item may exceed the soft budget; execute_claim still has
+    its own timeout and quarantines uncertain results.
+    """
+    started = monotonic()
+    counts = {"claimed": 0, "lease_lost": 0}
+    for index in range(10):
+        if index and monotonic() - started >= 30:
+            break
+        result = await poll_incoming(ctx)
+        if result == "empty":
+            break
+        counts["claimed"] += 1
+        counts["lease_lost"] += int(result == "lease_lost")
+    return counts
+
+
 async def recover_expired(ctx: dict) -> int:
     """Move abandoned claims to review rather than resending them."""
     count = await quarantine_expired(limit=100)
@@ -68,7 +88,7 @@ class WorkerSettings:
 
     functions: list = []
     cron_jobs = [
-        cron(poll_incoming, second={0, 10, 20, 30, 40, 50}),
+        cron(drain_incoming, second={0, 10, 20, 30, 40, 50}),
         cron(poll_statuses, second={5, 25, 45}),
         cron(recover_expired, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
     ]

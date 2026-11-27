@@ -15,7 +15,7 @@ from sqlalchemy import text
 from app.core.database import close_engine, get_session_factory
 from app.services.whatsapp import inbox_execution
 from app.services.whatsapp.handler import HandlingOutcome
-from app.workers.whatsapp_inbox import _get_redis_settings, poll_incoming
+from app.workers.whatsapp_inbox import _get_redis_settings, drain_incoming
 
 
 async def main() -> None:
@@ -58,7 +58,7 @@ async def main() -> None:
     inbox_execution._process = fake_process
     worker = Worker(
         functions=[],
-        cron_jobs=[cron(poll_incoming, second={0, 10, 20, 30, 40, 50})],
+        cron_jobs=[cron(drain_incoming, second={0, 10, 20, 30, 40, 50})],
         redis_settings=_get_redis_settings(),
         queue_name="arq:fixture-wa-order",
         max_jobs=3,

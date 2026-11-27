@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -28,6 +28,27 @@ async def test_poll_executes_claim_once_without_automatic_retry(monkeypatch):
 def test_worker_uses_dedicated_queue_and_disables_automatic_retries():
     assert worker.WorkerSettings.queue_name == "arq:whatsapp-inbox"
     assert worker.WorkerSettings.max_tries == 1
+
+
+@pytest.mark.asyncio
+async def test_drain_stops_at_empty_and_reports_lost_lease(monkeypatch):
+    poll = AsyncMock(side_effect=["finalized", "lease_lost", "empty"])
+    monkeypatch.setattr(worker, "poll_incoming", poll)
+    assert await worker.drain_incoming({}) == {"claimed": 2, "lease_lost": 1}
+    assert poll.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_drain_respects_batch_and_time_limits(monkeypatch):
+    poll = AsyncMock(return_value="finalized")
+    monkeypatch.setattr(worker, "poll_incoming", poll)
+    with patch("app.workers.whatsapp_inbox.monotonic", return_value=0):
+        assert await worker.drain_incoming({}) == {"claimed": 10, "lease_lost": 0}
+    assert poll.await_count == 10
+    poll.reset_mock()
+    with patch("app.workers.whatsapp_inbox.monotonic", side_effect=[0, 31]):
+        assert await worker.drain_incoming({}) == {"claimed": 1, "lease_lost": 0}
+    poll.assert_awaited_once()
 
 
 @pytest.mark.asyncio

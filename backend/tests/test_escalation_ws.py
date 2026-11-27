@@ -7,9 +7,116 @@ No database or Redis required — uses mocks and pure logic tests.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revoked", [False, True])
+async def test_subscription_revalidates_session_before_each_delivery(revoked):
+    import asyncio
+
+    from app.api.ws.escalation_ws import escalation_ws_endpoint
+    from app.core.exceptions import AuthenticationError
+
+    admin = SimpleNamespace(sub="admin", role="supervisor")
+    tenant = SimpleNamespace(id="tenant-id")
+    ws = AsyncMock()
+    ws.client = SimpleNamespace(host="127.0.0.1")
+
+    async def wait_client():
+        await asyncio.Event().wait()
+
+    ws.receive_text.side_effect = wait_client
+    pubsub = AsyncMock()
+
+    async def messages():
+        yield {"type": "pmessage", "channel": "rabat:escalations:new", "data": '{"id": "1"}'}
+
+    pubsub.listen = messages
+    redis = SimpleNamespace(pubsub=lambda: pubsub)
+    service = SimpleNamespace(verify_access_token=AsyncMock())
+    service.verify_access_token.side_effect = (
+        [admin, AuthenticationError("revoked")] if revoked else [admin, admin]
+    )
+    with (
+        patch("app.api.ws.escalation_ws.AuthService", return_value=service),
+        patch("app.api.ws.escalation_ws.TenantResolver.from_slug", AsyncMock(return_value=tenant)),
+        patch("app.api.ws.escalation_ws.ensure_admin_access", AsyncMock()),
+        patch("app.api.ws.escalation_ws.get_redis", return_value=redis),
+    ):
+        await asyncio.wait_for(escalation_ws_endpoint(ws, "rabat", "token"), 2)
+
+    assert service.verify_access_token.await_count == 2
+    assert service.verify_access_token.await_args.kwargs["ip_address"] == "127.0.0.1"
+    if revoked:
+        ws.send_text.assert_not_awaited()
+        assert ws.close.await_args_list[0].kwargs["code"] == 4001
+    else:
+        ws.send_text.assert_awaited_once()
+        assert json.loads(ws.send_text.await_args.args[0])["data"] == {"id": "1"}
+    pubsub.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_two_subscriptions_deliver_each_event_once_per_client():
+    import asyncio
+
+    from app.api.ws.escalation_ws import escalation_ws_endpoint
+
+    admin = SimpleNamespace(sub="admin", role="supervisor")
+    tenant = SimpleNamespace(id="tenant-id")
+    sockets = [AsyncMock(), AsyncMock()]
+    subscribed = 0
+    both_subscribed = asyncio.Event()
+
+    async def wait_client():
+        await asyncio.Event().wait()
+
+    def make_pubsub():
+        pubsub = AsyncMock()
+
+        async def messages():
+            nonlocal subscribed
+            subscribed += 1
+            if subscribed == 2:
+                both_subscribed.set()
+            await both_subscribed.wait()
+            yield {"type": "pmessage", "channel": "rabat:escalations:new", "data": '{"id": "1"}'}
+
+        pubsub.listen = messages
+        return pubsub
+
+    for ws in sockets:
+        ws.client = SimpleNamespace(host="127.0.0.1")
+        ws.receive_text.side_effect = wait_client
+    service = SimpleNamespace(verify_access_token=AsyncMock(return_value=admin))
+    with (
+        patch("app.api.ws.escalation_ws.AuthService", return_value=service),
+        patch("app.api.ws.escalation_ws.TenantResolver.from_slug", AsyncMock(return_value=tenant)),
+        patch("app.api.ws.escalation_ws.ensure_admin_access", AsyncMock()),
+        patch("app.api.ws.escalation_ws.get_redis", return_value=SimpleNamespace(pubsub=make_pubsub)),
+    ):
+        await asyncio.wait_for(asyncio.gather(*(
+            escalation_ws_endpoint(ws, "rabat", "token") for ws in sockets
+        )), 2)
+    for ws in sockets:
+        ws.send_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_connection_without_peer_address_fails_closed():
+    from app.api.ws.escalation_ws import escalation_ws_endpoint
+
+    ws = AsyncMock()
+    ws.client = None
+    with patch("app.api.ws.escalation_ws.AuthService") as service:
+        await escalation_ws_endpoint(ws, "rabat", "token")
+    service.assert_not_called()
+    ws.accept.assert_not_awaited()
+    assert ws.close.await_args.kwargs["code"] == 4001
 
 # ---------------------------------------------------------------------------
 # 1. Import tests

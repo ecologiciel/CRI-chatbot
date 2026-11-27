@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import CRIDecryptionError, CRIEncryptionError
 from app.models.tenant_key import TenantKey
@@ -49,7 +50,7 @@ class VersionedEnvelopeService:
             raise ValueError("Invalid envelope context")
         return f"cri-envelope-v1:{tenant_id}:{purpose}:{record_id}:{version}".encode("ascii")
 
-    async def _key(self, tenant_id: uuid.UUID, version: int | None) -> tuple[int, bytes]:
+    async def _key(self, tenant_id: uuid.UUID, version: int | None, session: AsyncSession | None = None) -> tuple[int, bytes]:
         statement = select(TenantKey.key_version, TenantKey.encrypted_key).where(
             TenantKey.tenant_id == tenant_id
         )
@@ -57,7 +58,10 @@ class VersionedEnvelopeService:
             statement = statement.where(TenantKey.is_active.is_(True))
         else:
             statement = statement.where(TenantKey.key_version == version)
-        async with self._session_factory() as session:
+        if session is None:
+            async with self._session_factory() as key_session:
+                row = (await key_session.execute(statement)).one_or_none()
+        else:
             row = (await session.execute(statement)).one_or_none()
         if row is None:
             raise CRIDecryptionError("Tenant encryption key unavailable")
@@ -71,9 +75,10 @@ class VersionedEnvelopeService:
             raise CRIDecryptionError("Tenant encryption key unavailable") from exc
 
     async def encrypt(
-        self, plaintext: bytes, *, tenant_id: uuid.UUID, purpose: str, record_id: uuid.UUID
+        self, plaintext: bytes, *, tenant_id: uuid.UUID, purpose: str, record_id: uuid.UUID,
+        session: AsyncSession | None = None,
     ) -> VersionedEnvelope:
-        version, key = await self._key(tenant_id, None)
+        version, key = await self._key(tenant_id, None, session)
         try:
             aad = self._aad(tenant_id, purpose, record_id, version)
             nonce = secrets.token_bytes(_NONCE_SIZE)
@@ -83,7 +88,8 @@ class VersionedEnvelopeService:
             raise CRIEncryptionError("Unable to encrypt tenant record") from exc
 
     async def whatsapp_sender_fingerprint(
-        self, *, tenant_id: uuid.UUID, channel_id: str, sender_id: str
+        self, *, tenant_id: uuid.UUID, channel_id: str, sender_id: str,
+        session: AsyncSession | None = None,
     ) -> str:
         """Return a stable, tenant-bound opaque conversation key.
 
@@ -92,7 +98,7 @@ class VersionedEnvelopeService:
         """
         if not channel_id or len(channel_id) > 32 or not sender_id or len(sender_id) > 128:
             raise ValueError("Invalid WhatsApp conversation identifier")
-        _, data_key = await self._key(tenant_id, 1)
+        _, data_key = await self._key(tenant_id, 1, session)
         purpose_key = hmac.new(data_key, b"cri-wa-conversation-key-v1", hashlib.sha256).digest()
         context = json.dumps(
             [str(tenant_id), channel_id, sender_id], ensure_ascii=True, separators=(",", ":")
@@ -106,13 +112,14 @@ class VersionedEnvelopeService:
         tenant_id: uuid.UUID,
         purpose: str,
         record_id: uuid.UUID,
+        session: AsyncSession | None = None,
     ) -> bytes:
         try:
             aad = self._aad(tenant_id, purpose, record_id, envelope.version)
             raw = base64.b64decode(envelope.ciphertext, validate=True)
             if len(raw) < _NONCE_SIZE + 16:
                 raise ValueError("Invalid envelope")
-            _, key = await self._key(tenant_id, envelope.version)
+            _, key = await self._key(tenant_id, envelope.version, session)
             return AESGCM(key).decrypt(raw[:_NONCE_SIZE], raw[_NONCE_SIZE:], aad)
         except (InvalidTag, ValueError, TypeError, binascii.Error) as exc:
             raise CRIDecryptionError("Unable to decrypt tenant record") from exc

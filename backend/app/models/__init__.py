@@ -6,6 +6,7 @@ As new model files are added, import them here.
 
 from app.core.database import Base
 from app.models.admin import Admin
+from app.models.agent_reply_outbox import AgentReplyOutboxEvent
 from app.models.audit import AuditLog
 from app.models.base import TimestampMixin, UUIDMixin
 from app.models.campaign import Campaign, CampaignRecipient
@@ -56,6 +57,7 @@ __all__ = [
     "TimestampMixin",
     # Models
     "Admin",
+    "AgentReplyOutboxEvent",
     "AuditLog",
     "Campaign",
     "CampaignRecipient",

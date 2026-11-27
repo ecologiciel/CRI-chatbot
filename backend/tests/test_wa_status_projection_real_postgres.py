@@ -75,4 +75,5 @@ async def test_status_projection_checks_recipient_and_institution():
         assert await apply_status_event(conflict_id, cipher=cipher) == "uncertain"
         async with engine.connect() as conn:
             assert (await conn.scalar(text("SELECT metadata->>'delivery_state' FROM tenant_fixture_status_a.messages WHERE id=:id"), {"id": message})) == "delivered"
+            assert (await conn.scalar(text("SELECT metadata->>'delivery_review_required' FROM tenant_fixture_status_a.messages WHERE id=:id"), {"id": message})) == "true"
     await engine.dispose()

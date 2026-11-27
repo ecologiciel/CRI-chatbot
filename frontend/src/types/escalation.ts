@@ -44,6 +44,7 @@ export interface EscalationMessage {
   content: string | null;
   timestamp: string;
   delivery_state?: string | null;
+  delivery_review_required?: boolean | null;
   sender_type?: "user" | "bot" | "agent";
 }
 

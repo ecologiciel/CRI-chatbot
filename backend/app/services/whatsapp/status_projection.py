@@ -119,6 +119,11 @@ async def apply_status_event(event_id: uuid.UUID, *, cipher: VersionedEnvelopeSe
         metadata = dict(message.metadata_ or {})
         decision = decide_status(metadata.get("delivery_state"), status.status)
         if decision.uncertain:
+            # Preserve the last verified state while making the conflict
+            # visible to consumers of this message. Human review does not
+            # currently clear this flag automatically.
+            metadata["delivery_review_required"] = True
+            message.metadata_ = metadata
             event.state = "uncertain"
         else:
             metadata["delivery_state"] = decision.state

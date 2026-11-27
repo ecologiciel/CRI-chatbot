@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { DeliveryStatus } from "@/components/whatsapp/delivery-status";
 import type { ConversationMessageRecord } from "@/types/conversation";
 
 function formatTime(timestamp: string): string {
@@ -46,9 +47,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
       >
         <p className="text-sm whitespace-pre-wrap break-words">{content || `[${type}]`}</p>
-        {message.delivery_state === "unconfirmed" && (
-          <p className="text-xs text-destructive mt-1">Envoi WhatsApp non confirmé</p>
-        )}
+        {!isInbound && <DeliveryStatus state={message.delivery_state} reviewRequired={message.delivery_review_required} />}
         <p
           className={cn(
             "text-[10px] mt-1.5",

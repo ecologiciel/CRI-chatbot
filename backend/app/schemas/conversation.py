@@ -109,6 +109,9 @@ class MessageResponse(BaseModel):
     delivery_state: str | None = Field(
         default=None, validation_alias=AliasPath("metadata_", "delivery_state")
     )
+    delivery_review_required: bool | None = Field(
+        default=None, validation_alias=AliasPath("metadata_", "delivery_review_required")
+    )
     timestamp: datetime
     created_at: datetime
 

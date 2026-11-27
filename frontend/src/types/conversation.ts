@@ -53,4 +53,5 @@ export interface ConversationMessageRecord {
   content: string | null;
   timestamp: string;
   delivery_state?: string | null;
+  delivery_review_required?: boolean | null;
 }

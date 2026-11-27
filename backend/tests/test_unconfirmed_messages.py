@@ -62,3 +62,17 @@ def test_message_response_exposes_delivery_state_without_all_metadata(metadata, 
     serialized = MessageResponse.model_validate(message).model_dump()
     assert serialized["delivery_state"] == expected
     assert "metadata_" not in serialized
+
+
+def test_message_response_exposes_delivery_review_without_other_metadata():
+    message = SimpleNamespace(
+        id=uuid.uuid4(), conversation_id=uuid.uuid4(), direction="outbound", type="text",
+        content="Test", media_url=None, chunk_ids=[], whatsapp_message_id="fixture",
+        metadata_={"delivery_state": "delivered", "delivery_review_required": True,
+                   "private_fixture": "not disclosed"},
+        timestamp=datetime.now(UTC), created_at=datetime.now(UTC),
+    )
+    serialized = MessageResponse.model_validate(message).model_dump()
+    assert serialized["delivery_state"] == "delivered"
+    assert serialized["delivery_review_required"] is True
+    assert "private_fixture" not in str(serialized)

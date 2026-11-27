@@ -5,6 +5,7 @@ import { Bot, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DeliveryStatus } from "@/components/whatsapp/delivery-status";
 import type { EscalationMessage, Escalation } from "@/types/escalation";
 
 function formatTime(timestamp: string): string {
@@ -94,9 +95,7 @@ function MessageBubble({ message, senderType }: BubbleProps) {
         )}
 
         <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
-        {message.delivery_state === "unconfirmed" && (
-          <p className="text-xs text-destructive mt-1">Envoi WhatsApp non confirmé</p>
-        )}
+        {!isUser && <DeliveryStatus state={message.delivery_state} reviewRequired={message.delivery_review_required} />}
         <p
           className={cn(
             "text-[10px] mt-1.5 text-end",

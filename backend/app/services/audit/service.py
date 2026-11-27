@@ -1,7 +1,7 @@
 """AuditService — append-only audit trail for security compliance (SECURITE.1).
 
-All writes are fire-and-forget: if the log fails, the error is logged
-via structlog but never blocks the calling request.
+Writes use a separate transaction and report failure to the caller. They are
+not atomic with the business transaction.
 
 Uses public-schema sessions (get_session_factory), NOT tenant.db_session(),
 because audit_logs lives in the public schema.
@@ -13,6 +13,7 @@ import structlog
 from sqlalchemy import func, select, text
 
 from app.core.database import get_session_factory
+from app.core.metrics import AUDIT_WRITE_TOTAL
 from app.models.audit import AuditLog
 from app.schemas.audit import AuditLogCreate, AuditLogFilter
 
@@ -22,17 +23,17 @@ logger = structlog.get_logger()
 class AuditService:
     """Centralized service for writing and reading audit logs.
 
-    Writing (log_action) is fire-and-forget — exceptions are swallowed.
+    Writing (log_action) is best-effort and returns a success flag.
     Reading (get_logs) is used by the super-admin back-office.
     """
 
     def __init__(self) -> None:
         self._logger = logger.bind(service="audit_service")
 
-    async def log_action(self, data: AuditLogCreate) -> None:
+    async def log_action(self, data: AuditLogCreate) -> bool:
         """Record an action in the audit trail.
 
-        Fire-and-forget: errors are logged but never re-raised.
+        Errors are logged and returned as False, not re-raised.
         The session operates in the public schema (not tenant-scoped).
 
         Args:
@@ -62,15 +63,18 @@ class AuditService:
                 resource_type=data.resource_type,
                 tenant=data.tenant_slug,
             )
+            AUDIT_WRITE_TOTAL.labels(outcome="success").inc()
+            return True
         except Exception as exc:
             self._logger.error(
                 "audit_log_failed",
-                error=str(exc),
+                error_type=type(exc).__name__,
                 action=data.action,
                 resource_type=data.resource_type,
                 tenant=data.tenant_slug,
-                exc_info=True,
             )
+            AUDIT_WRITE_TOTAL.labels(outcome="failure").inc()
+            return False
 
     async def get_logs(
         self,

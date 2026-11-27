@@ -1,7 +1,8 @@
-"""AuditLog model — immutable audit trail in the PUBLIC schema.
+"""AuditLog model in the PUBLIC schema.
 
-INSERT ONLY: audit records are never updated or deleted.
-The application role should only have INSERT + SELECT privileges.
+The application role must have only INSERT + SELECT privileges for database
+enforcement. The model alone cannot make audit records immutable; a database
+superuser or table owner can modify them.
 See scripts/apply_audit_policy.sql for production GRANT/REVOKE.
 
 Rétention: 12 mois PostgreSQL, 24 mois archivé sur MinIO (SECURITE.4).
@@ -21,11 +22,10 @@ from app.models.base import UUIDMixin
 
 
 class AuditLog(UUIDMixin, Base):
-    """Journal d'audit immuable pour la traçabilité des actions.
+    """Journal d'audit pour la traçabilité des actions.
 
-    Réside dans le schéma public pour centraliser les logs
-    de tous les tenants. Politique INSERT ONLY pour résister
-    aux tentatives d'effacement post-intrusion.
+    Réside dans le schéma public pour centraliser les logs de tous les tenants.
+    Une politique de permissions externe est nécessaire pour limiter les modifications.
 
     Note: Does NOT use TimestampMixin because this table is
     immutable — there is no updated_at column.

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from openpyxl import load_workbook
@@ -39,6 +39,9 @@ from app.models.contact import Contact
 from app.models.dossier import Dossier, DossierHistory
 from app.models.enums import DossierStatut, SyncStatus
 from app.models.sync import SyncLog
+
+if TYPE_CHECKING:
+    from app.services.dossier.import_requests import ImportClaim
 
 logger = structlog.get_logger()
 
@@ -662,6 +665,7 @@ class DossierImportService:
         tenant: TenantContext,
         *,
         durable_notifications: bool = False,
+        durable_claim: ImportClaim | None = None,
     ) -> ImportReport:
         """Import sanitised rows into the tenant's dossier table.
 
@@ -677,6 +681,12 @@ class DossierImportService:
             ImportReport with detailed statistics.
         """
         start = time.monotonic()
+        if durable_claim is not None and (
+            durable_claim.tenant_id != tenant.id or not durable_notifications
+        ):
+            raise ValueError(
+                "durable import requires matching tenant and transactional notifications"
+            )
         pending_notifications: list[dict[str, Any]] = []
         report = ImportReport(sync_log_id=sync_log_id, rows_total=len(rows))
 
@@ -723,6 +733,18 @@ class DossierImportService:
                 sync_log.rows_errored = report.rows_errored
                 if report.errors:
                     sync_log.error_details = {"errors": report.errors}
+            if durable_claim is not None:
+                if sync_log is None:
+                    raise ValueError("durable import requires a sync log")
+                from app.services.dossier.import_requests import finish_import
+
+                await finish_import(
+                    session,
+                    durable_claim,
+                    state="completed",
+                    outcome_code="completed_with_errors" if report.rows_errored else "imported",
+                    sync_log_id=sync_log_id,
+                )
 
         # Publish status-change events to Redis for notification worker
         if pending_notifications and not durable_notifications:

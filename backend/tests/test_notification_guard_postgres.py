@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.util
 import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import sqlalchemy as sa
@@ -20,8 +21,10 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from app.models.contact import Contact
 from app.models.dossier import Dossier, DossierHistory
-from app.models.sync import SyncLog
+from app.models.sync import SyncConfig, SyncLog
 from app.models.tenant import Tenant
+from app.services.dossier.import_execution import process_one_durable_import
+from app.services.dossier.import_requests import LostImportLeaseError, claim_import, register_import
 from app.services.dossier.import_service import DossierImportRow, DossierImportService
 from app.services.notification.outbox import claim_notification, enqueue_notification
 from app.services.notification.outbox_execution import process_one_notification
@@ -47,6 +50,7 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
         (DossierHistory, "tenant_guard"),
         (Contact, "tenant_guard"),
         (SyncLog, "tenant_guard"),
+        (SyncConfig, "tenant_guard"),
     ]:
         sa.Table(
             model.__tablename__,
@@ -66,11 +70,18 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
     spec = importlib.util.spec_from_file_location("guard_migration", migration_path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
+    request_path = (
+        Path(__file__).parents[1] / "alembic/versions/2026_11_27_0021_dossier_import_requests.py"
+    )
+    request_spec = importlib.util.spec_from_file_location("import_migration", request_path)
+    request_migration = importlib.util.module_from_spec(request_spec)
+    request_spec.loader.exec_module(request_migration)
 
     def install(connection):
         metadata.create_all(connection)
         with Operations.context(MigrationContext.configure(connection)):
             migration.upgrade()
+            request_migration.upgrade()
 
     tenant_id, dossier_id, contact_id, history_id = (uuid.uuid4() for _ in range(4))
     config = {"phone_number_id": "123", "access_token": "test"}
@@ -110,7 +121,11 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             yield session
 
     tenant = SimpleNamespace(
-        id=tenant_id, slug="guard", whatsapp_config=config, db_session=db_session
+        id=tenant_id,
+        slug="guard",
+        whatsapp_config=config,
+        db_session=db_session,
+        minio_bucket="cri-guard",
     )
     newer_history_id = uuid.uuid4()
     async with sessions.begin() as session:
@@ -203,17 +218,29 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
 
     # Exercise the actual importer and verify its dossier update and intent commit together.
     sync_id = uuid.uuid4()
+    request_id = uuid.uuid4()
     async with sessions.begin() as session:
         await session.execute(
             sa.text("INSERT INTO tenant_guard.sync_logs (id,status) VALUES (:id,'pending')"),
             {"id": sync_id},
         )
+        await register_import(
+            session,
+            request_id=request_id,
+            tenant_id=tenant_id,
+            object_key=f"imports/requests/{request_id.hex}/source.csv",
+            content_sha256="a" * 64,
+            sync_config_id=None,
+            requested_by=None,
+        )
+        import_claim = await claim_import(session, tenant_id)
     importer = DossierImportService()
     report = await importer.import_dossiers(
         [DossierImportRow(row_number=1, numero="A", statut="rejete")],
         sync_id,
         tenant,
         durable_notifications=True,
+        durable_claim=import_claim,
     )
     assert report.rows_updated == 1 and report.notifications_enqueued == 1
     async with sessions.begin() as session:
@@ -230,13 +257,32 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
                 {"tenant": tenant_id, "dossier": dossier_id},
             )
         ).scalar_one() == 1
+        assert (
+            await session.execute(
+                sa.text(
+                    "SELECT state,sync_log_id FROM public.dossier_import_requests WHERE id=:id"
+                ),
+                {"id": request_id},
+            )
+        ).one() == ("completed", sync_id)
 
     failure_sync_id = uuid.uuid4()
+    failure_request_id = uuid.uuid4()
     async with sessions.begin() as session:
         await session.execute(
             sa.text("INSERT INTO tenant_guard.sync_logs (id,status) VALUES (:id,'pending')"),
             {"id": failure_sync_id},
         )
+        await register_import(
+            session,
+            request_id=failure_request_id,
+            tenant_id=tenant_id,
+            object_key=f"imports/requests/{failure_request_id.hex}/source.csv",
+            content_sha256="b" * 64,
+            sync_config_id=None,
+            requested_by=None,
+        )
+        failed_claim = await claim_import(session, tenant_id)
         await session.execute(
             sa.text(
                 "ALTER TABLE public.notification_outbox_events ADD CONSTRAINT test_reject_pending CHECK (state <> 'pending') NOT VALID"
@@ -248,6 +294,7 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             failure_sync_id,
             tenant,
             durable_notifications=True,
+            durable_claim=failed_claim,
         )
     async with sessions.begin() as session:
         assert (
@@ -267,4 +314,103 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
                 {"id": failure_sync_id},
             )
         ).scalar_one() == "pending"
+        assert (
+            await session.execute(
+                sa.text("SELECT state FROM public.dossier_import_requests WHERE id=:id"),
+                {"id": failure_request_id},
+            )
+        ).scalar_one() == "processing"
+        await session.execute(
+            sa.text(
+                "ALTER TABLE public.notification_outbox_events DROP CONSTRAINT test_reject_pending"
+            )
+        )
+        await session.execute(
+            sa.text(
+                "UPDATE public.dossier_import_requests SET lease_until=clock_timestamp()-interval '1 second' WHERE id=:id"
+            ),
+            {"id": failure_request_id},
+        )
+    with pytest.raises(LostImportLeaseError):
+        await importer.import_dossiers(
+            [DossierImportRow(row_number=1, numero="A", statut="valide")],
+            failure_sync_id,
+            tenant,
+            durable_notifications=True,
+            durable_claim=failed_claim,
+        )
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                sa.text("SELECT statut FROM tenant_guard.dossiers WHERE id=:id"), {"id": dossier_id}
+            )
+        ).scalar_one() == "rejete"
+        assert (
+            await session.execute(
+                sa.text("SELECT count(*) FROM tenant_guard.dossier_history WHERE sync_log_id=:id"),
+                {"id": failure_sync_id},
+            )
+        ).scalar_one() == 0
+    # Real importer and database, with only object storage simulated.
+    csv_bytes = b"numero,statut\nA,valide\n"
+    worker_request = uuid.uuid4()
+    async with sessions.begin() as session:
+        await register_import(
+            session,
+            request_id=worker_request,
+            tenant_id=tenant_id,
+            object_key=f"imports/requests/{worker_request.hex}/source.csv",
+            content_sha256=hashlib.sha256(csv_bytes).hexdigest(),
+            sync_config_id=None,
+            requested_by=None,
+        )
+    with (
+        patch("app.core.tenant.TenantResolver.from_slug", new=AsyncMock(return_value=tenant)),
+        patch("app.core.minio.get_object_bytes", new=AsyncMock(return_value=csv_bytes)),
+        patch("app.workers.import_dossier.get_settings") as settings,
+    ):
+        settings.return_value.dossier_notification_outbox_enabled = True
+        assert await process_one_durable_import(tenant) == "completed"
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                sa.text("SELECT state FROM public.dossier_import_requests WHERE id=:id"),
+                {"id": worker_request},
+            )
+        ).scalar_one() == "completed"
+        assert (
+            await session.execute(
+                sa.text("SELECT statut FROM tenant_guard.dossiers WHERE id=:id"), {"id": dossier_id}
+            )
+        ).scalar_one() == "valide"
+    corrupted_request = uuid.uuid4()
+    async with sessions.begin() as session:
+        await register_import(
+            session,
+            request_id=corrupted_request,
+            tenant_id=tenant_id,
+            object_key=f"imports/requests/{corrupted_request.hex}/source.csv",
+            content_sha256="0" * 64,
+            sync_config_id=None,
+            requested_by=None,
+        )
+    with (
+        patch("app.core.tenant.TenantResolver.from_slug", new=AsyncMock(return_value=tenant)),
+        patch("app.core.minio.get_object_bytes", new=AsyncMock(return_value=csv_bytes)),
+        patch("app.workers.import_dossier.get_settings") as settings,
+    ):
+        settings.return_value.dossier_notification_outbox_enabled = True
+        assert await process_one_durable_import(tenant) == "already_finalized_or_lease_lost"
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                sa.text("SELECT state FROM public.dossier_import_requests WHERE id=:id"),
+                {"id": corrupted_request},
+            )
+        ).scalar_one() == "uncertain"
+        assert (
+            await session.execute(
+                sa.text("SELECT statut FROM tenant_guard.dossiers WHERE id=:id"), {"id": dossier_id}
+            )
+        ).scalar_one() == "valide"
     await engine.dispose()

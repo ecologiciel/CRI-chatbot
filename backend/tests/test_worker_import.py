@@ -173,6 +173,60 @@ class TestTaskImportDossier:
     """Tests for the task_import_dossier ARQ task."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "duplicate,expected_state,expected_code",
+        [
+            (True, "completed", "duplicate"),
+            (False, "failed", "validation_failed"),
+        ],
+    )
+    async def test_durable_validation_finalizes_with_sync_log(
+        self, duplicate, expected_state, expected_code
+    ):
+        import hashlib
+
+        from app.services.dossier.import_requests import ImportClaim
+
+        sync_log = _make_sync_log_mock()
+        session = _make_mock_session(get_result=sync_log)
+        tenant = _make_tenant_with_session(session)
+        request_id = uuid.uuid4()
+        claim = ImportClaim(
+            request_id,
+            tenant.id,
+            uuid.uuid4(),
+            f"imports/requests/{request_id.hex}/source.csv",
+            hashlib.sha256(b"data").hexdigest(),
+            None,
+            None,
+        )
+        validation = MagicMock(
+            is_duplicate=duplicate, is_valid=False, file_hash="hash", error="invalid"
+        )
+        service = MagicMock()
+        service.validate_file = AsyncMock(return_value=validation)
+        with (
+            patch("app.core.tenant.TenantResolver") as resolver,
+            patch("app.core.minio.get_object_bytes", new=AsyncMock(return_value=b"data")),
+            patch(
+                "app.services.dossier.import_service.get_dossier_import_service",
+                return_value=service,
+            ),
+            patch("app.services.dossier.import_requests.finish_import", new=AsyncMock()) as finish,
+            patch("app.workers.import_dossier.get_settings") as settings,
+        ):
+            resolver.from_slug = AsyncMock(return_value=tenant)
+            settings.return_value.dossier_notification_outbox_enabled = True
+            await task_import_dossier(
+                {}, claim.object_key, None, TEST_TENANT_SLUG, durable_claim=claim
+            )
+        finish.assert_awaited_once()
+        assert finish.await_args.args[0] is session and finish.await_args.args[1] == claim
+        assert finish.await_args.kwargs["state"] == expected_state
+        assert finish.await_args.kwargs["outcome_code"] == expected_code
+        assert sync_log.status == (SyncStatus.completed if duplicate else SyncStatus.failed)
+
+    @pytest.mark.asyncio
     async def test_worker_cannot_start_when_disabled(self):
         from app.workers.import_dossier import startup
 

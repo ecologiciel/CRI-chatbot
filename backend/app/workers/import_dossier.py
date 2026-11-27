@@ -23,6 +23,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
+from typing import TYPE_CHECKING
 
 import structlog
 from arq.connections import RedisSettings
@@ -34,6 +35,9 @@ from app.core.config import get_settings
 from app.models.enums import SyncSourceType, SyncStatus, TenantStatus
 
 logger = structlog.get_logger()
+
+if TYPE_CHECKING:
+    from app.services.dossier.import_requests import ImportClaim
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +96,8 @@ async def task_import_dossier(
     sync_config_id: str | None,
     tenant_slug: str,
     triggered_by: str | None = None,
+    *,
+    durable_claim: ImportClaim | None = None,
 ) -> dict:
     """Download file from MinIO, validate, parse, and import dossiers.
 
@@ -124,6 +130,15 @@ async def task_import_dossier(
 
     # 1. Resolve tenant
     tenant = await TenantResolver.from_slug(tenant_slug)
+    if durable_claim is not None and (
+        durable_claim.tenant_id != tenant.id
+        or durable_claim.object_key != file_path
+        or (str(durable_claim.sync_config_id) if durable_claim.sync_config_id else None)
+        != sync_config_id
+        or (str(durable_claim.requested_by) if durable_claim.requested_by else None) != triggered_by
+        or not get_settings().dossier_notification_outbox_enabled
+    ):
+        raise ValueError("durable import claim mismatch or notification outbox disabled")
 
     # 2. Create SyncLog (status=pending)
     source_type = _source_type_from_ext(ext)
@@ -148,6 +163,11 @@ async def task_import_dossier(
         file_bytes = await get_object_bytes(
             tenant.minio_bucket, file_path, max_bytes=MAX_FILE_SIZE_MB * 1024 * 1024
         )
+        if (
+            durable_claim is not None
+            and hashlib.sha256(file_bytes).hexdigest() != durable_claim.content_sha256
+        ):
+            raise ValueError("Import request integrity check failed")
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
             tmp_path = tmp.name
             tmp.write(file_bytes)
@@ -168,6 +188,18 @@ async def task_import_dossier(
                     sl.file_hash = validation.file_hash
                     sl.completed_at = datetime.now(UTC)
                     sl.error_details = {"skipped": "duplicate hash"}
+                if durable_claim is not None:
+                    if sl is None:
+                        raise ValueError("durable import requires a sync log")
+                    from app.services.dossier.import_requests import finish_import
+
+                    await finish_import(
+                        session,
+                        durable_claim,
+                        state="completed",
+                        outcome_code="duplicate",
+                        sync_log_id=sync_log_id,
+                    )
             log.info("import_skipped_duplicate", file_hash=validation.file_hash)
             return {
                 "status": "skipped",
@@ -182,6 +214,18 @@ async def task_import_dossier(
                     sl.status = SyncStatus.failed
                     sl.completed_at = datetime.now(UTC)
                     sl.error_details = {"error": validation.error}
+                if durable_claim is not None:
+                    if sl is None:
+                        raise ValueError("durable import requires a sync log")
+                    from app.services.dossier.import_requests import finish_import
+
+                    await finish_import(
+                        session,
+                        durable_claim,
+                        state="failed",
+                        outcome_code="validation_failed",
+                        sync_log_id=sync_log_id,
+                    )
             log.warning("import_validation_failed", error=validation.error)
             return {"status": "failed", "reason": validation.error, "sync_log_id": str(sync_log_id)}
 
@@ -216,12 +260,12 @@ async def task_import_dossier(
         rows = [import_service.sanitize_row(row) for row in rows]
 
         # 8. Import dossiers (handles SyncLog running → completed internally)
-        report = await import_service.import_dossiers(
-            rows,
-            sync_log_id,
-            tenant,
-            durable_notifications=get_settings().dossier_notification_outbox_enabled,
-        )
+        import_kwargs = {
+            "durable_notifications": get_settings().dossier_notification_outbox_enabled
+        }
+        if durable_claim is not None:
+            import_kwargs["durable_claim"] = durable_claim
+        report = await import_service.import_dossiers(rows, sync_log_id, tenant, **import_kwargs)
         notifications_published = report.notifications_enqueued
 
         duration = round(time.monotonic() - start, 1)
@@ -247,7 +291,7 @@ async def task_import_dossier(
 
     except Exception as exc:
         duration = round(time.monotonic() - start, 1)
-        log.error("import_dossier_failed", error=str(exc), duration_s=duration)
+        log.error("import_dossier_failed", error_type=type(exc).__name__, duration_s=duration)
 
         # Best-effort: mark SyncLog as failed
         try:
@@ -259,7 +303,21 @@ async def task_import_dossier(
                 if sl and sl.status != SyncStatus.failed:
                     sl.status = SyncStatus.failed
                     sl.completed_at = datetime.now(UTC)
-                    sl.error_details = {"error": str(exc)[:500]}
+                    sl.error_details = (
+                        {"error_type": type(exc).__name__}
+                        if durable_claim is not None
+                        else {"error": str(exc)[:500]}
+                    )
+                if durable_claim is not None:
+                    from app.services.dossier.import_requests import finish_import
+
+                    await finish_import(
+                        session,
+                        durable_claim,
+                        state="uncertain",
+                        outcome_code="processing_error",
+                        sync_log_id=sync_log_id,
+                    )
         except Exception:
             log.warning("failed_to_set_error_status")
 

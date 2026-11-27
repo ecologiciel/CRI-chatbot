@@ -1,8 +1,8 @@
 """Transactional primitives for staged durable dossier imports.
 
-The API and worker do not yet use this registry. A successful import must call
-``finish_import`` in the *same transaction* as the dossier and history changes.
-Expired leases become uncertain and are never automatically replayed.
+Acceptance and scheduling are not wired to this registry yet. A successful
+import calls ``finish_import`` in the *same transaction* as the dossier and
+history changes. Expired leases become uncertain and are never auto-replayed.
 """
 
 from __future__ import annotations

@@ -98,6 +98,21 @@ async def test_reply_registration_is_idempotent_scoped_and_audited():
             await register_agent_reply(a, ea, aa, uuid.uuid4(), "another", cipher=cipher)
         async with engine.begin() as conn:
             await conn.execute(text("UPDATE tenant_fixture_reply_a.escalations SET status='assigned' WHERE id=:id"), {"id": ea})
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='accepted', attempts=1, provider_message_id='fixture-id' WHERE id=:id"), {"id": first})
+        # Separate agents and escalations share the same conversation lock.
+        other_escalation = uuid.uuid4()
+        async with engine.begin() as conn:
+            await conn.execute(text("INSERT INTO tenant_fixture_reply_a.escalations (id,conversation_id,trigger_type,priority,status) VALUES (:id,:conversation,'manual','medium','assigned')"), {"id": other_escalation, "conversation": va})
+        concurrent = await asyncio.gather(
+            register_agent_reply(a, ea, aa, uuid.uuid4(), "first-agent", cipher=cipher),
+            register_agent_reply(a, other_escalation, ac, uuid.uuid4(), "second-agent", cipher=cipher),
+            return_exceptions=True,
+        )
+        assert sum(not isinstance(item, Exception) for item in concurrent) == 1
+        assert sum(isinstance(item, AgentReplyConflictError) for item in concurrent) == 1
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='canceled' WHERE tenant_id=:tenant AND state='pending'"), {"tenant": ta})
+        async with engine.begin() as conn:
             await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_agent_reply CHECK (action <> 'agent_reply_queued') NOT VALID"))
         failed = uuid.uuid4()
         try:
@@ -274,7 +289,8 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
         assert second_claim and second_claim.id == second.id
         sender.send_text.side_effect = RuntimeError("fixture ambiguous provider result")
         assert await execute_agent_reply(second_claim, cipher=cipher, sender=sender) == "uncertain"
-        third = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-three", cipher=cipher)
+        with pytest.raises(AgentReplyConflictError):
+            await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-three", cipher=cipher)
         assert await claim() is None
         with patch("app.services.escalation.reply_review.get_session_factory", return_value=factory):
             with pytest.raises(AgentReplyConflictError):
@@ -294,6 +310,7 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
             assert await review_agent_reply(tenant, escalation_id, second.id, actor_id, action="resolve", decision="unknown_no_retry") == "resolved"
             with pytest.raises(AgentReplyConflictError):
                 await review_agent_reply(tenant, escalation_id, second.id, actor_id, action="resolve", decision="unknown_no_retry")
+        third = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-three", cipher=cipher)
         async with engine.begin() as conn:
             await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_agent_send CHECK (action <> 'agent_reply_sent') NOT VALID"))
         third_claim = await claim()

@@ -136,6 +136,19 @@ async def register_agent_reply(
         )).scalar_one_or_none()
         if conversation is None:
             raise AgentReplyConflictError("Conversation indisponible")
+        # Serialize new intentions across agents and escalations.  In
+        # particular, a response queued behind an ambiguous send must not be
+        # released later by a review the author did not anticipate. Replays
+        # of the *same* request remain available above.
+        outstanding = (await session.execute(
+            select(AgentReplyOutboxEvent.id).where(
+                AgentReplyOutboxEvent.tenant_id == tenant.id,
+                AgentReplyOutboxEvent.conversation_id == conversation.id,
+                AgentReplyOutboxEvent.state.in_(["pending", "processing", "uncertain", "follow_up"]),
+            ).limit(1)
+        )).scalar_one_or_none()
+        if outstanding is not None:
+            raise AgentReplyConflictError("Une réponse de cette conversation est déjà en cours ou à examiner")
         contact = (await session.execute(
             select(Contact).where(Contact.id == conversation.contact_id).with_for_update()
         )).scalar_one_or_none()

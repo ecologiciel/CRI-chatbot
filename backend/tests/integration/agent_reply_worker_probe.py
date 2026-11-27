@@ -48,7 +48,25 @@ async def main() -> None:
         await session.commit()
     cipher = VersionedEnvelopeService(factory, settings.kms_master_key)
     await KMSService(factory, AsyncMock(), settings.kms_master_key).generate_tenant_key(tid)
-    events = [await register_agent_reply(tenant, escalation, actor, uuid.uuid4(), f"fixture-{i}", cipher=cipher) for i in range(3)]
+    first = await register_agent_reply(tenant, escalation, actor, uuid.uuid4(), "fixture-0", cipher=cipher)
+    # Synthesize a pre-existing backlog to verify that the worker still fences
+    # old data. New API registrations now allow just one outstanding request.
+    for i in (1, 2):
+        event_id = uuid.uuid4()
+        encrypted = await cipher.encrypt(
+            f"fixture-{i}".encode(), tenant_id=tid, purpose="agent_reply", record_id=event_id,
+        )
+        async with factory() as session:
+            await session.execute(text("""
+                INSERT INTO public.agent_reply_outbox_events
+                    (id,tenant_id,request_key,actor_id,escalation_id,conversation_id,contact_id,
+                     phone_number_id,recipient_fingerprint,ciphertext,key_version)
+                SELECT :id,tenant_id,:request,actor_id,escalation_id,conversation_id,contact_id,
+                       phone_number_id,recipient_fingerprint,:ciphertext,:version
+                FROM public.agent_reply_outbox_events WHERE id=:first
+            """), {"id": event_id, "request": uuid.uuid4(), "ciphertext": encrypted.ciphertext,
+                     "version": encrypted.version, "first": first.id})
+            await session.commit()
     sends: list[str] = []
 
     class FakeSender:
@@ -84,7 +102,7 @@ async def main() -> None:
         assert states == ["accepted", "uncertain", "pending"], states
         assert sends == ["fixture-0", "fixture-1"], sends
         assert await get_redis().exists(HEARTBEAT_KEY)
-        assert len(events) == 3
+        assert len(states) == 3
         print("AGENT_REPLY_REAL_ARQ_ORDER_UNCERTAINTY_PRESENCE_OK", flush=True)
     finally:
         await worker.close()

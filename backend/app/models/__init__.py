@@ -12,6 +12,7 @@ from app.models.campaign import Campaign, CampaignRecipient
 from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
 from app.models.dossier import Dossier, DossierHistory
+from app.models.dossier_import_request import DossierImportRequest
 from app.models.enums import (
     AdminRole,
     AgentType,
@@ -62,6 +63,7 @@ __all__ = [
     "Conversation",
     "Dossier",
     "DossierHistory",
+    "DossierImportRequest",
     "Escalation",
     "Feedback",
     "IncentiveCategory",

@@ -29,6 +29,7 @@ from app.schemas.auth import AdminTokenPayload
 from app.schemas.conversation import MessageResponse
 from app.schemas.escalation import (
     AgentReplyRequest,
+    AgentReplyReviewRequest,
     EscalationList,
     EscalationRead,
     EscalationResolve,
@@ -42,6 +43,7 @@ from app.services.escalation.reply_outbox import (
     register_agent_reply,
 )
 from app.services.escalation.reply_presence import HEARTBEAT_KEY
+from app.services.escalation.reply_review import review_agent_reply
 
 logger = structlog.get_logger()
 
@@ -270,6 +272,48 @@ async def get_reply_request(
         raise ResourceNotFoundError("Demande introuvable")
     return {"id": str(event.id), "state": event.state, "outcome_code": event.outcome_code,
             "created_at": event.created_at, "redacted_at": event.redacted_at}
+
+
+@router.get("/{escalation_id}/reply-requests")
+async def list_open_reply_requests(
+    escalation_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(*_ESCALATION_ROLES)),
+) -> dict:
+    """Expose unresolved metadata, never the encrypted text or recipient."""
+    actor_id = uuid.UUID(admin.sub)
+    async with get_session_factory()() as session:
+        events = (await session.execute(
+            select(AgentReplyOutboxEvent).where(
+                AgentReplyOutboxEvent.tenant_id == tenant.id,
+                AgentReplyOutboxEvent.escalation_id == escalation_id,
+                AgentReplyOutboxEvent.state.in_(["pending", "processing", "uncertain", "follow_up"]),
+            ).order_by(AgentReplyOutboxEvent.sequence).limit(51)
+        )).scalars().all()
+    return {"has_more": len(events) > 50, "events": [
+        {"id": str(event.id), "state": event.state, "outcome_code": event.outcome_code,
+         "created_at": event.created_at, "mine": event.actor_id == actor_id,
+         "request_key": str(event.request_key) if event.actor_id == actor_id else None}
+        for event in events[:50]
+    ]}
+
+
+@router.post("/{escalation_id}/reply-requests/{event_id}/review")
+async def review_reply_request(
+    escalation_id: uuid.UUID,
+    event_id: uuid.UUID,
+    body: AgentReplyReviewRequest,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(*_ESCALATION_ROLES)),
+) -> dict[str, str]:
+    """Record an operator declaration without retrying or proving delivery."""
+    try:
+        state = await review_agent_reply(
+            tenant, escalation_id, event_id, uuid.UUID(admin.sub), action=body.action, decision=body.decision,
+        )
+    except AgentReplyConflictError as exc:
+        raise EscalationConflictError(str(exc)) from exc
+    return {"id": str(event_id), "state": state}
 
 
 @router.post("/{escalation_id}/close", response_model=EscalationRead)

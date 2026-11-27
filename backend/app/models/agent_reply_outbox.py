@@ -38,6 +38,12 @@ class AgentReplyOutboxEvent(UUIDMixin, Base):
             name="ck_agent_reply_accepted_id",
         ),
         CheckConstraint(
+            "(state = 'resolved' AND review_decision IS NOT NULL AND review_decision IN ('confirmed_delivered', 'confirmed_not_sent', 'unknown_no_retry') "
+            "AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL) OR "
+            "(state <> 'resolved' AND review_decision IS NULL AND reviewed_by IS NULL AND reviewed_at IS NULL)",
+            name="ck_agent_reply_review",
+        ),
+        CheckConstraint(
             "(state = 'processing' AND lease_token IS NOT NULL AND lease_until IS NOT NULL) "
             "OR (state <> 'processing' AND lease_token IS NULL AND lease_until IS NULL)",
             name="ck_agent_reply_lease",
@@ -69,6 +75,9 @@ class AgentReplyOutboxEvent(UUIDMixin, Base):
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     provider_message_id: Mapped[str | None] = mapped_column(String(255))
     outcome_code: Mapped[str | None] = mapped_column(String(64))
+    review_decision: Mapped[str | None] = mapped_column(String(32))
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -66,17 +66,10 @@ async def claim_next_reply(session: AsyncSession, *, lease_seconds: int = 120) -
     return AgentReplyClaim(candidate.id, candidate.tenant_id, token)
 
 
-async def finish_reply(
-    session: AsyncSession, claim: AgentReplyClaim, *, provider_message_id: str | None,
-    precondition_failed: bool = False,
+async def quarantine_reply(
+    session: AsyncSession, claim: AgentReplyClaim, *, precondition_failed: bool = False,
 ) -> None:
-    """Record provider acceptance or quarantine an ambiguous result atomically."""
-    if provider_message_id is not None and (
-        not isinstance(provider_message_id, str) or not provider_message_id or len(provider_message_id) > 255
-    ):
-        raise ValueError("Invalid provider message identifier")
-    if provider_message_id is not None and precondition_failed:
-        raise ValueError("Invalid agent reply outcome")
+    """Quarantine an ambiguous result; acceptance requires the execution transaction."""
     result = await session.execute(
         update(AgentReplyOutboxEvent).where(
             AgentReplyOutboxEvent.id == claim.id,
@@ -85,11 +78,9 @@ async def finish_reply(
             AgentReplyOutboxEvent.lease_token == claim.token,
             AgentReplyOutboxEvent.lease_until > func.clock_timestamp(),
         ).values(
-            state="accepted" if provider_message_id is not None else "uncertain",
-            outcome_code="provider_accepted" if provider_message_id is not None else (
-                "precondition_changed" if precondition_failed else "provider_unconfirmed"
-            ),
-            provider_message_id=provider_message_id, lease_token=None, lease_until=None,
+            state="uncertain",
+            outcome_code="precondition_changed" if precondition_failed else "provider_unconfirmed",
+            provider_message_id=None, lease_token=None, lease_until=None,
             updated_at=func.clock_timestamp(),
         ).returning(AgentReplyOutboxEvent.id)
     )

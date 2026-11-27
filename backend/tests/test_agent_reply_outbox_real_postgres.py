@@ -18,10 +18,11 @@ from app.services.escalation.reply_leases import (
     AgentReplyClaim,
     AgentReplyLeaseLostError,
     claim_next_reply,
-    finish_reply,
     quarantine_expired_replies,
+    quarantine_reply,
 )
 from app.services.escalation.reply_outbox import AgentReplyConflictError, register_agent_reply
+from app.services.escalation.reply_review import review_agent_reply
 from app.services.tenant.provisioning import TenantProvisioningService
 from app.workers.agent_reply_outbox import process_one_reply
 
@@ -144,21 +145,21 @@ async def test_claims_keep_conversation_order_and_quarantine_expiry():
     assert {claim.id for claim in claims} == {a1, b1, c1}
     async with factory() as session:
         for item in claims:
-            await finish_reply(session, item, provider_message_id=None if item.id == a1 else f"fixture-{item.id}")
+            await quarantine_reply(session, item)
         await session.commit()
     assert await claim() is None
     async with engine.begin() as conn:
-        await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": a1})
+        await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved', review_decision='unknown_no_retry', reviewed_by=gen_random_uuid(), reviewed_at=now() WHERE id=:id"), {"id": a1})
     second = await claim()
     assert second and second.id == a2
     async with factory() as session:
         with pytest.raises(AgentReplyLeaseLostError):
-            await finish_reply(session, AgentReplyClaim(second.id, second.tenant_id, uuid.uuid4()), provider_message_id="fixture")
+            await quarantine_reply(session, AgentReplyClaim(second.id, second.tenant_id, uuid.uuid4()))
     async with engine.begin() as conn:
         await conn.execute(text("UPDATE public.agent_reply_outbox_events SET lease_until=now()-interval '1 second' WHERE id=:id"), {"id": a2})
     async with factory() as session:
         with pytest.raises(AgentReplyLeaseLostError):
-            await finish_reply(session, second, provider_message_id="fixture")
+            await quarantine_reply(session, second)
     async with engine.begin() as conn:
         await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_agent_expiry CHECK (action <> 'agent_reply_expired') NOT VALID"))
     try:
@@ -267,7 +268,7 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
             assert await quarantine_expired_replies(session) >= 1
             await session.commit()
         async with engine.begin() as conn:
-            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": blocked_reply.id})
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved', review_decision='unknown_no_retry', reviewed_by=gen_random_uuid(), reviewed_at=now() WHERE id=:id"), {"id": blocked_reply.id})
         second = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-two", cipher=cipher)
         second_claim = await claim()
         assert second_claim and second_claim.id == second.id
@@ -275,8 +276,25 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
         assert await execute_agent_reply(second_claim, cipher=cipher, sender=sender) == "uncertain"
         third = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-three", cipher=cipher)
         assert await claim() is None
+        with patch("app.services.escalation.reply_review.get_session_factory", return_value=factory):
+            with pytest.raises(AgentReplyConflictError):
+                await review_agent_reply(tenant, uuid.uuid4(), second.id, actor_id, action="follow_up")
+            assert await review_agent_reply(tenant, escalation_id, second.id, actor_id, action="follow_up") == "follow_up"
+            async with engine.begin() as conn:
+                await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_agent_review CHECK (action <> 'agent_reply_review') NOT VALID"))
+            try:
+                with pytest.raises(DBAPIError):
+                    await review_agent_reply(tenant, escalation_id, second.id, actor_id, action="resolve", decision="unknown_no_retry")
+                async with engine.connect() as conn:
+                    assert (await conn.scalar(text("SELECT state FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": second.id})) == "follow_up"
+                assert await claim() is None
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_agent_review"))
+            assert await review_agent_reply(tenant, escalation_id, second.id, actor_id, action="resolve", decision="unknown_no_retry") == "resolved"
+            with pytest.raises(AgentReplyConflictError):
+                await review_agent_reply(tenant, escalation_id, second.id, actor_id, action="resolve", decision="unknown_no_retry")
         async with engine.begin() as conn:
-            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": second.id})
             await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_agent_send CHECK (action <> 'agent_reply_sent') NOT VALID"))
         third_claim = await claim()
         assert third_claim and third_claim.id == third.id
@@ -302,7 +320,7 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
             assert (await conn.scalar(text("SELECT state FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": third.id})) == "uncertain"
         assert sender.send_text.await_count == 3
         async with engine.begin() as conn:
-            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": third.id})
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved', review_decision='unknown_no_retry', reviewed_by=gen_random_uuid(), reviewed_at=now() WHERE id=:id"), {"id": third.id})
         for scenario in ("actor", "channel", "recipient"):
             event = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), f"fixture-{scenario}", cipher=cipher)
             item = await claim()
@@ -326,7 +344,7 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
                 assert await quarantine_expired_replies(session) >= 1
                 await session.commit()
             async with engine.begin() as conn:
-                await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": event.id})
+                await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved', review_decision='unknown_no_retry', reviewed_by=gen_random_uuid(), reviewed_at=now() WHERE id=:id"), {"id": event.id})
         queued = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-worker", cipher=cipher)
         worker_sender = AsyncMock()
         worker_sender.send_text.return_value = "fixture-worker-provider-id"

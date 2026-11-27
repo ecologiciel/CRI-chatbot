@@ -113,3 +113,31 @@ async def test_reply_status_query_is_scoped_to_tenant_escalation_and_actor():
         assert "content" not in response.json()
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role,decision,expected", [
+    (AdminRole.viewer, "unknown_no_retry", 403),
+    (AdminRole.admin_tenant, None, 422),
+    (AdminRole.supervisor, "unknown_no_retry", 200),
+])
+async def test_reply_review_requires_role_and_explicit_resolution(role, decision, expected):
+    tenant_id, actor_id, escalation_id, event_id = (uuid.uuid4() for _ in range(4))
+    tenant = TenantContext(tenant_id, "fixture_api", "Fixture", "active", None)
+    payload = AdminTokenPayload(sub=str(actor_id), role=role.value, tenant_id=str(tenant_id),
+                                exp=9999999999, iat=1700000000, jti=str(uuid.uuid4()), type="access")
+    app.dependency_overrides[get_current_admin] = lambda: payload
+    try:
+        with (patch("app.core.middleware.TenantResolver.from_tenant_id_header", new=AsyncMock(return_value=tenant)),
+              patch("app.api.v1.escalation.review_agent_reply", new=AsyncMock(return_value="resolved")) as review):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post(f"/api/v1/escalations/{escalation_id}/reply-requests/{event_id}/review", headers={"X-Tenant-ID": str(tenant_id)}, json={"action": "resolve", "decision": decision})
+        assert response.status_code == expected
+        if expected == 200:
+            assert response.json() == {"id": str(event_id), "state": "resolved"}
+            assert review.await_args.args == (tenant, escalation_id, event_id, actor_id)
+            assert review.await_args.kwargs == {"action": "resolve", "decision": "unknown_no_retry"}
+        else:
+            review.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()

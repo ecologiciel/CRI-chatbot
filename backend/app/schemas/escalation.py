@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -85,6 +86,17 @@ class AgentReplyRequest(BaseModel):
 
     request_key: uuid.UUID
     message: str = Field(..., min_length=1, max_length=4000)
+
+
+class AgentReplyReviewRequest(BaseModel):
+    action: Literal["follow_up", "resolve"]
+    decision: Literal["confirmed_delivered", "confirmed_not_sent", "unknown_no_retry"] | None = None
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> AgentReplyReviewRequest:
+        if (self.action == "resolve") != (self.decision is not None):
+            raise ValueError("Review decision is required only for resolution")
+        return self
 
 
 class EscalationStats(BaseModel):

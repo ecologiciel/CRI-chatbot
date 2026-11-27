@@ -26,8 +26,8 @@ from app.services.escalation.reply_execution import (
 from app.services.escalation.reply_leases import (
     AgentReplyLeaseLostError,
     claim_next_reply,
-    finish_reply,
     quarantine_expired_replies,
+    quarantine_reply,
 )
 from app.services.escalation.reply_presence import presence_loop
 from app.services.whatsapp.sender import WhatsAppSenderService
@@ -71,8 +71,8 @@ async def process_one_reply(ctx: dict) -> str:
         logger.warning("agent_reply_execution_failed", event_id=str(claim.id), error_type=type(exc).__name__)
         try:
             async with factory() as session:
-                await finish_reply(session, claim, provider_message_id=None,
-                                   precondition_failed=isinstance(exc, AgentReplyPreconditionError))
+                await quarantine_reply(session, claim,
+                                       precondition_failed=isinstance(exc, AgentReplyPreconditionError))
                 slug = (await session.execute(select(Tenant.slug).where(Tenant.id == claim.tenant_id))).scalar_one()
                 session.add(AuditLog(
                     tenant_slug=slug, user_type="system", action="agent_reply_review",

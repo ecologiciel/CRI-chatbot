@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_]*$")
+_SLUG_PATTERN = re.compile(r"[a-z0-9][a-z0-9_]{0,49}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +55,7 @@ class TenantContext:
 
     def __post_init__(self) -> None:
         # Defense-in-depth: prevent SQL injection in SET search_path
-        if not _SLUG_PATTERN.match(self.slug):
+        if not _SLUG_PATTERN.fullmatch(self.slug):
             raise ValueError(f"Invalid tenant slug: {self.slug!r}")
 
     @property

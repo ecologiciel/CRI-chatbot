@@ -5,13 +5,14 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.api.v1.whatsapp_operations import list_events
 from app.core.tenant import TenantContext
 from app.schemas.whatsapp import IncomingMessage
 from app.services.crypto.kms import KMSService
@@ -53,9 +54,18 @@ async def test_legacy_stop_reconciliation_is_atomic_and_never_sends():
             await conn.execute(text("INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,state) VALUES (:id,:tenant,:mid,'888',:cipher,:version,'uncertain')"), {"id": eid, "tenant": tenant_id, "mid": mid, "cipher": envelope.ciphertext, "version": envelope.version})
     with (patch("app.core.tenant_lifecycle.get_session_factory", return_value=factory),
           patch("app.services.whatsapp.legacy_reconciliation.get_session_factory", return_value=factory)):
+        with patch("app.api.v1.whatsapp_operations.get_session_factory", return_value=factory):
+            before = await list_events(kind="message", state="uncertain", limit=50, offset=0,
+                                       tenant=tenant, _admin=MagicMock())
+            assert all(event["requires_reconciliation"] for event in before["events"])
         with pytest.raises(LegacyReconciliationError):
             await reconcile_legacy_text(tenant, ordinary_id, actor, cipher=cipher)
         assert await reconcile_legacy_text(tenant, event_id, actor, cipher=cipher)
+        with patch("app.api.v1.whatsapp_operations.get_session_factory", return_value=factory):
+            after = await list_events(kind="message", state="uncertain", limit=50, offset=0,
+                                      tenant=tenant, _admin=MagicMock())
+            flags = {event["id"]: event["requires_reconciliation"] for event in after["events"]}
+            assert flags[str(event_id)] is False and flags[str(ordinary_id)] is True
         with pytest.raises(LegacyReconciliationError):
             await reconcile_legacy_text(tenant, event_id, actor, cipher=cipher)
         async with engine.begin() as conn:

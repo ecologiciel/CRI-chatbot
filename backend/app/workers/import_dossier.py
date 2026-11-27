@@ -43,6 +43,8 @@ logger = structlog.get_logger()
 
 async def startup(ctx: dict) -> None:
     """Initialize infrastructure for the import worker process."""
+    if not get_settings().dossier_import_worker_enabled:
+        raise RuntimeError("Dossier import worker is disabled")
     from app.core.database import get_engine
     from app.core.logging import setup_logging
     from app.core.minio import init_minio
@@ -507,4 +509,5 @@ class WorkerSettings:
     max_jobs = 3  # Conservative: imports are I/O heavy
     job_timeout = 600  # 10 minutes
     job_completion_wait = 630
+    health_check_interval = 15
     max_tries = 3

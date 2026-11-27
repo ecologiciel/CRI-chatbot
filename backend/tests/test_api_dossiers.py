@@ -334,13 +334,16 @@ class TestImportDossiers:
         mock_minio.put_object = AsyncMock()
         mock_arq = AsyncMock()
         mock_arq.enqueue_job = AsyncMock()
+        mock_arq.exists.return_value = 1
 
         try:
             with (
                 patch("app.core.middleware.TenantResolver") as MockResolver,
                 patch("app.api.v1.dossiers.get_minio", return_value=mock_minio),
                 patch("app.api.v1.dossiers.get_arq_pool", return_value=mock_arq),
+                patch("app.api.v1.dossiers.get_settings") as settings,
             ):
+                settings.return_value.dossier_import_worker_enabled = True
                 MockResolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
 
                 async with AsyncClient(
@@ -368,6 +371,64 @@ class TestImportDossiers:
         mock_minio.put_object.assert_called_once()
         mock_arq.enqueue_job.assert_called_once()
         assert mock_arq.enqueue_job.await_args.kwargs["_queue_name"] == "arq:queue:dossier-import"
+        mock_arq.exists.assert_awaited_once_with("arq:queue:dossier-import:health-check")
+
+    @pytest.mark.asyncio
+    async def test_import_disabled_returns_503_without_storing_file(self):
+        _setup_overrides()
+        storage, queue = MagicMock(), AsyncMock()
+        storage.put_object = AsyncMock()
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as resolver,
+                patch("app.api.v1.dossiers.get_minio", return_value=storage),
+                patch("app.api.v1.dossiers.get_arq_pool", return_value=queue),
+                patch("app.api.v1.dossiers.get_settings") as settings,
+            ):
+                settings.return_value.dossier_import_worker_enabled = False
+                resolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.post(
+                        "/api/v1/dossiers/import",
+                        files={"file": ("dossiers.xlsx", b"PK", "application/octet-stream")},
+                        headers=_headers(),
+                    )
+            assert response.status_code == 503
+            storage.put_object.assert_not_awaited()
+            queue.enqueue_job.assert_not_awaited()
+        finally:
+            _clear_overrides()
+
+    @pytest.mark.asyncio
+    async def test_import_refuses_when_worker_heartbeat_is_missing(self):
+        _setup_overrides()
+        storage, queue = MagicMock(), AsyncMock()
+        storage.put_object = AsyncMock()
+        queue.exists.return_value = 0
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as resolver,
+                patch("app.api.v1.dossiers.get_minio", return_value=storage),
+                patch("app.api.v1.dossiers.get_arq_pool", return_value=queue),
+                patch("app.api.v1.dossiers.get_settings") as settings,
+            ):
+                settings.return_value.dossier_import_worker_enabled = True
+                resolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.post(
+                        "/api/v1/dossiers/import",
+                        files={"file": ("dossiers.xlsx", b"PK", "application/octet-stream")},
+                        headers=_headers(),
+                    )
+            assert response.status_code == 503
+            storage.put_object.assert_not_awaited()
+            queue.enqueue_job.assert_not_awaited()
+        finally:
+            _clear_overrides()
 
     @pytest.mark.asyncio
     async def test_import_bad_extension(self):

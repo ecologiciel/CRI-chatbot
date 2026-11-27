@@ -173,6 +173,15 @@ class TestTaskImportDossier:
     """Tests for the task_import_dossier ARQ task."""
 
     @pytest.mark.asyncio
+    async def test_worker_cannot_start_when_disabled(self):
+        from app.workers.import_dossier import startup
+
+        with patch("app.workers.import_dossier.get_settings") as settings:
+            settings.return_value.dossier_import_worker_enabled = False
+            with pytest.raises(RuntimeError, match="disabled"):
+                await startup({})
+
+    @pytest.mark.asyncio
     async def test_download_failure_marks_sync_as_failed(self):
         sync_log = _make_sync_log_mock()
         tenant = _make_tenant_with_session(_make_mock_session(get_result=sync_log))

@@ -15,11 +15,12 @@ from datetime import UTC, date, datetime
 from pathlib import PurePosixPath
 
 import structlog
-from fastapi import APIRouter, Depends, Query, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.core.arq import DOSSIER_IMPORT_QUEUE, get_arq_pool
+from app.core.config import get_settings
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.minio import get_minio
 from app.core.rbac import require_role
@@ -142,6 +143,23 @@ async def import_dossiers(
             details={"file_size_at_least": len(file_bytes), "max_size": MAX_IMPORT_SIZE},
         )
 
+    if not get_settings().dossier_import_worker_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="L’import de dossiers est temporairement indisponible. Contactez l’administrateur.",
+        )
+    try:
+        pool = get_arq_pool()
+        worker_online = await pool.exists(f"{DOSSIER_IMPORT_QUEUE}:health-check")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="L’import de dossiers est temporairement indisponible."
+        ) from exc
+    if not worker_online:
+        raise HTTPException(
+            status_code=503, detail="Le traitement des imports est temporairement indisponible."
+        )
+
     # 3. Upload to MinIO
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     safe_name = filename
@@ -160,7 +178,6 @@ async def import_dossiers(
     )
 
     # 4. Enqueue ARQ task
-    pool = get_arq_pool()
     await pool.enqueue_job(
         "task_import_dossier",
         object_path,

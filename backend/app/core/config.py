@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     dossier_notification_outbox_enabled: bool = Field(
         default=False, description="Use the staged transactional dossier notification outbox"
     )
+    dossier_import_worker_enabled: bool = Field(
+        default=False,
+        description="Accept dossier imports only when the dedicated worker is configured",
+    )
     webhook_proxy_shared_secret: str = Field(
         default="", description="Optional shared secret required from the Cloudflare webhook relay"
     )

@@ -16,6 +16,7 @@ import uuid
 
 import structlog
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import DuplicateResourceError, ResourceNotFoundError
@@ -75,17 +76,23 @@ class ContactService:
                     )
                 return contact
 
-            # Create new contact
-            contact = Contact(
-                phone=phone,
-                name=name,
-                language=language,
-                source=ContactSource.whatsapp,
-                opt_in_status=OptInStatus.pending,
-                tags=[],
+            # The canonical unique index protects concurrent alternate
+            # spellings. An insert that loses the race reloads the winner.
+            statement = (
+                insert(Contact)
+                .values(phone=phone, name=name, language=language, source=ContactSource.whatsapp,
+                        opt_in_status=OptInStatus.pending, tags=[])
+                .on_conflict_do_nothing()
+                .returning(Contact)
             )
-            session.add(contact)
-            await session.flush()
+            contact = (await session.execute(statement)).scalar_one_or_none()
+            if contact is None:
+                contact = (await session.execute(
+                    select(Contact).where(Contact.phone.in_(phone_variants(phone)))
+                )).scalar_one()
+                if contact.name is None and name:
+                    contact.name = name
+                return contact
 
             self._logger.info(
                 "contact_created",

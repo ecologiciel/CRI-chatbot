@@ -195,10 +195,12 @@ class ContactImportExportService:
                 result.skipped += len(batch) - len(new_rows)
 
                 if new_rows:
-                    await session.execute(
-                        pg_insert(Contact).values(new_rows),
+                    inserted = await session.execute(
+                        pg_insert(Contact).values(new_rows).on_conflict_do_nothing().returning(Contact.id),
                     )
-                    result.created += len(new_rows)
+                    created = len(inserted.scalars().all())
+                    result.created += created
+                    result.skipped += len(new_rows) - created
 
         self._logger.info(
             "import_completed",

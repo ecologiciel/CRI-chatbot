@@ -1,5 +1,6 @@
 """Phone identity invariants on disposable tenant schemas."""
 
+import asyncio
 import os
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -51,8 +52,13 @@ async def test_new_tenant_inherits_phone_identity_constraint():
             "fixture.csv",
         )
         assert imported.created == 1 and imported.skipped == 2 and not imported.errors
+        first, second = await asyncio.gather(
+            ContactService().get_or_create(tenant, "+212600000013"),
+            ContactService().get_or_create(tenant, "212600000013"),
+        )
+        assert first.id == second.id
     async with engine.connect() as conn:
-        assert (await conn.scalar(text("SELECT count(*) FROM tenant_fixture_phone_a.contacts"))) == 3
+        assert (await conn.scalar(text("SELECT count(*) FROM tenant_fixture_phone_a.contacts"))) == 4
         assert (await conn.scalar(text("SELECT count(*) FROM tenant_fixture_phone_b.contacts"))) == 1
         assert (await conn.scalar(text("SELECT opt_in_status::text FROM tenant_fixture_phone_a.contacts WHERE phone='212600000011'"))) == "opted_out"
     await engine.dispose()

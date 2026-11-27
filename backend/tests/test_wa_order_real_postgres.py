@@ -155,7 +155,7 @@ async def test_stop_commits_consent_before_ack_and_bypasses_uncertain_messages()
     fail_stop = IncomingMessage.model_validate({"id": "stop-fail", "from": "212600000003", "timestamp": "2", "type": "text", "text": {"body": "STOP"}})
     fingerprint = await cipher.whatsapp_sender_fingerprint(tenant_id=tenant_id, channel_id="777", sender_id=stop.from_)
     async with engine.begin() as conn:
-        await conn.execute(text("INSERT INTO tenant_fixture_stop.contacts (phone,opt_in_status) VALUES ('212600000002','opted_in'),('212600000003','opted_in')"))
+        await conn.execute(text("INSERT INTO tenant_fixture_stop.contacts (phone,opt_in_status) VALUES ('212600000002','opted_in'),('212600000003','opted_in'),('212600000004','opted_in')"))
         await conn.execute(text("""
             INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,sender_fingerprint,state)
             VALUES (gen_random_uuid(),:id,'older','777','fixture',1,:fingerprint,'uncertain'),
@@ -176,6 +176,30 @@ async def test_stop_commits_consent_before_ack_and_bypasses_uncertain_messages()
         async with engine.begin() as conn:
             await conn.execute(text("UPDATE tenant_fixture_stop.contacts SET opt_in_status='opted_in' WHERE phone='212600000002'"))
         assert not await persist_incoming_message(tenant, "777", stop, [], cipher=cipher)
+        # Simulate a consent-checked provider send already holding the contact
+        # lock. STOP cannot be acknowledged until that transaction completes.
+        delayed_stop = IncomingMessage.model_validate({"id": "stop-delayed", "from": "212600000004", "timestamp": "3", "type": "text", "text": {"body": "STOP"}})
+        async with engine.connect() as sending_connection:
+            transaction = await sending_connection.begin()
+            await sending_connection.execute(text("SELECT id FROM tenant_fixture_stop.contacts WHERE phone='212600000004' FOR UPDATE"))
+            sender_pid = (await sending_connection.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            delayed = asyncio.create_task(persist_incoming_message(tenant, "777", delayed_stop, [], cipher=cipher))
+            blocked = False
+            try:
+                for _ in range(50):
+                    async with engine.connect() as monitor:
+                        blocked = (await monitor.execute(text("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE :pid = ANY(pg_blocking_pids(pid)))"), {"pid": sender_pid})).scalar_one()
+                    if blocked:
+                        break
+                    if delayed.done():
+                        break
+                    await asyncio.sleep(0.1)
+                assert blocked and not delayed.done()
+            finally:
+                await transaction.commit()
+            assert await asyncio.wait_for(delayed, timeout=10)
+        async with engine.connect() as conn:
+            assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='212600000004'"))).scalar_one() == "opted_out"
         async with engine.begin() as conn:
             assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='212600000002'"))).scalar_one() == "opted_in"
             await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_optout CHECK (action <> 'opt_in_change') NOT VALID"))

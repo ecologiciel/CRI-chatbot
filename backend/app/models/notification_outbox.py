@@ -5,7 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    String,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,6 +39,8 @@ class NotificationOutboxEvent(UUIDMixin, Base):
             name="ck_notification_outbox_lease",
         ),
         Index("uq_notification_outbox_history", "tenant_id", "history_id", unique=True),
+        Index("uq_notification_outbox_sequence", "sequence", unique=True),
+        Index("ix_notification_outbox_dossier_order", "tenant_id", "dossier_id", "sequence"),
         Index("ix_notification_outbox_queue", "tenant_id", "state", "created_at"),
         {"schema": "public"},
     )
@@ -38,6 +50,9 @@ class NotificationOutboxEvent(UUIDMixin, Base):
     )
     # History lives in a tenant-specific schema, so a cross-schema FK cannot be static.
     history_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    dossier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    sequence: Mapped[int] = mapped_column(BigInteger, Identity(), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

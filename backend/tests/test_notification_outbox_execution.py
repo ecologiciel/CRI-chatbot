@@ -21,7 +21,9 @@ def setup_execution(monkeypatch):
         yield object()
 
     tenant = SimpleNamespace(id=uuid.uuid4(), db_session=db_session)
-    claim = NotificationClaim(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+    claim = NotificationClaim(
+        uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), 1
+    )
     claim_mock = AsyncMock(return_value=claim)
     finish_mock = AsyncMock(return_value=True)
     load_mock = AsyncMock(return_value=object())
@@ -48,7 +50,7 @@ async def test_explicit_outcomes_are_fenced(setup_execution, result, expected, c
     service = SimpleNamespace(send_notification=AsyncMock(return_value=result))
     assert await execution.process_one_notification(tenant, service) == expected
     service.send_notification.assert_awaited_once()
-    assert service.send_notification.await_args.kwargs == {"durable": True}
+    assert service.send_notification.await_args.kwargs == {"durable": True, "durable_claim": claim}
     assert finish.await_args.args[1:] == (tenant.id, claim)
     assert finish.await_args.kwargs == {
         "outcome": expected,

@@ -22,6 +22,9 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False, server_default=sa.text("gen_random_uuid()")),
         sa.Column("tenant_id", sa.UUID(), nullable=False),
         sa.Column("history_id", sa.UUID(), nullable=False),
+        sa.Column("dossier_id", sa.UUID(), nullable=False),
+        sa.Column("contact_id", sa.UUID(), nullable=True),
+        sa.Column("sequence", sa.BigInteger(), sa.Identity(), nullable=False),
         sa.Column("state", sa.String(16), nullable=False, server_default="pending"),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("lease_token", sa.UUID(), nullable=True),
@@ -53,6 +56,19 @@ def upgrade() -> None:
         "notification_outbox_events",
         ["tenant_id", "history_id"],
         unique=True,
+        schema="public",
+    )
+    op.create_index(
+        "uq_notification_outbox_sequence",
+        "notification_outbox_events",
+        ["sequence"],
+        unique=True,
+        schema="public",
+    )
+    op.create_index(
+        "ix_notification_outbox_dossier_order",
+        "notification_outbox_events",
+        ["tenant_id", "dossier_id", "sequence"],
         schema="public",
     )
     op.create_index(

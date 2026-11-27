@@ -80,6 +80,7 @@ async def test_staged_outbox_is_written_before_commit_and_never_published_to_red
     import_service, monkeypatch
 ):
     history_id = uuid.uuid4()
+    dossier_id, contact_id = uuid.uuid4(), uuid.uuid4()
     session = AsyncMock()
     query_result = MagicMock()
     query_result.scalar_one_or_none.return_value = None
@@ -92,11 +93,18 @@ async def test_staged_outbox_is_written_before_commit_and_never_published_to_red
     context.__aexit__ = AsyncMock(return_value=False)
 
     async def process_batch(batch, sync_id, db, report, pending):
-        pending.append({"_history_id": history_id})
+        pending.append(
+            {
+                "_history_id": history_id,
+                "dossier_id": str(dossier_id),
+                "contact_id": str(contact_id),
+            }
+        )
 
-    async def enqueue(db, tenant_id, event_history_id):
+    async def enqueue(db, tenant_id, event_history_id, event_dossier_id, event_contact_id):
         context.__aexit__.assert_not_awaited()
         assert (db, tenant_id, event_history_id) == (session, tenant.id, history_id)
+        assert (event_dossier_id, event_contact_id) == (dossier_id, contact_id)
         return True
 
     monkeypatch.setattr(import_service, "_process_batch", process_batch)

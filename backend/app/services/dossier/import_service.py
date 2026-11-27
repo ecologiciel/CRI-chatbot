@@ -704,7 +704,13 @@ class DossierImportService:
                 from app.services.notification.outbox import enqueue_notification
 
                 for event in pending_notifications:
-                    await enqueue_notification(session, tenant.id, event["_history_id"])
+                    await enqueue_notification(
+                        session,
+                        tenant.id,
+                        event["_history_id"],
+                        uuid.UUID(event["dossier_id"]),
+                        uuid.UUID(event["contact_id"]) if event["contact_id"] else None,
+                    )
 
             # Finalise SyncLog
             if sync_log:
@@ -944,7 +950,9 @@ class DossierImportService:
                         "dossier_id": str(existing.id),
                         "_history_id": status_history_id,
                         "numero": existing.numero,
-                        "contact_id": str(existing.contact_id) if existing.contact_id else None,
+                        "contact_id": str(existing.contact_id or phone_to_contact.get(row.phone))
+                        if (existing.contact_id or phone_to_contact.get(row.phone))
+                        else None,
                         "old_statut": change.old_value,
                         "new_statut": change.new_value,
                         "sync_log_id": str(sync_log_id),

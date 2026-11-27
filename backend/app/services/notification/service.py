@@ -17,14 +17,18 @@ from typing import Any
 
 import structlog
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
-from app.models.enums import DossierStatut, OptInStatus
+from app.models.dossier import Dossier, DossierHistory
+from app.models.enums import DossierStatut, OptInStatus, TenantStatus
+from app.models.notification_outbox import NotificationOutboxEvent
+from app.models.tenant import Tenant
 from app.schemas.audit import AuditLogCreate
 from app.services.audit.service import AuditService, get_audit_service
+from app.services.notification.outbox import NotificationClaim
 from app.services.whatsapp.sender import WhatsAppSenderService
 
 logger = structlog.get_logger()
@@ -301,9 +305,81 @@ class NotificationService:
         language_code: str,
         components: list,
         sender: WhatsAppSenderService | None = None,
+        durable_claim: NotificationClaim | None = None,
+        expected_status: str | None = None,
+        expected_old_status: str | None = None,
     ) -> tuple[str | None, str | None]:
         """Serialize opt-out updates with the bounded provider send request."""
         async with tenant.db_session() as session:
+            if durable_claim is not None:
+                active_claim = (
+                    await session.execute(
+                        select(NotificationOutboxEvent.id)
+                        .where(
+                            NotificationOutboxEvent.id == durable_claim.event_id,
+                            NotificationOutboxEvent.tenant_id == tenant.id,
+                            NotificationOutboxEvent.history_id == durable_claim.history_id,
+                            NotificationOutboxEvent.dossier_id == durable_claim.dossier_id,
+                            NotificationOutboxEvent.contact_id == durable_claim.contact_id,
+                            NotificationOutboxEvent.sequence == durable_claim.sequence,
+                            NotificationOutboxEvent.state == "processing",
+                            NotificationOutboxEvent.lease_token == durable_claim.lease_token,
+                            NotificationOutboxEvent.lease_until > func.now(),
+                        )
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if active_claim is None:
+                    return "claim_lost", None
+                tenant_record = (
+                    await session.execute(
+                        select(Tenant).where(Tenant.id == tenant.id).with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if (
+                    tenant_record is None
+                    or tenant_record.status != TenantStatus.active
+                    or tenant_record.whatsapp_config != tenant.whatsapp_config
+                ):
+                    return "tenant_or_channel_changed", None
+                dossier = (
+                    await session.execute(
+                        select(Dossier)
+                        .where(Dossier.id == durable_claim.dossier_id)
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if dossier is None or dossier.contact_id != durable_claim.contact_id:
+                    return "recipient_changed", None
+                history = (
+                    await session.execute(
+                        select(DossierHistory).where(
+                            DossierHistory.id == durable_claim.history_id,
+                            DossierHistory.dossier_id == durable_claim.dossier_id,
+                            DossierHistory.field_changed == "statut",
+                        )
+                    )
+                ).scalar_one_or_none()
+                if (
+                    history is None
+                    or history.new_value != dossier.statut.value
+                    or history.new_value != expected_status
+                    or history.old_value != expected_old_status
+                ):
+                    return "dossier_superseded", None
+                later = (
+                    await session.execute(
+                        select(NotificationOutboxEvent.id)
+                        .where(
+                            NotificationOutboxEvent.tenant_id == tenant.id,
+                            NotificationOutboxEvent.dossier_id == durable_claim.dossier_id,
+                            NotificationOutboxEvent.sequence > durable_claim.sequence,
+                        )
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if later is not None:
+                    return "dossier_superseded", None
             result = await session.execute(
                 select(Contact).where(Contact.id == contact_id).with_for_update()
             )
@@ -353,6 +429,7 @@ class NotificationService:
         tenant: TenantContext,
         *,
         durable: bool = False,
+        durable_claim: NotificationClaim | None = None,
     ) -> dict[str, Any]:
         """Process a single dossier-change event end-to-end.
 
@@ -371,6 +448,15 @@ class NotificationService:
             dossier_id=event.dossier_id,
             numero=event.numero,
         )
+        if durable and durable_claim is None:
+            raise ValueError("durable notifications require a fenced claim")
+        if durable_claim is not None and (
+            not durable
+            or str(durable_claim.dossier_id) != event.dossier_id
+            or (str(durable_claim.contact_id) if durable_claim.contact_id else None)
+            != event.contact_id
+        ):
+            raise ValueError("notification does not match claim")
 
         # 1. Decision matrix
         decision = self.should_notify(event.old_statut, event.new_statut)
@@ -460,6 +546,9 @@ class NotificationService:
                 template_name=decision.template_name,
                 language_code=language_code,
                 components=components,
+                durable_claim=durable_claim,
+                expected_status=event.new_statut if durable_claim is not None else None,
+                expected_old_status=event.old_statut if durable_claim is not None else None,
             )
             if skip_reason:
                 log.info("notification_skipped_after_recheck", reason=skip_reason)

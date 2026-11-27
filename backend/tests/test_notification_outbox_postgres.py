@@ -60,7 +60,9 @@ async def test_outbox_transaction_isolation_and_fenced_leases(monkeypatch):
         await session.execute(
             text("INSERT INTO public.test_dossier_history VALUES (:id)"), {"id": rolled_back}
         )
-        assert await enqueue_notification(session, tenant_a, rolled_back)
+        assert await enqueue_notification(
+            session, tenant_a, rolled_back, uuid.uuid4(), uuid.uuid4()
+        )
         await session.rollback()
     async with sessions.begin() as session:
         assert not (
@@ -68,9 +70,11 @@ async def test_outbox_transaction_isolation_and_fenced_leases(monkeypatch):
                 text("SELECT 1 FROM public.test_dossier_history WHERE id=:id"), {"id": rolled_back}
             )
         ).first()
-        assert await enqueue_notification(session, tenant_a, history_a)
-        assert not await enqueue_notification(session, tenant_a, history_a)
-        assert await enqueue_notification(session, tenant_b, history_b)
+        assert await enqueue_notification(session, tenant_a, history_a, uuid.uuid4(), uuid.uuid4())
+        assert not await enqueue_notification(
+            session, tenant_a, history_a, uuid.uuid4(), uuid.uuid4()
+        )
+        assert await enqueue_notification(session, tenant_b, history_b, uuid.uuid4(), uuid.uuid4())
 
     # Both claims overlap: one row can only be claimed by one worker.
     locked = asyncio.Event()
@@ -157,7 +161,9 @@ async def test_outbox_transaction_isolation_and_fenced_leases(monkeypatch):
     )
     monkeypatch.setattr(execution, "_load_change", AsyncMock(return_value=object()))
     async with sessions.begin() as session:
-        assert await enqueue_notification(session, tenant_a, uuid.uuid4())
+        assert await enqueue_notification(
+            session, tenant_a, uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        )
     assert await execution.process_one_notification(tenant, service) == "sent"
     assert await execution.process_one_notification(tenant, service) == "empty"
     service.send_notification.assert_awaited_once()

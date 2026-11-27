@@ -22,15 +22,28 @@ class NotificationClaim:
     event_id: uuid.UUID
     history_id: uuid.UUID
     lease_token: uuid.UUID
+    dossier_id: uuid.UUID
+    contact_id: uuid.UUID | None
+    sequence: int
 
 
 async def enqueue_notification(
-    session: AsyncSession, tenant_id: uuid.UUID, history_id: uuid.UUID
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    history_id: uuid.UUID,
+    dossier_id: uuid.UUID,
+    contact_id: uuid.UUID | None,
 ) -> bool:
     """Persist an intent in the caller's transaction, deduplicated by history."""
     result = await session.execute(
         insert(NotificationOutboxEvent)
-        .values(id=uuid.uuid4(), tenant_id=tenant_id, history_id=history_id)
+        .values(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            history_id=history_id,
+            dossier_id=dossier_id,
+            contact_id=contact_id,
+        )
         .on_conflict_do_nothing(index_elements=["tenant_id", "history_id"])
         .returning(NotificationOutboxEvent.id)
     )
@@ -63,7 +76,9 @@ async def claim_notification(
     row.attempts += 1
     row.updated_at = func.now()
     await session.flush()
-    return NotificationClaim(row.id, row.history_id, token)
+    return NotificationClaim(
+        row.id, row.history_id, token, row.dossier_id, row.contact_id, row.sequence
+    )
 
 
 async def finish_notification(

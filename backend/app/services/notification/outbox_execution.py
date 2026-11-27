@@ -28,6 +28,8 @@ _SKIP_REASONS = {
     "no_phone",
     "opted_out_after_recheck",
     "contact_not_found_after_recheck",
+    "recipient_changed",
+    "dossier_superseded",
 }
 
 
@@ -39,7 +41,11 @@ async def _load_change(
         result = await session.execute(
             select(DossierHistory, Dossier)
             .join(Dossier, Dossier.id == DossierHistory.dossier_id)
-            .where(DossierHistory.id == claim.history_id, DossierHistory.field_changed == "statut")
+            .where(
+                DossierHistory.id == claim.history_id,
+                DossierHistory.field_changed == "statut",
+                DossierHistory.dossier_id == claim.dossier_id,
+            )
         )
         row = result.one_or_none()
         if row is None:
@@ -50,7 +56,7 @@ async def _load_change(
         return DossierChangeEvent(
             dossier_id=str(dossier.id),
             numero=dossier.numero,
-            contact_id=str(dossier.contact_id) if dossier.contact_id else None,
+            contact_id=str(claim.contact_id) if claim.contact_id else None,
             old_statut=history.old_value,
             new_statut=history.new_value,
             sync_log_id=str(history.sync_log_id) if history.sync_log_id else None,
@@ -83,7 +89,7 @@ async def process_one_notification(
                 # The database claim handles idempotence; the old Redis NX key
                 # is neither a durable receipt nor scoped to the history event.
                 result: dict[str, Any] = await service.send_notification(
-                    event, tenant, durable=True
+                    event, tenant, durable=True, durable_claim=claim
                 )
                 status = result.get("status")
                 if status == "sent" and isinstance(result.get("wamid"), str):

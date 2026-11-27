@@ -8,7 +8,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import os
 import uuid
 from datetime import UTC, datetime
@@ -157,6 +156,7 @@ def _make_import_report(
     report.rows_imported = rows_imported
     report.rows_updated = rows_updated
     report.rows_errored = rows_errored
+    report.notifications_enqueued = 0
     report.errors = []
     report.duration_seconds = 1.5
     return report
@@ -255,8 +255,9 @@ class TestTaskImportDossier:
         assert sync_log.status == SyncStatus.failed
 
     @pytest.mark.asyncio
-    async def test_import_success_publishes_notifications(self):
-        """Status changes are published to Redis notification queue."""
+    @pytest.mark.parametrize("durable_enabled", [False, True])
+    async def test_import_uses_single_notification_publisher(self, durable_enabled):
+        """The worker does not publish an incomplete duplicate event."""
         sync_log = _make_sync_log_mock()
 
         # Mock DossierHistory entries with statut changes
@@ -296,6 +297,7 @@ class TestTaskImportDossier:
         mock_import_service.import_dossiers = AsyncMock(
             return_value=_make_import_report(),
         )
+        mock_import_service.import_dossiers.return_value.notifications_enqueued = 1
 
         mock_redis = AsyncMock()
 
@@ -307,7 +309,9 @@ class TestTaskImportDossier:
                 return_value=mock_import_service,
             ),
             patch("app.core.redis.get_redis", return_value=mock_redis),
+            patch("app.workers.import_dossier.get_settings") as settings,
         ):
+            settings.return_value.dossier_notification_outbox_enabled = durable_enabled
             MockResolver.from_slug = AsyncMock(return_value=tenant)
             mock_get_minio.return_value.get_object = AsyncMock(
                 return_value=_make_minio_response(),
@@ -323,12 +327,10 @@ class TestTaskImportDossier:
 
         assert result["status"] == "completed"
         assert result["notifications_published"] == 1
-        mock_redis.rpush.assert_called_once()
-        call_args = mock_redis.rpush.call_args
-        assert call_args[0][0] == f"{TEST_TENANT_SLUG}:notification:dossier_changes"
-        payload = json.loads(call_args[0][1])
-        assert payload["old_statut"] == "en_attente"
-        assert payload["new_statut"] == "valide"
+        mock_redis.rpush.assert_not_called()
+        assert mock_import_service.import_dossiers.await_args.kwargs == {
+            "durable_notifications": durable_enabled
+        }
 
     @pytest.mark.asyncio
     async def test_csv_file_uses_parse_csv(self):

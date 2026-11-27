@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     whatsapp_durable_inbox_enabled: bool = Field(
         default=False, description="Use transactional WhatsApp webhook intake"
     )
+    dossier_notification_outbox_enabled: bool = Field(
+        default=False, description="Use the staged transactional dossier notification outbox"
+    )
     webhook_proxy_shared_secret: str = Field(
         default="", description="Optional shared secret required from the Cloudflare webhook relay"
     )

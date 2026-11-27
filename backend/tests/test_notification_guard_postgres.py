@@ -21,6 +21,7 @@ from app.models.contact import Contact
 from app.models.dossier import Dossier, DossierHistory
 from app.models.tenant import Tenant
 from app.services.notification.outbox import claim_notification, enqueue_notification
+from app.services.notification.outbox_execution import process_one_notification
 from app.services.notification.service import NotificationService
 
 URL = os.environ.get("TEST_NOTIFICATION_GUARD_DB_URL")
@@ -107,6 +108,7 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
     tenant = SimpleNamespace(
         id=tenant_id, slug="guard", whatsapp_config=config, db_session=db_session
     )
+    newer_history_id = uuid.uuid4()
     async with sessions.begin() as session:
         assert await enqueue_notification(session, tenant_id, history_id, dossier_id, contact_id)
         claim = await claim_notification(session, tenant_id)
@@ -163,7 +165,13 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             sa.text("UPDATE tenant_guard.dossiers SET statut='valide' WHERE id=:id"),
             {"id": dossier_id},
         )
-        await enqueue_notification(session, tenant_id, uuid.uuid4(), dossier_id, contact_id)
+        await session.execute(
+            sa.text(
+                "INSERT INTO tenant_guard.dossier_history (id,dossier_id,field_changed,new_value,old_value) VALUES (:id,:dossier,'statut','valide','rejete')"
+            ),
+            {"id": newer_history_id, "dossier": dossier_id},
+        )
+        await enqueue_notification(session, tenant_id, newer_history_id, dossier_id, contact_id)
     reason, wamid = await service._send_with_current_consent(
         tenant,
         contact_id,
@@ -176,4 +184,16 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
     )
     assert (reason, wamid) == ("dossier_superseded", None)
     sender.send_template.assert_awaited_once()
+    assert await process_one_notification(tenant, service) == "sent"
+    assert sender.send_template.await_count == 2
+    async with sessions.begin() as session:
+        outcome = (
+            await session.execute(
+                sa.text(
+                    "SELECT state, provider_message_id FROM public.notification_outbox_events WHERE history_id=:id"
+                ),
+                {"id": newer_history_id},
+            )
+        ).one()
+        assert tuple(outcome) == ("sent", "wamid.accepted")
     await engine.dispose()

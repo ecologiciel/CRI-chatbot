@@ -15,7 +15,6 @@ Notifications:
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import tempfile
 import time
@@ -106,9 +105,7 @@ async def task_import_dossier(
         Dict with status, sync_log_id, row counts, and notifications_published.
     """
     from app.core.minio import get_object_bytes
-    from app.core.redis import get_redis
     from app.core.tenant import TenantResolver
-    from app.models.dossier import DossierHistory
     from app.models.sync import SyncConfig, SyncLog
     from app.services.dossier.import_service import get_dossier_import_service
 
@@ -209,34 +206,13 @@ async def task_import_dossier(
         rows = [import_service.sanitize_row(row) for row in rows]
 
         # 8. Import dossiers (handles SyncLog running → completed internally)
-        report = await import_service.import_dossiers(rows, sync_log_id, tenant)
-
-        # 9. Publish status change notifications to Redis
-        notifications_published = 0
-        async with tenant.db_session() as session:
-            result = await session.execute(
-                select(DossierHistory).where(
-                    DossierHistory.sync_log_id == sync_log_id,
-                    DossierHistory.field_changed == "statut",
-                ),
-            )
-            status_changes = result.scalars().all()
-
-        if status_changes:
-            redis = get_redis()
-            notification_key = f"{tenant.slug}:notification:dossier_changes"
-            for change in status_changes:
-                notification = json.dumps(
-                    {
-                        "dossier_id": str(change.dossier_id),
-                        "old_statut": change.old_value,
-                        "new_statut": change.new_value,
-                        "sync_log_id": str(sync_log_id),
-                        "changed_at": change.changed_at.isoformat() if change.changed_at else None,
-                    }
-                )
-                await redis.rpush(notification_key, notification)
-                notifications_published += 1
+        report = await import_service.import_dossiers(
+            rows,
+            sync_log_id,
+            tenant,
+            durable_notifications=get_settings().dossier_notification_outbox_enabled,
+        )
+        notifications_published = report.notifications_enqueued
 
         duration = round(time.monotonic() - start, 1)
         log.info(

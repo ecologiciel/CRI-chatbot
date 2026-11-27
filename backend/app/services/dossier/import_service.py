@@ -217,6 +217,7 @@ class ImportReport:
     rows_imported: int = 0
     rows_updated: int = 0
     rows_errored: int = 0
+    notifications_enqueued: int = 0
     errors: list[dict] = field(default_factory=list)
     duration_seconds: float = 0.0
 
@@ -699,18 +700,19 @@ class DossierImportService:
                 )
 
             if durable_notifications:
-                # This staged path is not yet enabled in the import worker.
-                # The outbox must commit or roll back with the dossier changes.
+                # The feature is disabled by default. The outbox must commit
+                # or roll back with the dossier changes.
                 from app.services.notification.outbox import enqueue_notification
 
                 for event in pending_notifications:
-                    await enqueue_notification(
+                    inserted = await enqueue_notification(
                         session,
                         tenant.id,
                         event["_history_id"],
                         uuid.UUID(event["dossier_id"]),
                         uuid.UUID(event["contact_id"]) if event["contact_id"] else None,
                     )
+                    report.notifications_enqueued += int(inserted)
 
             # Finalise SyncLog
             if sync_log:
@@ -724,7 +726,7 @@ class DossierImportService:
 
         # Publish status-change events to Redis for notification worker
         if pending_notifications and not durable_notifications:
-            await self._publish_notifications(
+            report.notifications_enqueued = await self._publish_notifications(
                 tenant,
                 [
                     {k: v for k, v in event.items() if k != "_history_id"}
@@ -756,7 +758,7 @@ class DossierImportService:
 
     async def _publish_notifications(
         self, tenant: TenantContext, notifications: list[dict[str, Any]]
-    ) -> None:
+    ) -> int:
         """Publish collected status changes to Redis for the notification worker.
 
         Fire-and-forget: errors are logged but never block the import.
@@ -776,6 +778,7 @@ class DossierImportService:
                 tenant=tenant.slug,
                 count=len(notifications),
             )
+            return len(notifications)
         except Exception as exc:
             self._logger.error(
                 "notification_publish_failed",
@@ -783,6 +786,7 @@ class DossierImportService:
                 error=str(exc),
                 exc_info=True,
             )
+            return 0
 
     # ── Internal helpers ──────────────────────────────────────────
 

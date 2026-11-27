@@ -2,8 +2,10 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
+from app.api.v1.whatsapp_operations import ReviewRequest, event_detail, review_event
 from app.core.rbac import get_current_admin
 from app.core.tenant import TenantContext
 from app.main import app
@@ -13,7 +15,8 @@ from app.schemas.auth import AdminTokenPayload
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role,expected", [(AdminRole.viewer, 403), (AdminRole.admin_tenant, 200)])
-async def test_operations_require_admin_role(role, expected):
+@pytest.mark.parametrize("kind", ["message", "status", "notification"])
+async def test_operations_require_admin_role(role, expected, kind):
     tenant_id = uuid.uuid4()
     tenant = TenantContext(tenant_id, "tenant_a", "A", "active", None)
     payload = AdminTokenPayload(
@@ -45,7 +48,8 @@ async def test_operations_require_admin_role(role, expected):
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/api/v1/whatsapp/operations/events", headers={"X-Tenant-ID": str(tenant_id)}
+                    f"/api/v1/whatsapp/operations/events?kind={kind}",
+                    headers={"X-Tenant-ID": str(tenant_id)},
                 )
         assert response.status_code == expected
         if expected == 403:
@@ -59,8 +63,60 @@ async def test_operations_require_admin_role(role, expected):
 
 
 @pytest.mark.asyncio
+async def test_notification_details_are_masked_and_audited():
+    tenant = TenantContext(uuid.uuid4(), "tenant_a", "A", "active", None)
+    admin = MagicMock(sub=str(uuid.uuid4()))
+    event_id, contact_id = uuid.uuid4(), uuid.uuid4()
+    event = MagicMock(
+        id=event_id,
+        contact_id=contact_id,
+        state="uncertain",
+        provider_message_id=None,
+        outcome_code="provider_unconfirmed",
+    )
+    event_result, phone_result = MagicMock(), MagicMock()
+    event_result.scalar_one_or_none.return_value = event
+    phone_result.scalar_one_or_none.return_value = "+212600123456"
+    session = AsyncMock()
+    session.execute.side_effect = [event_result, phone_result]
+    session.add = MagicMock()
+    session.__aenter__.return_value = session
+    with patch.object(TenantContext, "db_session", return_value=session):
+        detail = await event_detail(event_id, kind="notification", tenant=tenant, admin=admin)
+    assert detail["recipient_masked"] == "***3456"
+    assert detail["provider_message_id"] == "Non disponible"
+    assert "+212600123456" not in str(detail)
+    assert session.add.call_args.args[0].action == "notif_outbox_view"
+    assert tenant.id in session.execute.await_args_list[0].args[0].compile().params.values()
+    session.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_notification_review_rejects_unknown_tenant_event():
+    tenant = TenantContext(uuid.uuid4(), "tenant_a", "A", "active", None)
+    event_id = uuid.uuid4()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.execute.return_value = result
+    with patch("app.api.v1.whatsapp_operations.get_session_factory", return_value=lambda: session):
+        with pytest.raises(HTTPException) as exc:
+            await review_event(
+                event_id,
+                ReviewRequest(action="resolve"),
+                kind="notification",
+                tenant=tenant,
+                admin=MagicMock(sub=str(uuid.uuid4())),
+            )
+    assert exc.value.status_code == 404
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("role,expected", [(AdminRole.viewer, 403), (AdminRole.admin_tenant, 200)])
-async def test_review_requires_admin_and_records_audit(role, expected):
+@pytest.mark.parametrize("kind", ["status", "notification"])
+async def test_review_requires_admin_and_records_audit(role, expected, kind):
     tenant_id = uuid.uuid4()
     event_id = uuid.uuid4()
     tenant = TenantContext(tenant_id, "tenant_a", "A", "active", None)
@@ -95,7 +151,7 @@ async def test_review_requires_admin_and_records_audit(role, expected):
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    f"/api/v1/whatsapp/operations/events/{event_id}/review?kind=status",
+                    f"/api/v1/whatsapp/operations/events/{event_id}/review?kind={kind}",
                     headers={"X-Tenant-ID": str(tenant_id)},
                     json={"action": "follow_up"},
                 )
@@ -106,6 +162,9 @@ async def test_review_requires_admin_and_records_audit(role, expected):
             assert response.json()["state"] == "follow_up"
             audit = session.add.call_args.args[0]
             assert audit.tenant_slug == tenant.slug and audit.details["decision"] == "follow_up"
+            assert audit.resource_type == (
+                "notification_outbox" if kind == "notification" else "whatsapp_inbox_event"
+            )
             assert tenant_id in session.execute.await_args.args[0].compile().params.values()
             session.commit.assert_awaited_once()
     finally:

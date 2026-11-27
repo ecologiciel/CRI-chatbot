@@ -10,7 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-type Kind = "message" | "status";
+type Kind = "message" | "status" | "notification";
 type ReviewState = "uncertain" | "follow_up";
 type Event = { id: string; state: string; attempts: number; created_at: string; redacted_at: string | null };
 type Detail = { id: string; provider_message_id: string; recipient_masked: string; event_type: string; view: string };
@@ -26,7 +26,7 @@ export function WhatsAppReview() {
   const [message, setMessage] = useState<string | null>(null);
   const availability = useQuery({
     queryKey: ["wa-operations", "availability"],
-    queryFn: () => api.get<{ intake_enabled: boolean }>("/whatsapp/operations/availability"),
+    queryFn: () => api.get<{ intake_enabled: boolean; notification_outbox_enabled: boolean }>("/whatsapp/operations/availability"),
   });
   const events = useQuery({
     queryKey: ["wa-operations", kind, state, offset],
@@ -62,10 +62,12 @@ export function WhatsAppReview() {
         <p className="text-sm text-muted-foreground">Examinez les traitements dont le résultat est incertain. Les consultations et décisions sont journalisées ; aucune action ici ne renvoie de message.</p>
       </div>
       {availability.isError && <p role="alert">Impossible de vérifier si la réception durable est activée.</p>}
-      {availability.data && !availability.data.intake_enabled && <p role="status">La réception durable est désactivée. Les nouveaux événements ne sont pas enregistrés dans ce suivi.</p>}
+      {kind !== "notification" && availability.data && !availability.data.intake_enabled && <p role="status">La réception durable est désactivée. Les nouveaux événements ne sont pas enregistrés dans ce suivi.</p>}
+      {kind === "notification" && availability.data && !availability.data.notification_outbox_enabled && <p role="status">Les notifications durables de dossier sont désactivées.</p>}
       <div className="flex flex-wrap gap-2">
         <Button variant={kind === "message" ? "default" : "outline"} onClick={() => changeView("message", state)}>Messages</Button>
         <Button variant={kind === "status" ? "default" : "outline"} onClick={() => changeView("status", state)}>Statuts de livraison</Button>
+        <Button variant={kind === "notification" ? "default" : "outline"} onClick={() => changeView("notification", state)}>Notifications de dossier</Button>
         <Button variant={state === "uncertain" ? "default" : "outline"} onClick={() => changeView(kind, "uncertain")}>À examiner</Button>
         <Button variant={state === "follow_up" ? "default" : "outline"} onClick={() => changeView(kind, "follow_up")}>À suivre</Button>
       </div>

@@ -12,11 +12,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from app.api.v1 import whatsapp_operations as operations
 from app.services.notification import outbox_execution as execution
 from app.services.notification.outbox import (
     claim_notification,
@@ -49,6 +52,18 @@ async def test_outbox_transaction_isolation_and_fenced_leases(monkeypatch):
     async with engine.begin() as conn:
         await conn.execute(text("CREATE TABLE public.tenants (id uuid PRIMARY KEY)"))
         await conn.execute(text("CREATE TABLE public.test_dossier_history (id uuid PRIMARY KEY)"))
+        await conn.execute(
+            text("""
+            CREATE TABLE public.audit_logs (
+                id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_slug varchar(50) NOT NULL,
+                user_id uuid, user_type varchar(20) NOT NULL, action varchar(20) NOT NULL,
+                resource_type varchar(100) NOT NULL, resource_id varchar(255),
+                ip_address varchar(45), user_agent text, details jsonb,
+                created_at timestamptz NOT NULL DEFAULT now(),
+                CONSTRAINT test_reject_review CHECK (action <> 'notif_outbox_review')
+            )
+        """)
+        )
         await conn.run_sync(apply_migration)
         await conn.execute(
             text("INSERT INTO public.tenants VALUES (:a), (:b)"), {"a": tenant_a, "b": tenant_b}
@@ -149,6 +164,69 @@ async def test_outbox_transaction_isolation_and_fenced_leases(monkeypatch):
             (tenant_a, "sent", "provider_accepted"),
             (tenant_b, "uncertain", "lease_expired"),
         }
+
+    monkeypatch.setattr(operations, "get_session_factory", lambda: sessions)
+    review_tenant = SimpleNamespace(id=tenant_b, slug="test_b")
+    reviewer = SimpleNamespace(sub=str(uuid.uuid4()))
+    async with sessions.begin() as session:
+        event_id = (
+            await session.execute(
+                text("SELECT id FROM public.notification_outbox_events WHERE tenant_id=:tenant"),
+                {"tenant": tenant_b},
+            )
+        ).scalar_one()
+    with pytest.raises(IntegrityError):
+        await operations.review_event(
+            event_id,
+            operations.ReviewRequest(action="follow_up"),
+            kind="notification",
+            tenant=review_tenant,
+            admin=reviewer,
+        )
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                text("SELECT state FROM public.notification_outbox_events WHERE id=:id"),
+                {"id": event_id},
+            )
+        ).scalar_one() == "uncertain"
+        await session.execute(
+            text("ALTER TABLE public.audit_logs DROP CONSTRAINT test_reject_review")
+        )
+    result = await operations.review_event(
+        event_id,
+        operations.ReviewRequest(action="follow_up"),
+        kind="notification",
+        tenant=review_tenant,
+        admin=reviewer,
+    )
+    assert result["state"] == "follow_up"
+    with pytest.raises(HTTPException) as wrong_tenant:
+        await operations.review_event(
+            event_id,
+            operations.ReviewRequest(action="resolve"),
+            kind="notification",
+            tenant=SimpleNamespace(id=tenant_a, slug="test_a"),
+            admin=reviewer,
+        )
+    assert wrong_tenant.value.status_code == 404
+    with pytest.raises(HTTPException) as duplicate:
+        await operations.review_event(
+            event_id,
+            operations.ReviewRequest(action="follow_up"),
+            kind="notification",
+            tenant=review_tenant,
+            admin=reviewer,
+        )
+    assert duplicate.value.status_code == 409
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM public.audit_logs WHERE tenant_slug='test_b' AND action='notif_outbox_review'"
+                )
+            )
+        ).scalar_one() == 1
 
     @asynccontextmanager
     async def db_session():

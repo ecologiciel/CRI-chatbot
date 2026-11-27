@@ -29,7 +29,7 @@ class NotificationOutboxEvent(UUIDMixin, Base):
     __tablename__ = "notification_outbox_events"
     __table_args__ = (
         CheckConstraint(
-            "state IN ('pending', 'processing', 'sent', 'skipped', 'uncertain')",
+            "state IN ('pending', 'processing', 'sent', 'skipped', 'uncertain', 'follow_up', 'resolved')",
             name="ck_notification_outbox_state",
         ),
         CheckConstraint("attempts >= 0", name="ck_notification_outbox_attempts"),

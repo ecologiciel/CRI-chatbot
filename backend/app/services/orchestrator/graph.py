@@ -48,7 +48,7 @@ from app.services.orchestrator.simple_nodes import (
 from app.services.orchestrator.state import ConversationState
 from app.services.orchestrator.tracking_agent import get_tracking_agent
 from app.services.rag.prompts import PromptTemplates
-from app.services.whatsapp.outbound_fence import OutboundSuperseded
+from app.services.whatsapp.outbound_fence import OutboundSupersededError
 
 logger = structlog.get_logger()
 
@@ -101,7 +101,7 @@ def _wrap_tenant_node(
         try:
             tenant = _reconstruct_tenant(state)
             return await method(state, tenant)
-        except OutboundSuperseded:
+        except OutboundSupersededError:
             raise
         except Exception as exc:
             logger.error(
@@ -129,7 +129,7 @@ def _wrap_simple_node(
     async def wrapper(state: ConversationState) -> ConversationState:
         try:
             return await method(state)
-        except OutboundSuperseded:
+        except OutboundSupersededError:
             raise
         except Exception as exc:
             logger.error(
@@ -437,7 +437,7 @@ async def run_conversation(
             "error": final_state.get("error"),
         }
 
-    except OutboundSuperseded:
+    except OutboundSupersededError:
         raise
     except Exception as exc:
         logger.error(

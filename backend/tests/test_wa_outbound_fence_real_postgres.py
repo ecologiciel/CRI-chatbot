@@ -17,7 +17,11 @@ from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.tenant.provisioning import TenantProvisioningService
 from app.services.whatsapp.inbox import persist_incoming_message
 from app.services.whatsapp.inbox_leases import claim_next, finish_claim
-from app.services.whatsapp.outbound_fence import OutboundFenceError, OutboundSuperseded, outbound_scope
+from app.services.whatsapp.outbound_fence import (
+    OutboundFenceError,
+    OutboundSupersededError,
+    outbound_scope,
+)
 from app.services.whatsapp.sender import WhatsAppSenderService
 
 URL = os.getenv("TEST_WA_FENCE_DB_URL")
@@ -95,9 +99,9 @@ async def test_stop_serializes_with_provider_request_and_suppresses_later_sends(
             finally:
                 async with engine.begin() as conn:
                     await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_suppression"))
-            with pytest.raises(OutboundSuperseded):
+            with pytest.raises(OutboundSupersededError):
                 await sender.send_text(tenant, phone, "must-not-send")
-            with pytest.raises(OutboundSuperseded):
+            with pytest.raises(OutboundSupersededError):
                 await sender.send_text(tenant, phone, "still-must-not-send")
             assert scope.suppressed and client.post.await_count == 1
             async with engine.connect() as conn:

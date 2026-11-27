@@ -24,7 +24,7 @@ class OutboundFenceError(RuntimeError):
     """A durable send is unsafe or its claim is no longer valid."""
 
 
-class OutboundSuperseded(OutboundFenceError):
+class OutboundSupersededError(OutboundFenceError):
     """A newer committed STOP makes an older response ineligible."""
 
 
@@ -63,7 +63,7 @@ async def guarded_provider_send(tenant: TenantContext, recipient: str) -> AsyncI
         yield
         return
     if scope.suppressed:
-        raise OutboundSuperseded("Response superseded by opt-out")
+        raise OutboundSupersededError("Response superseded by opt-out")
     claim = scope.claim
     if tenant.id != claim.tenant_id or recipient != scope.recipient:
         raise OutboundFenceError("Durable outbound context mismatch")
@@ -113,7 +113,7 @@ async def guarded_provider_send(tenant: TenantContext, recipient: str) -> AsyncI
                 )
                 await session.commit()
                 scope.suppressed = True
-                raise OutboundSuperseded("Response superseded by opt-out")
+                raise OutboundSupersededError("Response superseded by opt-out")
             # The lock stays held until the provider call returns or fails.
             try:
                 yield

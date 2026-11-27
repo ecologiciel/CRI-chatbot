@@ -36,7 +36,7 @@ from app.services.conversation.service import get_conversation_service
 from app.services.feedback.service import get_feedback_service
 from app.services.rag.prompts import PromptTemplates
 from app.services.whatsapp.media import WhatsAppMediaHandler
-from app.services.whatsapp.outbound_fence import OutboundSuperseded
+from app.services.whatsapp.outbound_fence import OutboundSupersededError
 from app.services.whatsapp.privacy import NoticeResult, get_privacy_notice_service
 from app.services.whatsapp.sender import WhatsAppSenderService
 from app.services.whatsapp.session import WhatsAppSessionManager
@@ -113,7 +113,7 @@ class MessageHandler:
                     tenant, phone, _extract_sender_name(contacts, phone)
                 )
                 confirmed = await self._handle_stop_request(tenant, phone, contact)
-            except OutboundSuperseded:
+            except OutboundSupersededError:
                 return HandlingOutcome.suppressed
             except Exception as exc:
                 self._logger.error(
@@ -174,7 +174,7 @@ class MessageHandler:
                 )
                 if durable and notice != NoticeResult.accepted:
                     uncertain = True
-            except OutboundSuperseded:
+            except OutboundSupersededError:
                 raise
             except Exception:
                 uncertain = True
@@ -296,7 +296,7 @@ class MessageHandler:
             out_wamid = None
             try:
                 out_wamid = await self._sender.send_text(tenant, phone, response_text)
-            except OutboundSuperseded:
+            except OutboundSupersededError:
                 return HandlingOutcome.uncertain if uncertain else HandlingOutcome.suppressed
             except Exception as send_err:
                 uncertain = True
@@ -387,7 +387,7 @@ class MessageHandler:
                 uncertain = True
             return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
 
-        except OutboundSuperseded:
+        except OutboundSupersededError:
             return HandlingOutcome.uncertain if uncertain else HandlingOutcome.suppressed
         except Exception as exc:
             self._logger.error(
@@ -580,7 +580,7 @@ class MessageHandler:
         ack_text = PromptTemplates.get_message(ack_key, "fr")
         try:
             acknowledged = await self._sender.send_text(tenant, phone, ack_text)
-        except OutboundSuperseded:
+        except OutboundSupersededError:
             raise
         except Exception:
             return False

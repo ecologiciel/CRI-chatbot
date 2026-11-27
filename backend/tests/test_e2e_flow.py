@@ -267,14 +267,14 @@ class TestHappyPath:
     @pytest.mark.asyncio()
     @pytest.mark.parametrize("notice,expected", [("accepted", "suppressed"), ("uncertain", "uncertain")])
     async def test_suppressed_response_never_records_a_fake_outbound(self, handler_env, notice, expected):
-        from app.services.whatsapp.outbound_fence import OutboundSuperseded
+        from app.services.whatsapp.outbound_fence import OutboundSupersededError
         from app.services.whatsapp.privacy import NoticeResult
 
         handler, mocks = handler_env
         _setup_happy_path(mocks)
         handler._privacy_service = AsyncMock()
         handler._privacy_service.send_privacy_notice.return_value = NoticeResult(notice)
-        mocks["sender"].send_text.side_effect = OutboundSuperseded("stopped")
+        mocks["sender"].send_text.side_effect = OutboundSupersededError("stopped")
         tracking = AsyncMock()
         tracking.get_state.return_value = MagicMock(step=MagicMock(value="idle"))
         with (

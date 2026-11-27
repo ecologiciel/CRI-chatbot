@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.tenant import TenantContext
-from app.services.whatsapp.outbound_fence import OutboundSuperseded
+from app.services.whatsapp.outbound_fence import OutboundSupersededError
 from app.services.whatsapp.privacy import (
     PRIVACY_FALLBACK_TEXT,
     NoticeResult,
@@ -71,10 +71,22 @@ def service():
 
 @pytest.mark.asyncio
 async def test_suppressed_notice_does_not_leave_a_false_pending_or_uncertain_marker(service, tenant, redis):
-    service._sender.send_text.side_effect = OutboundSuperseded("stopped")
-    with patch(_REDIS_PATCH, return_value=redis), pytest.raises(OutboundSuperseded):
+    service._sender.send_text.side_effect = OutboundSupersededError("stopped")
+    with patch(_REDIS_PATCH, return_value=redis), pytest.raises(OutboundSupersededError):
         await service.send_privacy_notice(tenant, TEST_PHONE)
     assert f"rabat:privacy_sent:{TEST_PHONE}" not in redis.values
+
+
+@pytest.mark.asyncio
+async def test_suppressed_notice_does_not_delete_another_completed_marker(service, tenant, redis):
+    async def another_sender_completed(*_args):
+        redis.values[f"rabat:privacy_sent:{TEST_PHONE}"] = "accepted"
+        raise OutboundSupersededError("stopped")
+
+    service._sender.send_text.side_effect = another_sender_completed
+    with patch(_REDIS_PATCH, return_value=redis), pytest.raises(OutboundSupersededError):
+        await service.send_privacy_notice(tenant, TEST_PHONE)
+    assert redis.values[f"rabat:privacy_sent:{TEST_PHONE}"] == "accepted"
 
 
 def test_fallback_does_not_invent_institution_specific_commitments():

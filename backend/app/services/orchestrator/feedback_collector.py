@@ -12,7 +12,7 @@ import structlog
 from app.core.tenant import TenantContext
 from app.services.orchestrator.state import ConversationState, IntentType
 from app.services.rag.prompts import PromptTemplates
-from app.services.whatsapp.outbound_fence import OutboundSuperseded
+from app.services.whatsapp.outbound_fence import OutboundSupersededError
 from app.services.whatsapp.sender import WhatsAppSenderService
 
 logger = structlog.get_logger()
@@ -87,7 +87,7 @@ class FeedbackCollector:
                 intent=intent,
                 language=language,
             )
-        except OutboundSuperseded:
+        except OutboundSupersededError:
             raise
         except Exception as exc:
             # Feedback is non-critical — log but never fail the flow

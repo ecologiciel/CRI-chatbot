@@ -210,18 +210,20 @@ class WhatsAppSenderService:
         url = f"{BASE_URL}/{phone_number_id}/messages"
 
         try:
-            async with guarded_provider_send(tenant, payload.get("to", "")):
-                async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                    response = await client.post(
-                        url,
-                        json=payload,
-                        headers={
-                            "Authorization": f"Bearer {access_token}",
-                            "Content-Type": "application/json",
-                        },
-                    )
-                    response.raise_for_status()
-                    data: dict[str, Any] = response.json()
+            async with (
+                guarded_provider_send(tenant, payload.get("to", "")),
+                httpx.AsyncClient(timeout=TIMEOUT) as client,
+            ):
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response.raise_for_status()
+                data: dict[str, Any] = response.json()
         except httpx.HTTPStatusError as exc:
             error_body = exc.response.json() if exc.response else {}
             meta_error = error_body.get("error", {})

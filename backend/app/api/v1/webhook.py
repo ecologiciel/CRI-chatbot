@@ -61,8 +61,9 @@ async def receive_whatsapp_webhook(
 ) -> JSONResponse:
     """Receive webhook events from Meta.
 
-    The legacy path acknowledges processing failures. When durable intake is
-    enabled, only committed events are acknowledged; failures return 503.
+    Unexpected intake failures return 503. In legacy mode this does not
+    guarantee safe replay: some work may already have occurred before failure.
+    Durable intake acknowledges only committed events.
 
     Raw body is read directly for HMAC verification — we do NOT use
     a Pydantic body parameter because that would re-serialize the JSON.
@@ -92,10 +93,10 @@ async def receive_whatsapp_webhook(
             content={"error": "Invalid signature", "message": exc.message},
         )
     except Exception as exc:
-        if durable:
-            logger.error("whatsapp_durable_intake_failed", error_type=type(exc).__name__)
-            return JSONResponse(status_code=503, content={"error": "Webhook intake unavailable"})
-        logger.exception("whatsapp_webhook_unhandled_error")
+        logger.error(
+            "whatsapp_intake_failed", durable=durable, error_type=type(exc).__name__
+        )
+        return JSONResponse(status_code=503, content={"error": "Webhook intake unavailable"})
 
     return JSONResponse(
         status_code=200,

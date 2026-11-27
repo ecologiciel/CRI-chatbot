@@ -19,6 +19,8 @@ from app.services.dossier.import_service import (
     STATUT_MAPPING,
     DossierImportRow,
     DossierImportService,
+    FieldChange,
+    ImportReport,
 )
 
 
@@ -61,12 +63,75 @@ async def test_concurrent_imports_keep_notification_batches_separate(import_serv
 
     await asyncio.wait_for(
         asyncio.gather(
-            import_service.import_dossiers([DossierImportRow(row_number=1, numero="A")], uuid.uuid4(), tenant("a")),
-            import_service.import_dossiers([DossierImportRow(row_number=1, numero="B")], uuid.uuid4(), tenant("b")),
+            import_service.import_dossiers(
+                [DossierImportRow(row_number=1, numero="A")], uuid.uuid4(), tenant("a")
+            ),
+            import_service.import_dossiers(
+                [DossierImportRow(row_number=1, numero="B")], uuid.uuid4(), tenant("b")
+            ),
         ),
         timeout=5,
     )
     assert published == {"a": [{"numero": "A"}], "b": [{"numero": "B"}]}
+
+
+@pytest.mark.asyncio()
+async def test_staged_outbox_is_written_before_commit_and_never_published_to_redis(
+    import_service, monkeypatch
+):
+    history_id = uuid.uuid4()
+    session = AsyncMock()
+    query_result = MagicMock()
+    query_result.scalar_one_or_none.return_value = None
+    session.execute.return_value = query_result
+    tenant = MagicMock()
+    tenant.id = uuid.uuid4()
+    tenant.slug = "institution"
+    context = tenant.db_session.return_value
+    context.__aenter__ = AsyncMock(return_value=session)
+    context.__aexit__ = AsyncMock(return_value=False)
+
+    async def process_batch(batch, sync_id, db, report, pending):
+        pending.append({"_history_id": history_id})
+
+    async def enqueue(db, tenant_id, event_history_id):
+        context.__aexit__.assert_not_awaited()
+        assert (db, tenant_id, event_history_id) == (session, tenant.id, history_id)
+        return True
+
+    monkeypatch.setattr(import_service, "_process_batch", process_batch)
+    publisher = AsyncMock()
+    monkeypatch.setattr(import_service, "_publish_notifications", publisher)
+    monkeypatch.setattr("app.services.notification.outbox.enqueue_notification", enqueue)
+    await import_service.import_dossiers(
+        [DossierImportRow(row_number=1, numero="A")],
+        uuid.uuid4(),
+        tenant,
+        durable_notifications=True,
+    )
+    context.__aexit__.assert_awaited_once()
+    publisher.assert_not_awaited()
+
+
+def test_status_change_intent_references_the_exact_history_entry(import_service, monkeypatch):
+    from app.models.dossier import DossierHistory
+
+    dossier = MagicMock(id=uuid.uuid4(), numero="A", contact_id=uuid.uuid4())
+    row = DossierImportRow(row_number=1, numero="A", statut="valide")
+    sync_id = uuid.uuid4()
+    session = MagicMock()
+    pending = []
+    report = ImportReport(sync_log_id=sync_id, rows_total=1)
+    monkeypatch.setattr(
+        import_service,
+        "detect_changes",
+        lambda *_: [FieldChange(field_name="statut", old_value="en_attente", new_value="valide")],
+    )
+    import_service._update_dossier(dossier, row, sync_id, {}, session, report, pending)
+    history = session.add.call_args.args[0]
+    assert isinstance(history, DossierHistory)
+    assert pending[0]["_history_id"] == history.id
+    assert pending[0]["dossier_id"] == str(history.dossier_id)
 
 
 # ── Sanitisation ─────────────────────────────────────────────────

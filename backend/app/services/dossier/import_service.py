@@ -659,6 +659,8 @@ class DossierImportService:
         rows: list[DossierImportRow],
         sync_log_id: uuid.UUID,
         tenant: TenantContext,
+        *,
+        durable_notifications: bool = False,
     ) -> ImportReport:
         """Import sanitised rows into the tenant's dossier table.
 
@@ -692,7 +694,17 @@ class DossierImportService:
             # Process in batches
             for batch_start in range(0, len(rows), BATCH_SIZE):
                 batch = rows[batch_start : batch_start + BATCH_SIZE]
-                await self._process_batch(batch, sync_log_id, session, report, pending_notifications)
+                await self._process_batch(
+                    batch, sync_log_id, session, report, pending_notifications
+                )
+
+            if durable_notifications:
+                # This staged path is not yet enabled in the import worker.
+                # The outbox must commit or roll back with the dossier changes.
+                from app.services.notification.outbox import enqueue_notification
+
+                for event in pending_notifications:
+                    await enqueue_notification(session, tenant.id, event["_history_id"])
 
             # Finalise SyncLog
             if sync_log:
@@ -705,8 +717,14 @@ class DossierImportService:
                     sync_log.error_details = {"errors": report.errors}
 
         # Publish status-change events to Redis for notification worker
-        if pending_notifications:
-            await self._publish_notifications(tenant, pending_notifications)
+        if pending_notifications and not durable_notifications:
+            await self._publish_notifications(
+                tenant,
+                [
+                    {k: v for k, v in event.items() if k != "_history_id"}
+                    for event in pending_notifications
+                ],
+            )
 
         report.duration_seconds = round(time.monotonic() - start, 3)
 
@@ -898,8 +916,11 @@ class DossierImportService:
         if not changes:
             return
 
+        status_history_id = None
         for change in changes:
+            history_id = uuid.uuid4()
             history = DossierHistory(
+                id=history_id,
                 dossier_id=existing.id,
                 field_changed=change.field_name,
                 old_value=change.old_value,
@@ -907,6 +928,8 @@ class DossierImportService:
                 sync_log_id=sync_log_id,
             )
             session.add(history)
+            if change.field_name == "statut":
+                status_history_id = history_id
 
         # Apply changes to dossier
         for change in changes:
@@ -919,6 +942,7 @@ class DossierImportService:
                 pending_notifications.append(
                     {
                         "dossier_id": str(existing.id),
+                        "_history_id": status_history_id,
                         "numero": existing.numero,
                         "contact_id": str(existing.contact_id) if existing.contact_id else None,
                         "old_statut": change.old_value,

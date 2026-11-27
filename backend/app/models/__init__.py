@@ -39,6 +39,7 @@ from app.models.escalation import Escalation
 from app.models.feedback import Feedback, UnansweredQuestion
 from app.models.incitation import IncentiveCategory, IncentiveItem
 from app.models.kb import KBChunk, KBDocument
+from app.models.notification_outbox import NotificationOutboxEvent
 from app.models.rag_evaluation import RAGEvaluationCase, RAGEvaluationRun
 from app.models.sync import SyncConfig, SyncLog
 from app.models.tenant import Tenant
@@ -71,6 +72,7 @@ __all__ = [
     "RAGEvaluationCase",
     "RAGEvaluationRun",
     "Message",
+    "NotificationOutboxEvent",
     "SyncConfig",
     "SyncLog",
     "Tenant",

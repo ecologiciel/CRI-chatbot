@@ -508,6 +508,65 @@ class TestFeedbackRouting:
     """Feedback button clicks routed to FeedbackService."""
 
     @pytest.mark.asyncio()
+    @pytest.mark.parametrize(
+        ("record_fails", "ack", "expected"),
+        [(False, "wamid.ack", "accepted"), (True, "wamid.ack", "uncertain"),
+         (False, None, "uncertain")],
+    )
+    async def test_durable_feedback_requires_record_and_provider_acceptance(
+        self, handler_env, record_fails, ack, expected
+    ):
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.accepted
+        mocks["sender"].send_text.return_value = ack
+        if record_fails:
+            mocks["feedback_svc"].create_feedback.side_effect = RuntimeError("db failed")
+        session = _make_mock_db_session(query_result=_make_mock_message())
+        with patch.object(TenantContext, "db_session", return_value=session):
+            outcome = await handler.handle_message(
+                TEST_TENANT, _make_feedback_message(), None, durable=True
+            )
+        assert outcome.value == expected
+        mocks["sender"].send_text.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize("ack,expected", [("wamid.source", "accepted"), (None, "uncertain")])
+    async def test_durable_source_requires_provider_acceptance(self, handler_env, ack, expected):
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.accepted
+        mocks["sender"].send_text.return_value = ack
+        mocks["conv_svc"].get_latest_sources.return_value = []
+        outcome = await handler.handle_message(
+            TEST_TENANT, _make_text_message(body="source"), None, durable=True
+        )
+        assert outcome.value == expected
+        assert mocks["conv_svc"].add_message.await_count == 2
+        mocks["sender"].send_text.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    async def test_durable_feedback_with_pending_privacy_notice_requires_review(self, handler_env):
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.pending
+        session = _make_mock_db_session(query_result=_make_mock_message())
+        with patch.object(TenantContext, "db_session", return_value=session):
+            outcome = await handler.handle_message(
+                TEST_TENANT, _make_feedback_message(), None, durable=True
+            )
+        assert outcome.value == "uncertain"
+
+    @pytest.mark.asyncio()
     async def test_feedback_positive_routed(self, handler_env):
         handler, mocks = handler_env
         contact = _make_mock_contact()

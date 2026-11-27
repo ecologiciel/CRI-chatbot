@@ -168,9 +168,7 @@ async def _process_tenant_notifications(tenant_slug: str) -> dict[str, int]:
             except Exception as exc:
                 log.error(
                     "notification_event_error",
-                    error=str(exc),
-                    raw_event=raw[:200],
-                    exc_info=True,
+                    error_type=type(exc).__name__,
                 )
                 stats["processed"] += 1
                 stats["failed"] += 1

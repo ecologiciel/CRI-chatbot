@@ -193,15 +193,22 @@ class MessageHandler:
 
             # 7. Feedback routing — interactive buttons starting with "feedback_"
             if self._is_feedback_reply(msg):
-                await self._handle_feedback(tenant, msg, conversation.id, phone)
-                # The legacy feedback helper suppresses some failures; the
-                # durable worker must not treat that as confirmed processing.
-                return HandlingOutcome.uncertain
+                confirmed = await self._handle_feedback(tenant, msg, conversation.id, phone)
+                return (
+                    HandlingOutcome.accepted
+                    if confirmed and not uncertain
+                    else HandlingOutcome.uncertain
+                )
 
             if self._is_source_command(content):
-                await self._handle_source_command(tenant, conversation.id, phone, content, wamid)
-                # The legacy source helper does not report every delivery state.
-                return HandlingOutcome.uncertain
+                confirmed = await self._handle_source_command(
+                    tenant, conversation.id, phone, content, wamid
+                )
+                return (
+                    HandlingOutcome.accepted
+                    if confirmed and not uncertain
+                    else HandlingOutcome.uncertain
+                )
 
             # 8. Mark as read (blue ticks) — non-critical
             try:
@@ -422,7 +429,7 @@ class MessageHandler:
         phone: str,
         content: str | None,
         wamid: str,
-    ) -> None:
+    ) -> bool:
         """Persist a `Source` request and answer from local message metadata only."""
         await self._conversation_service.add_message(
             tenant,
@@ -444,6 +451,7 @@ class MessageHandler:
             whatsapp_message_id=out_wamid,
             metadata={"sources_response": True, "sources": sources},
         )
+        return bool(out_wamid)
 
     async def _extract_content(
         self,
@@ -514,7 +522,7 @@ class MessageHandler:
         msg: IncomingMessage,
         conversation_id: uuid.UUID,
         phone: str,
-    ) -> None:
+    ) -> bool:
         """Process a feedback button click.
 
         Finds the last outbound message in the conversation and creates
@@ -523,7 +531,7 @@ class MessageHandler:
         reply = msg.interactive.button_reply  # type: ignore[union-attr]
         rating = FEEDBACK_BUTTON_MAP.get(reply.id)
         if rating is None:
-            return
+            return False
 
         # Find the last outbound message to attach feedback to
         from sqlalchemy import select
@@ -540,6 +548,7 @@ class MessageHandler:
             )
             last_outbound = result.scalar_one_or_none()
 
+        recorded = False
         if last_outbound:
             feedback_data = FeedbackCreate(
                 message_id=last_outbound.id,
@@ -547,18 +556,22 @@ class MessageHandler:
             )
             try:
                 await self._feedback_service.create_feedback(tenant, feedback_data)
+                recorded = True
             except Exception as exc:
                 self._logger.error(
                     "feedback_creation_failed",
-                    error=str(exc),
+                    error_type=type(exc).__name__,
                     tenant=tenant.slug,
                 )
 
         # Send acknowledgment
         ack_key = FEEDBACK_ACK_KEYS.get(rating, "feedback_ack_positive")
         ack_text = PromptTemplates.get_message(ack_key, "fr")
-        with contextlib.suppress(Exception):
-            await self._sender.send_text(tenant, phone, ack_text)
+        try:
+            acknowledged = await self._sender.send_text(tenant, phone, ack_text)
+        except Exception:
+            return False
+        return recorded and bool(acknowledged)
 
     # ── Rate limiting ──
 

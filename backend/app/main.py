@@ -200,7 +200,7 @@ def create_app() -> FastAPI:
 
     # --- WebSocket routes ---
     app.add_api_websocket_route(
-        "/ws/escalations/{tenant_slug}",
+        "/ws/escalations/{tenant_id}",
         escalation_ws_endpoint,
     )
 

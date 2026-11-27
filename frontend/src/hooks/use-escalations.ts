@@ -138,12 +138,10 @@ export function useCloseEscalation() {
 
 const MAX_RECONNECT_DELAY = 30_000;
 const PING_INTERVAL = 30_000;
-const WS_BASE =
-  process.env.NEXT_PUBLIC_WS_URL ??
-  (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
-    /^http/,
-    "ws",
-  );
+function websocketBase(): string {
+  const configured = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_URL;
+  return (configured || window.location.origin).replace(/^http/, "ws").replace(/\/$/, "");
+}
 
 export function useEscalationWebSocket() {
   const { admin } = useAuth();
@@ -160,7 +158,7 @@ export function useEscalationWebSocket() {
   const reconnectAttempts = useRef(0);
   const mountedRef = useRef(true);
 
-  const tenantId = admin?.tenant_id;
+  const tenantId = admin ? api.getTenantId() : null;
 
   const invalidateAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["escalations"] });
@@ -170,14 +168,7 @@ export function useEscalationWebSocket() {
   const connect = useCallback(() => {
     if (!tenantId || !mountedRef.current) return;
 
-    const token = (api as unknown as { getAccessToken?: () => string | null })
-      .getAccessToken
-      ? (api as unknown as { getAccessToken: () => string | null }).getAccessToken()
-      : null;
-
-    if (!token) return;
-
-    const wsUrl = `${WS_BASE}/ws/escalations/${tenantId}?token=${token}`;
+    const wsUrl = `${websocketBase()}/ws/escalations/${encodeURIComponent(tenantId)}`;
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -185,8 +176,12 @@ export function useEscalationWebSocket() {
 
       ws.onopen = () => {
         if (!mountedRef.current) return;
-        setIsConnected(true);
-        reconnectAttempts.current = 0;
+        const token = api.getAccessToken();
+        if (!token) {
+          ws.close();
+          return;
+        }
+        ws.send(JSON.stringify({ type: "auth", token }));
 
         // Start periodic ping
         pingIntervalRef.current = setInterval(() => {
@@ -201,8 +196,14 @@ export function useEscalationWebSocket() {
         if (event.data === "pong") return;
 
         try {
-          const parsed: EscalationWebSocketEvent = JSON.parse(event.data);
-          setLastEvent(parsed);
+          const parsed = JSON.parse(event.data) as { event?: string };
+          if (parsed.event === "authenticated") {
+            setIsConnected(true);
+            reconnectAttempts.current = 0;
+            return;
+          }
+          if (parsed.event === "pong") return;
+          setLastEvent(parsed as EscalationWebSocketEvent);
           invalidateAll();
         } catch {
           // Ignore non-JSON messages

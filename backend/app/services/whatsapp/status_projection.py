@@ -80,7 +80,7 @@ async def apply_status_event(event_id: uuid.UUID, *, cipher: VersionedEnvelopeSe
         status = StatusInfo.model_validate(payload.get("status"))
         await session.execute(
             text("SELECT set_config('search_path', :schema, true)"),
-            {"schema": f"{initial.db_schema}, public"},
+            {"schema": initial.db_schema},
         )
         matched = (
             await session.execute(

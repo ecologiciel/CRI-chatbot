@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.tenant import TenantContext
@@ -31,16 +32,29 @@ async def test_tenant_search_path_is_transaction_local_and_restored():
         for schema, value in (("public", "public"), ("tenant_alpha", "alpha"), ("tenant_beta", "beta")):
             await conn.execute(text(f"CREATE TABLE {schema}.pool_probe (value text)"))
             await conn.execute(text(f"INSERT INTO {schema}.pool_probe VALUES (:value)"), {"value": value})
+        await conn.execute(text("CREATE TABLE public.pool_public_only (value text)"))
+        await conn.execute(text("INSERT INTO public.pool_public_only VALUES ('shared')"))
 
     alpha = TenantContext(uuid.uuid4(), "alpha", "Alpha", "active", None)
     beta = TenantContext(uuid.uuid4(), "beta", "Beta", "active", None)
     with patch("app.core.tenant.get_session_factory", return_value=factory):
         async with alpha.db_session() as session:
             assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "alpha"
+            assert (await session.execute(text("SELECT value FROM public.pool_public_only"))).scalar_one() == "shared"
             await session.commit()
             assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "alpha"
             await session.rollback()
             assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "alpha"
+
+        # A missing tenant table or whole schema must never resolve an
+        # unqualified name to a similarly named table in public.
+        with pytest.raises(DBAPIError):
+            async with alpha.db_session() as session:
+                await session.execute(text("SELECT value FROM pool_public_only"))
+        missing = TenantContext(uuid.uuid4(), "missing", "Missing", "active", None)
+        with pytest.raises(DBAPIError):
+            async with missing.db_session() as session:
+                await session.execute(text("SELECT value FROM pool_probe"))
 
         async with factory() as session:
             assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "public"

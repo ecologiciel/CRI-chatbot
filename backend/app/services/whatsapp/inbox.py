@@ -109,7 +109,7 @@ async def persist_incoming_message(
                 # subsequent consent-checked sends see the committed opt-out.
                 await session.execute(
                     text("SELECT set_config('search_path', :path, true)"),
-                    {"path": f"{tenant.db_schema}, public"},
+                    {"path": tenant.db_schema},
                 )
                 contact_id = await lock_and_opt_out(session, message.from_)
                 session.add(AuditLog(

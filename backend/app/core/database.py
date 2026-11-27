@@ -36,7 +36,10 @@ def _set_transaction_tenant(session: Session, transaction, connection) -> None:
     if schema:
         connection.execute(
             text("SELECT set_config('search_path', :path, true)"),
-            {"path": f"{schema}, public"},
+            # Shared models explicitly name public. Including public here
+            # silently falls back to a shared table if a tenant table is
+            # absent, potentially crossing data boundaries.
+            {"path": schema},
         )
 
 

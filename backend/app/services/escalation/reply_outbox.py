@@ -117,7 +117,7 @@ async def register_agent_reply(
         })).one()
         if any(table is None for table in tables):
             raise AgentReplyConflictError("Schéma institutionnel indisponible")
-        await session.execute(text("SELECT set_config('search_path', :path, true)"), {"path": f"{tenant.db_schema}, public"})
+        await session.execute(text("SELECT set_config('search_path', :path, true)"), {"path": tenant.db_schema})
         escalation = (await session.execute(
             select(Escalation).where(Escalation.id == escalation_id).with_for_update()
         )).scalar_one_or_none()

@@ -87,7 +87,7 @@ async def execute_agent_reply(
             if any(table is None for table in tables):
                 raise AgentReplyPreconditionError("Schéma institutionnel indisponible")
             session.sync_session.info["tenant_schema"] = schema
-            await session.execute(text("SELECT set_config('search_path', :path, true)"), {"path": f"{schema}, public"})
+            await session.execute(text("SELECT set_config('search_path', :path, true)"), {"path": schema})
             escalation = (await session.execute(
                 select(Escalation).where(Escalation.id == identity[1]).with_for_update()
             )).scalar_one_or_none()

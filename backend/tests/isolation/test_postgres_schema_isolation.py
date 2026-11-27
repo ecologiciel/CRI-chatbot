@@ -42,7 +42,7 @@ class TestPostgresSchemaIsolation:
 
     @pytest.mark.asyncio
     async def test_db_session_search_path_alpha(self, tenant_alpha):
-        """tenant_alpha session sets search_path to tenant_alpha, public."""
+        """tenant_alpha session records its tenant-specific search path."""
         mock_factory, mock_session = _make_mock_session_factory()
 
         with patch("app.core.tenant.get_session_factory", return_value=mock_factory):
@@ -53,7 +53,7 @@ class TestPostgresSchemaIsolation:
 
     @pytest.mark.asyncio
     async def test_db_session_search_path_beta(self, tenant_beta):
-        """tenant_beta session sets search_path to tenant_beta, public."""
+        """tenant_beta session records its tenant-specific search path."""
         mock_factory, mock_session = _make_mock_session_factory()
 
         with patch("app.core.tenant.get_session_factory", return_value=mock_factory):

@@ -5,11 +5,13 @@ import os
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.core.exceptions import WhatsAppSendError
 from app.core.tenant import TenantContext
 from app.schemas.whatsapp import IncomingMessage
 from app.services.crypto.kms import KMSService
@@ -110,4 +112,42 @@ async def test_stop_serializes_with_provider_request_and_suppresses_later_sends(
         with outbound_scope(claim, phone), pytest.raises(OutboundFenceError):
             await sender.send_text(tenant, phone, "claim-already-finished")
         assert client.post.await_count == 1
+        stop_claim = await claim_next()
+        assert stop_claim and stop_claim.is_opt_out
+        assert await finish_claim(stop_claim.id, stop_claim.lease_token, uncertain=False)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_provider_send_stays_uncertain_after_later_stop():
+    engine = create_async_engine(URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id, event_id = uuid.uuid4(), uuid.uuid4()
+    tenant = TenantContext(tenant_id, "fixture_timeout", "Fixture", "active", {"phone_number_id": "654", "access_token": "synthetic"})
+    async with engine.begin() as conn:
+        assert (await conn.execute(text("SELECT current_database()"))).scalar_one().startswith("ragtest_")
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status) VALUES (:id,'Fixture','fixture_timeout','Test','active')"), {"id": tenant_id})
+        await conn.execute(text("INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,sender_fingerprint) VALUES (:event,:tenant,'timeout-first','654','fixture',1,repeat('c',64))"), {"event": event_id, "tenant": tenant_id})
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.post.side_effect = httpx.ReadTimeout("fixture timeout")
+    with (
+        patch("app.services.whatsapp.inbox_leases.get_session_factory", return_value=factory),
+        patch("app.services.whatsapp.outbound_fence.get_session_factory", return_value=factory),
+        patch("app.services.whatsapp.sender.httpx.AsyncClient", return_value=client),
+    ):
+        claim = await claim_next()
+        assert claim and claim.id == event_id
+        with outbound_scope(claim, "fixture-recipient") as scope:
+            with pytest.raises(WhatsAppSendError):
+                await WhatsAppSenderService().send_text(tenant, "fixture-recipient", "fixture")
+            assert scope.uncertain
+            async with engine.begin() as conn:
+                await conn.execute(text("INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,sender_fingerprint,is_opt_out) VALUES (gen_random_uuid(),:tenant,'timeout-stop','654','fixture',1,repeat('c',64),true)"), {"tenant": tenant_id})
+            with pytest.raises(OutboundSupersededError):
+                await WhatsAppSenderService().send_text(tenant, "fixture-recipient", "must-not-send")
+            assert scope.suppressed and scope.uncertain and client.post.await_count == 1
+        assert await finish_claim(claim.id, claim.lease_token, uncertain=scope.uncertain)
+        async with engine.connect() as conn:
+            assert (await conn.execute(text("SELECT state FROM public.whatsapp_inbox_events WHERE id=:id"), {"id": event_id})).scalar_one() == "uncertain"
     await engine.dispose()

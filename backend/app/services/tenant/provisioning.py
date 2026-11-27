@@ -499,10 +499,17 @@ class TenantProvisioningService:
             await session.commit()
 
     async def _drop_schema(self, slug: str) -> None:
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", slug) or slug == "template":
+            raise ValueError("Invalid tenant schema identifier")
         schema = f"tenant_{slug}"
         factory = get_session_factory()
         async with factory() as session:
-            await session.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+            if get_settings().restricted_tenant_schema_drop_enabled is True:
+                await session.execute(
+                    text("SELECT public.rehearsal_drop_tenant_schema(:slug)"), {"slug": slug}
+                )
+            else:
+                await session.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
             await session.commit()
 
     async def _delete_qdrant_collection(self, slug: str) -> None:

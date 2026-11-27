@@ -98,6 +98,9 @@ class Settings(BaseSettings):
         le=3650,
         description="Days to retain completed import snapshots; 0 disables deletion",
     )
+    restricted_tenant_schema_drop_enabled: bool = Field(
+        default=False, description="Use the restricted tenant schema removal function"
+    )
     webhook_proxy_shared_secret: str = Field(
         default="", description="Optional shared secret required from the Cloudflare webhook relay"
     )

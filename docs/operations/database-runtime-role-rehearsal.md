@@ -27,9 +27,19 @@ n'ont pas été modifiées. Cette répétition ne valide ni l'ensemble des servi
 ni les privilèges originaux, exclus de la copie de structure.
 
 La suppression d'un schéma existant échoue car il appartient encore au rôle
-de migration. Les droits sur les objets créés par les migrations suivantes ne
+de migration. Une fonction expérimentale `rehearsal_drop_tenant_schema` est
+préparée dans `scripts/rehearse-tenant-schema-drop.sql` pour une base jetable :
+elle refuse les institutions actives et les identifiants invalides, vérifie la
+ligne de l'institution sous verrou et écrit un audit dans la transaction de
+suppression. Son appel par l'application est désactivé par défaut. Cette
+fonction s'exécute avec les droits de son propriétaire : il faut contrôler son
+installation, son propriétaire et les droits `EXECUTE` avant toute utilisation.
+Un rôle applicatif compromis peut encore modifier les institutions auxquelles il
+a accès ; cette fonction ne constitue pas une isolation SQL entre institutions.
+
+Les droits sur les objets créés par les migrations suivantes ne
 sont pas attribués automatiquement. Avant toute activation il reste notamment
-à concevoir et tester ces opérations, séparer les identifiants de migration,
+à vérifier la fonction sur une copie du schéma réel, séparer les identifiants de migration,
 bootstrap, sauvegarde et application, vérifier tous les workers, protéger les
 secrets et préparer le retour arrière. Ne pas appliquer ce script en production
 comme procédure de déploiement.

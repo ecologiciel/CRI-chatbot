@@ -292,6 +292,14 @@ async def review_event(
         allowed = {"uncertain"} if data.action == "follow_up" else {"uncertain", "follow_up"}
         if event.state not in allowed:
             raise HTTPException(status_code=409, detail="État de l’événement modifié")
+        if kind == "message" and data.action == "resolve" and event.sender_fingerprint is None:
+            # A legacy message may contain an unprocessed STOP. Closing it
+            # blindly would release the tenant's queue without establishing
+            # consent; keep it quarantined until reconciliation is available.
+            raise HTTPException(
+                status_code=409,
+                detail="Message ancien non identifié : rapprochement spécifique requis avant clôture",
+            )
         previous = event.state
         event.state = "follow_up" if data.action == "follow_up" else "resolved"
         if kind == "message" and data.action == "resolve" and event.redacted_at is not None:

@@ -147,6 +147,27 @@ async def test_notification_review_rejects_unknown_tenant_event():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("redacted", [True, False])
+async def test_unidentified_legacy_message_cannot_be_closed_without_reconciliation(redacted):
+    tenant = TenantContext(uuid.uuid4(), "tenant_a", "A", "active", None)
+    event_id = uuid.uuid4()
+    event = MagicMock(id=event_id, state="follow_up", sender_fingerprint=None,
+                      redacted_at="expired" if redacted else None)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = event
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.execute.return_value = result
+    with patch("app.api.v1.whatsapp_operations.get_session_factory", return_value=lambda: session):
+        with pytest.raises(HTTPException) as exc:
+            await review_event(event_id, ReviewRequest(action="resolve"), kind="message",
+                               tenant=tenant, admin=MagicMock(sub=str(uuid.uuid4())))
+    assert exc.value.status_code == 409
+    assert event.state == "follow_up"
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("redacted,expected", [(True, None), (False, "a" * 64)])
 async def test_review_clears_only_expired_resolved_message_fingerprint(redacted, expected):
     tenant = TenantContext(uuid.uuid4(), "tenant_a", "A", "active", None)

@@ -100,6 +100,69 @@ _CROSS_SCHEMA_FKS = [
 ]
 
 
+async def _assert_template_compatible(session: Any) -> None:
+    """Reject template changes that the static schema cloner cannot preserve."""
+    tables = (
+        await session.execute(
+            text("""
+                SELECT c.relname, c.relkind, c.relrowsecurity, c.relforcerowsecurity,
+                       EXISTS (SELECT 1 FROM pg_trigger t
+                               WHERE t.tgrelid=c.oid AND NOT t.tgisinternal),
+                       EXISTS (SELECT 1 FROM pg_attrdef d
+                               WHERE d.adrelid=c.oid
+                                 AND pg_get_expr(d.adbin,d.adrelid) LIKE '%nextval(%')
+                FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname='tenant_template' AND c.relkind IN ('r','p','v','m','f')
+            """)
+        )
+    ).all()
+    if (
+        {row[0] for row in tables} != set(_TEMPLATE_TABLES)
+        or len(tables) != len(_TEMPLATE_TABLES)
+        or any(row[1] != "r" or any(row[2:]) for row in tables)
+    ):
+        raise TenantProvisioningError(
+            "Le modèle de données de l'institution a changé ; provisionnement suspendu."
+        )
+
+    foreign_keys = (
+        await session.execute(
+            text("""
+                SELECT src.relname, a.attname, dst_ns.nspname, dst.relname, da.attname,
+                       c.confupdtype, c.confdeltype, c.confmatchtype,
+                       c.condeferrable, c.condeferred, c.convalidated,
+                       cardinality(c.conkey), cardinality(c.confkey)
+                FROM pg_constraint c
+                JOIN pg_class src ON src.oid=c.conrelid
+                JOIN pg_namespace src_ns ON src_ns.oid=src.relnamespace
+                JOIN pg_class dst ON dst.oid=c.confrelid
+                JOIN pg_namespace dst_ns ON dst_ns.oid=dst.relnamespace
+                JOIN pg_attribute a ON a.attrelid=src.oid AND a.attnum=c.conkey[1]
+                JOIN pg_attribute da ON da.attrelid=dst.oid AND da.attnum=c.confkey[1]
+                WHERE src_ns.nspname='tenant_template' AND c.contype='f'
+            """)
+        )
+    ).all()
+    actions = {"NO ACTION": "a", "CASCADE": "c", "SET NULL": "n"}
+    expected = {
+        (table, column, "tenant_template", ref_table, ref_col, actions[on_delete])
+        for table, _, column, ref_table, ref_col, on_delete in _FK_CONSTRAINTS
+    } | {
+        (table, column, "public", ref_table.removeprefix("public."), ref_col, actions[on_delete])
+        for table, _, column, ref_table, ref_col, on_delete in _CROSS_SCHEMA_FKS
+    }
+    actual = {(row[0], row[1], row[2], row[3], row[4], row[6]) for row in foreign_keys}
+    if (
+        actual != expected
+        or len(foreign_keys) != len(expected)
+        or any(row[5] != "a" or row[7] != "s" or row[8] or row[9] or not row[10]
+               or row[11] != 1 or row[12] != 1 for row in foreign_keys)
+    ):
+        raise TenantProvisioningError(
+            "Les relations du modèle d'institution ont changé ; provisionnement suspendu."
+        )
+
+
 async def _clear_tenant_redis_keys(redis: Any, slug: str) -> int:
     """Remove only keys under the exact tenant prefix, with bounded rescans."""
     if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", slug):
@@ -421,6 +484,7 @@ class TenantProvisioningService:
         schema = f"tenant_{slug}"
         factory = get_session_factory()
         async with factory() as session:
+            await _assert_template_compatible(session)
             # Create the schema
             await session.execute(text(f"CREATE SCHEMA {schema}"))
 

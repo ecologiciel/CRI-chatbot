@@ -36,10 +36,13 @@ fonction s'exécute avec les droits de son propriétaire : il faut contrôler so
 installation, son propriétaire et les droits `EXECUTE` avant toute utilisation.
 Un rôle applicatif compromis peut encore modifier les institutions auxquelles il
 a accès ; cette fonction ne constitue pas une isolation SQL entre institutions.
+Sur une copie de la structure réelle, le service a refusé la suppression d'une
+institution synthétique active, puis supprimé son schéma après désactivation et
+ajouté une entrée d'audit. La base de production n'a pas été modifiée.
 
 Les droits sur les objets créés par les migrations suivantes ne
 sont pas attribués automatiquement. Avant toute activation il reste notamment
-à vérifier la fonction sur une copie du schéma réel, séparer les identifiants de migration,
+à séparer les identifiants de migration,
 bootstrap, sauvegarde et application, vérifier tous les workers, protéger les
 secrets et préparer le retour arrière. Ne pas appliquer ce script en production
 comme procédure de déploiement.

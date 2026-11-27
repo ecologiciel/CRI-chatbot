@@ -87,6 +87,8 @@ async def test_retention_redacts_only_terminal_payloads_with_atomic_audit_and_re
     with pytest.raises(IntegrityError):
         async with engine.begin() as conn:
             await conn.execute(text("UPDATE public.agent_reply_outbox_events SET redacted_at=now(),ciphertext='' WHERE id=:id"), {"id": pending})
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM public.agent_reply_outbox_events WHERE tenant_id IN (:a,:b)"), {"a": ta, "b": tb})
     await engine.dispose()
 
 

@@ -87,7 +87,11 @@ async def main():
     connection = None
     try:
         connection = await asyncpg.connect(
-            settings.database_url.replace("postgresql+asyncpg://", "postgresql://", 1),
+            host=settings.postgres_host,
+            port=settings.postgres_port,
+            database=settings.postgres_db,
+            user=settings.postgres_user,
+            password=settings.postgres_password,
             timeout=10,
         )
         failures = await inspect_role(connection, role)

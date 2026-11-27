@@ -51,14 +51,14 @@ async def test_retention_redacts_only_terminal_payloads_with_atomic_audit_and_re
                    phone_number_id,recipient_fingerprint,ciphertext,key_version,state,attempts,
                    provider_message_id,lease_token,lease_until,review_decision,reviewed_by,reviewed_at,updated_at)
                 VALUES (:id,:tenant,:key,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),
-                        '123',repeat('a',64),'synthetic-ciphertext',1,:state,
-                        CASE WHEN :state IN ('accepted','processing') THEN 1 ELSE 0 END,
-                        CASE WHEN :state='accepted' THEN 'synthetic-provider-id' ELSE NULL END,
-                        CASE WHEN :state='processing' THEN gen_random_uuid() ELSE NULL END,
-                        CASE WHEN :state='processing' THEN now()+interval '1 hour' ELSE NULL END,
-                        CASE WHEN :state='resolved' THEN 'unknown_no_retry' ELSE NULL END,
-                        CASE WHEN :state='resolved' THEN gen_random_uuid() ELSE NULL END,
-                        CASE WHEN :state='resolved' THEN now() ELSE NULL END,
+                        '123',repeat('a',64),'synthetic-ciphertext',1,CAST(:state AS text),
+                        CASE WHEN CAST(:state AS text) IN ('accepted','processing') THEN 1 ELSE 0 END,
+                        CASE WHEN CAST(:state AS text)='accepted' THEN 'synthetic-provider-id' ELSE NULL END,
+                        CASE WHEN CAST(:state AS text)='processing' THEN gen_random_uuid() ELSE NULL END,
+                        CASE WHEN CAST(:state AS text)='processing' THEN now()+interval '1 hour' ELSE NULL END,
+                        CASE WHEN CAST(:state AS text)='resolved' THEN 'unknown_no_retry' ELSE NULL END,
+                        CASE WHEN CAST(:state AS text)='resolved' THEN gen_random_uuid() ELSE NULL END,
+                        CASE WHEN CAST(:state AS text)='resolved' THEN now() ELSE NULL END,
                         CASE WHEN :old THEN now()-interval '40 days' ELSE now() END)
             """), {"id": event_id, "tenant": tenant_id, "state": state, "old": old,
                      "key": request if event_id == accepted else uuid.uuid4()})

@@ -116,6 +116,44 @@ async def test_reply_status_query_is_scoped_to_tenant_escalation_and_actor():
 
 
 @pytest.mark.asyncio
+async def test_open_replies_span_conversation_but_hide_other_actors_keys():
+    tenant_id, actor_id, other_actor, escalation_id, other_escalation, conversation_id, key = (
+        uuid.uuid4() for _ in range(7)
+    )
+    tenant = TenantContext(tenant_id, "fixture_api", "Fixture", "active", None)
+    payload = AdminTokenPayload(sub=str(actor_id), role="supervisor", tenant_id=str(tenant_id),
+                                exp=9999999999, iat=1700000000, jti=str(uuid.uuid4()), type="access")
+    own = MagicMock(id=uuid.uuid4(), escalation_id=escalation_id, actor_id=actor_id,
+                    state="pending", outcome_code=None, created_at=datetime.now(UTC), request_key=key)
+    other = MagicMock(id=uuid.uuid4(), escalation_id=other_escalation, actor_id=other_actor,
+                      state="uncertain", outcome_code="provider_unconfirmed",
+                      created_at=datetime.now(UTC), request_key=uuid.uuid4())
+    first, second = MagicMock(), MagicMock()
+    first.scalar_one_or_none.return_value = conversation_id
+    second.scalars.return_value.all.return_value = [own, other]
+    session = AsyncMock()
+    session.sync_session.info = {}
+    session.__aenter__.return_value = session
+    session.execute.side_effect = [first, second]
+    app.dependency_overrides[get_current_admin] = lambda: payload
+    try:
+        with (patch("app.core.middleware.TenantResolver.from_tenant_id_header", new=AsyncMock(return_value=tenant)),
+              patch("app.core.tenant.get_session_factory", return_value=lambda: session)):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get(f"/api/v1/escalations/{escalation_id}/reply-requests", headers={"X-Tenant-ID": str(tenant_id)})
+        assert response.status_code == 200
+        events = response.json()["events"]
+        assert events[0]["request_key"] == str(key)
+        assert events[1]["request_key"] is None
+        assert events[1]["escalation_id"] == str(other_escalation)
+        params = session.execute.await_args_list[1].args[0].compile().params.values()
+        assert tenant_id in params and conversation_id in params
+        assert "ciphertext" not in events[1]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("role,decision,expected", [
     (AdminRole.viewer, "unknown_no_retry", 403),
     (AdminRole.admin_tenant, None, 422),

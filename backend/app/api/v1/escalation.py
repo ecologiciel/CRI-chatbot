@@ -20,6 +20,7 @@ from app.core.rbac import require_role
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext, get_current_tenant
 from app.models.agent_reply_outbox import AgentReplyOutboxEvent
+from app.models.escalation import Escalation
 from app.models.enums import (
     AdminRole,
     EscalationPriority,
@@ -282,16 +283,21 @@ async def list_open_reply_requests(
 ) -> dict:
     """Expose unresolved metadata, never the encrypted text or recipient."""
     actor_id = uuid.UUID(admin.sub)
-    async with get_session_factory()() as session:
+    async with tenant.db_session() as session:
+        conversation_id = (await session.execute(
+            select(Escalation.conversation_id).where(Escalation.id == escalation_id)
+        )).scalar_one_or_none()
+        if conversation_id is None:
+            raise ResourceNotFoundError("Escalade introuvable")
         events = (await session.execute(
             select(AgentReplyOutboxEvent).where(
                 AgentReplyOutboxEvent.tenant_id == tenant.id,
-                AgentReplyOutboxEvent.escalation_id == escalation_id,
+                AgentReplyOutboxEvent.conversation_id == conversation_id,
                 AgentReplyOutboxEvent.state.in_(["pending", "processing", "uncertain", "follow_up"]),
             ).order_by(AgentReplyOutboxEvent.sequence).limit(51)
         )).scalars().all()
     return {"has_more": len(events) > 50, "events": [
-        {"id": str(event.id), "state": event.state, "outcome_code": event.outcome_code,
+        {"id": str(event.id), "escalation_id": str(event.escalation_id), "state": event.state, "outcome_code": event.outcome_code,
          "created_at": event.created_at, "mine": event.actor_id == actor_id,
          "request_key": str(event.request_key) if event.actor_id == actor_id else None}
         for event in events[:50]

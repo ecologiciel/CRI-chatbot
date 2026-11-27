@@ -16,6 +16,6 @@ export function DeliveryStatus({ state, reviewRequired }: {
   if (reviewRequired) {
     return <p className="text-xs text-destructive mt-1">Statut WhatsApp contradictoire ou non reconnu · examen nécessaire</p>;
   }
-  if (!state || !labels[state]) return null;
+  if (!state || !Object.hasOwn(labels, state)) return null;
   return <p className={cn("text-xs mt-1", state === "failed" || state === "unconfirmed" ? "text-destructive" : "text-muted-foreground")}>{labels[state]}</p>;
 }

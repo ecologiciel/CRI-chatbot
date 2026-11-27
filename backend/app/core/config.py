@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     whatsapp_durable_inbox_enabled: bool = Field(
         default=False, description="Use transactional WhatsApp webhook intake"
     )
+    agent_reply_outbox_enabled: bool = Field(
+        default=False, description="Use the staged durable agent reply outbox"
+    )
     dossier_notification_outbox_enabled: bool = Field(
         default=False, description="Use the staged transactional dossier notification outbox"
     )

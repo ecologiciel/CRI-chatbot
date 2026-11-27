@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.models.agent_reply_outbox import AgentReplyOutboxEvent
+from app.models.audit import AuditLog
+from app.models.tenant import Tenant
 
 _UNRESOLVED = ("pending", "processing", "uncertain", "follow_up")
 
@@ -65,13 +67,16 @@ async def claim_next_reply(session: AsyncSession, *, lease_seconds: int = 120) -
 
 
 async def finish_reply(
-    session: AsyncSession, claim: AgentReplyClaim, *, provider_message_id: str | None
+    session: AsyncSession, claim: AgentReplyClaim, *, provider_message_id: str | None,
+    precondition_failed: bool = False,
 ) -> None:
     """Record provider acceptance or quarantine an ambiguous result atomically."""
     if provider_message_id is not None and (
         not isinstance(provider_message_id, str) or not provider_message_id or len(provider_message_id) > 255
     ):
         raise ValueError("Invalid provider message identifier")
+    if provider_message_id is not None and precondition_failed:
+        raise ValueError("Invalid agent reply outcome")
     result = await session.execute(
         update(AgentReplyOutboxEvent).where(
             AgentReplyOutboxEvent.id == claim.id,
@@ -81,6 +86,9 @@ async def finish_reply(
             AgentReplyOutboxEvent.lease_until > func.clock_timestamp(),
         ).values(
             state="accepted" if provider_message_id is not None else "uncertain",
+            outcome_code="provider_accepted" if provider_message_id is not None else (
+                "precondition_changed" if precondition_failed else "provider_unconfirmed"
+            ),
             provider_message_id=provider_message_id, lease_token=None, lease_until=None,
             updated_at=func.clock_timestamp(),
         ).returning(AgentReplyOutboxEvent.id)
@@ -93,18 +101,28 @@ async def quarantine_expired_replies(session: AsyncSession, *, limit: int = 100)
     """Move expired claims to review without ever scheduling another send."""
     if not 1 <= limit <= 500:
         raise ValueError("Invalid quarantine batch size")
-    ids = (await session.execute(
-        select(AgentReplyOutboxEvent.id).where(
+    rows = (await session.execute(
+        select(AgentReplyOutboxEvent.id, Tenant.slug)
+        .join(Tenant, Tenant.id == AgentReplyOutboxEvent.tenant_id)
+        .where(
             AgentReplyOutboxEvent.state == "processing",
             AgentReplyOutboxEvent.lease_until <= func.clock_timestamp(),
         ).order_by(AgentReplyOutboxEvent.lease_until, AgentReplyOutboxEvent.id)
-        .with_for_update(skip_locked=True).limit(limit)
-    )).scalars().all()
-    if not ids:
+        .with_for_update(of=AgentReplyOutboxEvent, skip_locked=True).limit(limit)
+    )).all()
+    if not rows:
         return 0
+    ids = [row.id for row in rows]
     result = await session.execute(
         update(AgentReplyOutboxEvent).where(
             AgentReplyOutboxEvent.id.in_(ids), AgentReplyOutboxEvent.state == "processing",
-        ).values(state="uncertain", lease_token=None, lease_until=None, updated_at=func.clock_timestamp())
+        ).values(state="uncertain", outcome_code="lease_expired", lease_token=None,
+                 lease_until=None, updated_at=func.clock_timestamp())
     )
+    for row in rows:
+        session.add(AuditLog(
+            tenant_slug=row.slug, user_type="system", action="agent_reply_expired",
+            resource_type="agent_reply", resource_id=str(row.id),
+        ))
+    await session.flush()
     return result.rowcount

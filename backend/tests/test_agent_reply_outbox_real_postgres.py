@@ -3,7 +3,7 @@
 import asyncio
 import os
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import text
@@ -23,6 +23,7 @@ from app.services.escalation.reply_leases import (
 )
 from app.services.escalation.reply_outbox import AgentReplyConflictError, register_agent_reply
 from app.services.tenant.provisioning import TenantProvisioningService
+from app.workers.agent_reply_outbox import process_one_reply
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated PostgreSQL")
@@ -158,6 +159,18 @@ async def test_claims_keep_conversation_order_and_quarantine_expiry():
     async with factory() as session:
         with pytest.raises(AgentReplyLeaseLostError):
             await finish_reply(session, second, provider_message_id="fixture")
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_agent_expiry CHECK (action <> 'agent_reply_expired') NOT VALID"))
+    try:
+        with pytest.raises(DBAPIError):
+            async with factory() as session:
+                await quarantine_expired_replies(session)
+                await session.commit()
+        async with engine.connect() as conn:
+            assert (await conn.scalar(text("SELECT state FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": a2})) == "processing"
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_agent_expiry"))
     async with factory() as session:
         assert await quarantine_expired_replies(session) == 1
         await session.commit()
@@ -314,4 +327,22 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
                 await session.commit()
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": event.id})
+        queued = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-worker", cipher=cipher)
+        worker_sender = AsyncMock()
+        worker_sender.send_text.return_value = "fixture-worker-provider-id"
+        with (patch("app.workers.agent_reply_outbox.get_settings", return_value=MagicMock(agent_reply_outbox_enabled=True, kms_master_key="06" * 32)),
+              patch("app.workers.agent_reply_outbox.get_session_factory", return_value=factory),
+              patch("app.workers.agent_reply_outbox.WhatsAppSenderService", return_value=worker_sender)):
+            assert await process_one_reply({}) == "accepted"
+            assert await process_one_reply({}) == "empty"
+            worker_sender.send_text.assert_awaited_once()
+            pending = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-worker-stop", cipher=cipher)
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE tenant_fixture_reply_exec.contacts SET opt_in_status='opted_out' WHERE id=:id"), {"id": contact_id})
+            assert await process_one_reply({}) == "uncertain"
+            worker_sender.send_text.assert_awaited_once()
+            async with engine.connect() as conn:
+                assert (await conn.scalar(text("SELECT outcome_code FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": queued.id})) == "provider_accepted"
+                assert (await conn.scalar(text("SELECT outcome_code FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": pending.id})) == "precondition_changed"
+                assert (await conn.scalar(text("SELECT count(*) FROM public.audit_logs WHERE action='agent_reply_review' AND resource_id=:id"), {"id": str(pending.id)})) == 1
     await engine.dispose()

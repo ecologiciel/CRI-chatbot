@@ -161,6 +161,7 @@ async def execute_agent_reply(
                 raise AgentReplyLeaseLostError("Agent reply lease expired during provider call")
             state = "accepted" if provider_id else "uncertain"
             event.state = state
+            event.outcome_code = "provider_accepted" if provider_id else "provider_unconfirmed"
             event.provider_message_id = provider_id
             event.lease_token = None
             event.lease_until = None

@@ -45,6 +45,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Removing sequence and grouping data from a populated inbox is not a
+    # reversible rollback. Lock out concurrent writers and refuse it.
+    op.execute("LOCK TABLE public.whatsapp_inbox_events IN ACCESS EXCLUSIVE MODE")
+    if op.get_bind().execute(sa.text("SELECT EXISTS (SELECT 1 FROM public.whatsapp_inbox_events)")).scalar_one():
+        raise RuntimeError("Cannot downgrade ordered WhatsApp inbox while events exist")
     op.drop_index("ix_wa_inbox_conversation_order", table_name="whatsapp_inbox_events", schema="public")
     op.drop_index("uq_wa_inbox_arrival_sequence", table_name="whatsapp_inbox_events", schema="public")
     op.drop_constraint("ck_wa_inbox_sender_fingerprint", "whatsapp_inbox_events", schema="public", type_="check")

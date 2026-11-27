@@ -86,6 +86,15 @@ export class ApiClient {
     this.config = config;
   }
 
+  getAccessToken(): string | null {
+    return this.config.getAccessToken();
+  }
+
+  getTenantId(): string | null {
+    const token = this.config.getAccessToken();
+    return token ? requestTenantId(token) : null;
+  }
+
   // ── Core request ────────────────────────────────────────────────────────
 
   private async request<T>(

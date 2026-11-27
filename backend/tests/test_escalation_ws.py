@@ -22,11 +22,16 @@ async def test_subscription_revalidates_session_before_each_delivery(revoked):
     from app.core.exceptions import AuthenticationError
 
     admin = SimpleNamespace(sub="admin", role="supervisor")
-    tenant = SimpleNamespace(id="tenant-id")
+    tenant = SimpleNamespace(id="tenant-id", slug="rabat")
     ws = AsyncMock()
     ws.client = SimpleNamespace(host="127.0.0.1")
 
+    frames = iter(['{"type":"auth","token":"token"}'])
+
     async def wait_client():
+        frame = next(frames, None)
+        if frame:
+            return frame
         await asyncio.Event().wait()
 
     ws.receive_text.side_effect = wait_client
@@ -43,19 +48,19 @@ async def test_subscription_revalidates_session_before_each_delivery(revoked):
     )
     with (
         patch("app.api.ws.escalation_ws.AuthService", return_value=service),
-        patch("app.api.ws.escalation_ws.TenantResolver.from_slug", AsyncMock(return_value=tenant)),
+        patch("app.api.ws.escalation_ws.TenantResolver.from_tenant_id_header", AsyncMock(return_value=tenant)),
         patch("app.api.ws.escalation_ws.ensure_admin_access", AsyncMock()),
         patch("app.api.ws.escalation_ws.get_redis", return_value=redis),
     ):
-        await asyncio.wait_for(escalation_ws_endpoint(ws, "rabat", "token"), 2)
+        await asyncio.wait_for(escalation_ws_endpoint(ws, "tenant-id"), 2)
 
     assert service.verify_access_token.await_count == 2
     assert service.verify_access_token.await_args.kwargs["ip_address"] == "127.0.0.1"
     if revoked:
-        ws.send_text.assert_not_awaited()
+        assert ws.send_text.await_count == 1  # authentication acknowledgement only
         assert ws.close.await_args_list[0].kwargs["code"] == 4001
     else:
-        ws.send_text.assert_awaited_once()
+        assert ws.send_text.await_count == 2
         assert json.loads(ws.send_text.await_args.args[0])["data"] == {"id": "1"}
     pubsub.aclose.assert_awaited_once()
 
@@ -67,13 +72,21 @@ async def test_two_subscriptions_deliver_each_event_once_per_client():
     from app.api.ws.escalation_ws import escalation_ws_endpoint
 
     admin = SimpleNamespace(sub="admin", role="supervisor")
-    tenant = SimpleNamespace(id="tenant-id")
+    tenant = SimpleNamespace(id="tenant-id", slug="rabat")
     sockets = [AsyncMock(), AsyncMock()]
     subscribed = 0
     both_subscribed = asyncio.Event()
 
-    async def wait_client():
-        await asyncio.Event().wait()
+    def make_receive():
+        frames = iter(['{"type":"auth","token":"token"}'])
+
+        async def receive():
+            frame = next(frames, None)
+            if frame:
+                return frame
+            await asyncio.Event().wait()
+
+        return receive
 
     def make_pubsub():
         pubsub = AsyncMock()
@@ -91,19 +104,19 @@ async def test_two_subscriptions_deliver_each_event_once_per_client():
 
     for ws in sockets:
         ws.client = SimpleNamespace(host="127.0.0.1")
-        ws.receive_text.side_effect = wait_client
+        ws.receive_text.side_effect = make_receive()
     service = SimpleNamespace(verify_access_token=AsyncMock(return_value=admin))
     with (
         patch("app.api.ws.escalation_ws.AuthService", return_value=service),
-        patch("app.api.ws.escalation_ws.TenantResolver.from_slug", AsyncMock(return_value=tenant)),
+        patch("app.api.ws.escalation_ws.TenantResolver.from_tenant_id_header", AsyncMock(return_value=tenant)),
         patch("app.api.ws.escalation_ws.ensure_admin_access", AsyncMock()),
         patch("app.api.ws.escalation_ws.get_redis", return_value=SimpleNamespace(pubsub=make_pubsub)),
     ):
         await asyncio.wait_for(asyncio.gather(*(
-            escalation_ws_endpoint(ws, "rabat", "token") for ws in sockets
+            escalation_ws_endpoint(ws, "tenant-id") for ws in sockets
         )), 2)
     for ws in sockets:
-        ws.send_text.assert_awaited_once()
+        assert ws.send_text.await_count == 2  # acknowledgement and one event
 
 
 @pytest.mark.asyncio
@@ -113,10 +126,88 @@ async def test_connection_without_peer_address_fails_closed():
     ws = AsyncMock()
     ws.client = None
     with patch("app.api.ws.escalation_ws.AuthService") as service:
-        await escalation_ws_endpoint(ws, "rabat", "token")
+        await escalation_ws_endpoint(ws, "tenant-id")
     service.assert_not_called()
-    ws.accept.assert_not_awaited()
+    ws.accept.assert_awaited_once()
     assert ws.close.await_args.kwargs["code"] == 4001
+
+
+def test_websocket_first_frame_authenticates_without_token_in_url():
+    import asyncio
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.ws.escalation_ws import escalation_ws_endpoint
+
+    pubsub = AsyncMock()
+
+    async def messages():
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+    pubsub.listen = messages
+    service = SimpleNamespace(verify_access_token=AsyncMock(
+        return_value=SimpleNamespace(sub="admin", role="supervisor")
+    ))
+    tenant = SimpleNamespace(id="tenant-id", slug="rabat")
+    app = FastAPI()
+    app.add_api_websocket_route("/ws/escalations/{tenant_id}", escalation_ws_endpoint)
+    with (
+        patch("app.api.ws.escalation_ws.AuthService", return_value=service),
+        patch("app.api.ws.escalation_ws.TenantResolver.from_tenant_id_header", AsyncMock(return_value=tenant)),
+        patch("app.api.ws.escalation_ws.ensure_admin_access", AsyncMock()),
+        patch("app.api.ws.escalation_ws.get_redis", return_value=SimpleNamespace(pubsub=lambda: pubsub)),
+        TestClient(app) as client,
+        client.websocket_connect("/ws/escalations/tenant-id") as socket,
+    ):
+        socket.send_json({"type": "auth", "token": "test-token"})
+        assert socket.receive_json() == {"event": "authenticated"}
+        socket.send_text("ping")
+        assert socket.receive_json()["event"] == "pong"
+    service.verify_access_token.assert_awaited_once()
+
+
+def test_websocket_rejects_non_auth_first_frame():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    from app.api.ws.escalation_ws import escalation_ws_endpoint
+
+    app = FastAPI()
+    app.add_api_websocket_route("/ws/escalations/{tenant_id}", escalation_ws_endpoint)
+    with TestClient(app) as client, client.websocket_connect("/ws/escalations/tenant-id") as socket:
+        socket.send_text("ping")
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_text()
+        assert closed.value.code == 4001
+
+
+def test_websocket_rejects_other_tenant():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    from app.api.ws.escalation_ws import escalation_ws_endpoint
+    from app.core.exceptions import AuthorizationError
+
+    service = SimpleNamespace(verify_access_token=AsyncMock(
+        return_value=SimpleNamespace(sub="admin", role="supervisor")
+    ))
+    app = FastAPI()
+    app.add_api_websocket_route("/ws/escalations/{tenant_id}", escalation_ws_endpoint)
+    with (
+        patch("app.api.ws.escalation_ws.AuthService", return_value=service),
+        patch("app.api.ws.escalation_ws.TenantResolver.from_tenant_id_header", AsyncMock(return_value=SimpleNamespace(id="other"))),
+        patch("app.api.ws.escalation_ws.ensure_admin_access", AsyncMock(side_effect=AuthorizationError("forbidden"))),
+        TestClient(app) as client,
+        client.websocket_connect("/ws/escalations/other") as socket,
+    ):
+        socket.send_json({"type": "auth", "token": "test-token"})
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_text()
+        assert closed.value.code == 4003
 
 # ---------------------------------------------------------------------------
 # 1. Import tests

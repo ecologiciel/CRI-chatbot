@@ -1,7 +1,7 @@
 """WebSocket endpoint for real-time escalation notifications.
 
 Architecture:
-- Back-office client connects: ws://host/ws/escalations/{slug}?token=<jwt>
+- Back-office connects with a tenant UUID and authenticates in the first frame.
 - Server subscribes to Redis pub/sub pattern {slug}:escalations:*
 - When EscalationService publishes an event, it is forwarded to all
   connected WebSocket clients for that tenant.
@@ -27,7 +27,7 @@ import json
 from datetime import UTC, datetime
 
 import structlog
-from fastapi import Query, WebSocket, WebSocketDisconnect
+from fastapi import WebSocket, WebSocketDisconnect
 
 from app.core.exceptions import (
     AuthenticationError,
@@ -37,7 +37,7 @@ from app.core.exceptions import (
 )
 from app.core.rbac import ensure_admin_access
 from app.core.redis import get_redis
-from app.core.tenant import TenantResolver
+from app.core.tenant import TenantContext, TenantResolver
 from app.models.enums import AdminRole
 from app.schemas.auth import AdminTokenPayload
 from app.services.auth.jwt import JWTManager
@@ -96,14 +96,15 @@ class EscalationWSManager:
     def __init__(self) -> None:
         self._connections: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket, slug: str) -> None:
+    async def connect(self, websocket: WebSocket, slug: str, *, accepted: bool = False) -> None:
         """Accept and register a WebSocket connection.
 
         Args:
             websocket: The WebSocket to accept.
             slug: Tenant slug.
         """
-        await websocket.accept()
+        if not accepted:
+            await websocket.accept()
         if slug not in self._connections:
             self._connections[slug] = set()
         self._connections[slug].add(websocket)
@@ -165,12 +166,11 @@ ws_manager = EscalationWSManager()
 
 async def escalation_ws_endpoint(
     websocket: WebSocket,
-    tenant_slug: str,
-    token: str = Query(...),
+    tenant_id: str,
 ) -> None:
     """WebSocket endpoint for real-time escalation notifications.
 
-    URL: ws://host/ws/escalations/{tenant_slug}?token=<jwt>
+    URL: wss://host/ws/escalations/{tenant_id}
 
     The client receives events whenever an escalation is created, assigned,
     or resolved for this tenant. The client may send "ping" to receive a
@@ -178,26 +178,45 @@ async def escalation_ws_endpoint(
 
     Args:
         websocket: FastAPI WebSocket connection.
-        tenant_slug: Tenant slug from URL path.
-        token: JWT access token from query parameter.
+        tenant_id: Tenant UUID from URL path.
     """
-    # An absent peer address must not bypass session validation.
+    # Authentication is sent in the first frame, never in the URL or proxy logs.
+    await websocket.accept()
     ip_address = websocket.client.host if websocket.client else None
     if not ip_address:
         await websocket.close(code=4001, reason="Unable to validate session")
         return
 
-    async def validate_access() -> AdminTokenPayload:
+    try:
+        first_frame = await asyncio.wait_for(websocket.receive_text(), timeout=5)
+        if len(first_frame) > 8192:
+            raise ValueError("oversized authentication frame")
+        auth_frame = json.loads(first_frame)
+        if not isinstance(auth_frame, dict) or auth_frame.get("type") != "auth":
+            raise ValueError("invalid authentication frame")
+        token = auth_frame.get("token")
+        if not isinstance(token, str) or not token:
+            raise ValueError("missing token")
+    except (ValueError, TypeError, TimeoutError, WebSocketDisconnect):
+        with contextlib.suppress(Exception):
+            await websocket.close(code=4001, reason="Authentication required")
+        return
+
+    bound_slug: str | None = None
+
+    async def validate_access() -> tuple[AdminTokenPayload, TenantContext]:
         admin = await AuthService().verify_access_token(token, ip_address=ip_address)
         if admin.role not in _WS_ALLOWED_ROLES:
             raise AuthorizationError("Insufficient permissions")
-        tenant = await TenantResolver.from_slug(tenant_slug)
+        tenant = await TenantResolver.from_tenant_id_header(tenant_id)
+        if bound_slug is not None and tenant.slug != bound_slug:
+            raise AuthorizationError("Tenant routing changed")
         await ensure_admin_access(admin, tenant.id)
-        return admin
+        return admin, tenant
 
     # --- Authenticate, including the current Redis-backed session ---
     try:
-        admin = await validate_access()
+        admin, tenant = await validate_access()
     except AuthenticationError:
         await websocket.close(code=4001, reason="Invalid or expired token")
         return
@@ -208,12 +227,14 @@ async def escalation_ws_endpoint(
         await websocket.close(code=4004, reason="Invalid or inactive tenant")
         return
     except Exception:
-        logger.warning("ws_escalation_auth_unavailable", tenant=tenant_slug)
+        logger.warning("ws_escalation_auth_unavailable", tenant_id=tenant_id)
         await websocket.close(code=1011, reason="Session validation unavailable")
         return
 
     # --- Accept connection ---
-    await ws_manager.connect(websocket, tenant_slug)
+    tenant_slug = tenant.slug
+    bound_slug = tenant_slug
+    await ws_manager.connect(websocket, tenant_slug, accepted=True)
     logger.info(
         "ws_escalation_connected",
         tenant=tenant_slug,
@@ -232,6 +253,7 @@ async def escalation_ws_endpoint(
     channel_pattern = f"{tenant_slug}:escalations:*"
     try:
         await pubsub.psubscribe(channel_pattern)
+        await websocket.send_text(json.dumps({"event": "authenticated"}))
     except Exception:
         with contextlib.suppress(Exception):
             await pubsub.aclose()

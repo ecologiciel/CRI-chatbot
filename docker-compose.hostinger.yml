@@ -165,6 +165,11 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.demo-api.rule=Host(`${DEMO_HOSTNAME}`) && PathPrefix(`/api`)
+      - traefik.http.routers.demo-ws.rule=Host(`${DEMO_HOSTNAME}`) && PathPrefix(`/ws/escalations/`)
+      - traefik.http.routers.demo-ws.priority=30
+      - traefik.http.routers.demo-ws.entrypoints=websecure
+      - traefik.http.routers.demo-ws.tls.certresolver=le
+      - traefik.http.routers.demo-ws.service=demo-api
       - traefik.http.routers.demo-api.priority=30
       - traefik.http.routers.demo-api.entrypoints=websecure
       - traefik.http.routers.demo-api.tls.certresolver=le

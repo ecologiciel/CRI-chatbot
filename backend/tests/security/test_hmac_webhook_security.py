@@ -96,7 +96,7 @@ class TestHmacEdgeCases:
 
     @pytest.mark.asyncio
     async def test_hmac_empty_body_valid_signature(self):
-        """Empty body with valid HMAC passes signature check (parse fails gracefully)."""
+        """Valid HMAC reaches validation; malformed content is not acknowledged."""
         empty_body = b""
         signature = _sign(empty_body)
 
@@ -105,9 +105,10 @@ class TestHmacEdgeCases:
                 whatsapp_app_secret=TEST_APP_SECRET,
                 whatsapp_verify_token=TEST_VERIFY_TOKEN,
             )
-            # Should not raise WhatsAppSignatureError (HMAC is valid)
-            # But parsing will fail — process_webhook returns gracefully
-            await WhatsAppWebhookService.process_webhook(empty_body, signature)
+            from pydantic import ValidationError
+
+            with pytest.raises(ValidationError):
+                await WhatsAppWebhookService.process_webhook(empty_body, signature)
 
     @pytest.mark.asyncio
     async def test_hmac_body_tampered_after_signing(self):

@@ -167,6 +167,44 @@ class TestWebhookVerification:
 
 class TestWebhookPost:
     @pytest.mark.asyncio
+    async def test_signed_malformed_payload_is_not_acknowledged(self):
+        body = b'{"private_content":'
+        with patch("app.services.whatsapp.webhook.get_settings", return_value=_mock_settings()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post(
+                    "/api/v1/webhook/whatsapp", content=body,
+                    headers={"X-Hub-Signature-256": _sign_payload(body)},
+                )
+        assert response.status_code == 503
+        assert "private_content" not in response.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure, expected",
+        [(None, 200), (RuntimeError("sensitive diagnostic"), 503),
+         (WhatsAppSignatureError("invalid"), 403)],
+    )
+    async def test_legacy_intake_does_not_acknowledge_unhandled_failure(self, failure, expected):
+        settings = MagicMock(
+            whatsapp_durable_inbox_enabled=False,
+            whatsapp_webhook_max_body_bytes=1_048_576,
+            webhook_proxy_shared_secret="",
+        )
+        processor = AsyncMock(side_effect=failure)
+        with (
+            patch("app.api.v1.webhook.get_settings", return_value=settings),
+            patch("app.api.v1.webhook.webhook_service.process_webhook", processor),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post(
+                    "/api/v1/webhook/whatsapp", content=b"{}",
+                    headers={"X-Hub-Signature-256": "signature"},
+                )
+        assert response.status_code == expected
+        assert "sensitive diagnostic" not in response.text
+        processor.assert_awaited_once_with(b"{}", "signature")
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "failure, expected",
         [
@@ -360,8 +398,8 @@ class TestWebhookRateLimit:
                     },
                 )
 
-        # Returns 200 to Meta even on rate limit (error is logged, not exposed)
-        assert response.status_code == 200
+        # A rate-limited event was not processed; request a later retry.
+        assert response.status_code == 503
 
 
 # --- HMAC Validation Unit Tests ---

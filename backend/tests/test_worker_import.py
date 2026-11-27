@@ -8,6 +8,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from datetime import UTC, datetime
@@ -123,8 +124,11 @@ def _make_minio_response(content: bytes = b"fake-file-content") -> AsyncMock:
     """Create a mock MinIO get_object response."""
     response = AsyncMock()
     response.read = AsyncMock(return_value=content)
+    response.content.readexactly = AsyncMock(
+        side_effect=asyncio.IncompleteReadError(content, len(content) + 1)
+    )
     response.close = MagicMock()
-    response.release = AsyncMock()
+    response.release = MagicMock()
     return response
 
 
@@ -167,6 +171,42 @@ def _make_import_report(
 
 class TestTaskImportDossier:
     """Tests for the task_import_dossier ARQ task."""
+
+    @pytest.mark.asyncio
+    async def test_download_failure_marks_sync_as_failed(self):
+        sync_log = _make_sync_log_mock()
+        tenant = _make_tenant_with_session(_make_mock_session(get_result=sync_log))
+        with (
+            patch("app.core.tenant.TenantResolver") as resolver,
+            patch(
+                "app.core.minio.get_object_bytes",
+                new=AsyncMock(side_effect=ConnectionError("unavailable")),
+            ),
+        ):
+            resolver.from_slug = AsyncMock(return_value=tenant)
+            with pytest.raises(ConnectionError):
+                await task_import_dossier({}, "imports/direct/test.xlsx", None, TEST_TENANT_SLUG)
+        assert sync_log.status == SyncStatus.failed
+
+    @pytest.mark.asyncio
+    async def test_tampered_snapshot_is_rejected_before_import(self):
+        sync_log = _make_sync_log_mock()
+        tenant = _make_tenant_with_session(_make_mock_session(get_result=sync_log))
+        with (
+            patch("app.core.tenant.TenantResolver") as resolver,
+            patch("app.core.minio.get_minio") as get_minio,
+            patch("app.services.dossier.import_service.get_dossier_import_service") as service,
+        ):
+            resolver.from_slug = AsyncMock(return_value=tenant)
+            get_minio.return_value.get_object = AsyncMock(
+                return_value=_make_minio_response(b"altered")
+            )
+            with pytest.raises(ValueError, match="integrity"):
+                await task_import_dossier(
+                    {}, f"imports/staged/{'0' * 64}/source.xlsx", None, TEST_TENANT_SLUG
+                )
+        service.assert_not_called()
+        assert sync_log.status == SyncStatus.failed
 
     @pytest.mark.asyncio
     async def test_import_skips_duplicate_hash(self):
@@ -493,6 +533,38 @@ class TestTaskImportDossier:
 class TestTaskWatchImportFolder:
     """Tests for the task_watch_import_folder ARQ task."""
 
+    def test_import_worker_uses_dedicated_queue(self):
+        from app.core.arq import DOSSIER_IMPORT_QUEUE
+        from app.workers.import_dossier import WorkerSettings
+
+        assert WorkerSettings.queue_name == DOSSIER_IMPORT_QUEUE
+        assert DOSSIER_IMPORT_QUEUE != "arq:queue"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_upload_failure_never_enqueues_or_removes_source(self):
+        config_result = MagicMock()
+        config_result.scalar_one_or_none.return_value = None
+        hash_result = MagicMock()
+        hash_result.scalar_one_or_none.return_value = None
+        tenant = _make_tenant_with_session(
+            _make_mock_session(execute_results=[config_result, hash_result])
+        )
+        obj = MagicMock(object_name="imports/pending/source.xlsx")
+        minio = AsyncMock()
+        minio.list_objects = MagicMock(return_value=MockAsyncIter([obj]))
+        minio.get_object.return_value = _make_minio_response(b"data")
+        minio.put_object.side_effect = RuntimeError("storage unavailable")
+        queue = AsyncMock()
+        with (
+            patch("app.core.tenant.TenantResolver") as resolver,
+            patch("app.core.minio.get_minio", return_value=minio),
+        ):
+            resolver.from_slug = AsyncMock(return_value=tenant)
+            result = await task_watch_import_folder({"redis": queue}, TEST_TENANT_SLUG)
+        assert result["files_enqueued"] == 0
+        queue.enqueue_job.assert_not_awaited()
+        minio.remove_object.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_watch_lists_and_queues_new_files(self):
         """New files are discovered, hashed, and enqueued for import."""
@@ -577,10 +649,11 @@ class TestTaskWatchImportFolder:
         assert result["files_skipped"] == 1
         assert result["files_enqueued"] == 0
         mock_arq_redis.enqueue_job.assert_not_called()
+        mock_minio.remove_object.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_watch_moves_files_to_processed(self):
-        """Enqueued files are moved to imports/processed/{date}/."""
+    async def test_watch_stages_snapshot_and_keeps_source(self):
+        """Queue an immutable snapshot and never delete the source prematurely."""
         config_result = MagicMock()
         config_result.scalar_one_or_none.return_value = MagicMock(
             id=TEST_CONFIG_ID,
@@ -612,15 +685,16 @@ class TestTaskWatchImportFolder:
 
             await task_watch_import_folder(ctx, TEST_TENANT_SLUG)
 
-        # Verify copy + delete for move
-        mock_minio.copy_object.assert_called_once()
-        mock_minio.remove_object.assert_called_once()
-
-        # Check destination path includes date and filename
-        copy_args = mock_minio.copy_object.call_args
-        dest_path = copy_args[0][1]  # second positional arg
-        assert "imports/processed/" in dest_path
-        assert "dossiers.xlsx" in dest_path
+        mock_minio.put_object.assert_awaited_once()
+        mock_minio.copy_object.assert_not_awaited()
+        mock_minio.remove_object.assert_not_awaited()
+        staged_path = mock_minio.put_object.await_args.args[1]
+        assert mock_minio.put_object.await_args.kwargs["data"].getvalue() == b"data"
+        assert staged_path.startswith("imports/staged/") and staged_path.endswith(".xlsx")
+        kwargs = ctx["redis"].enqueue_job.await_args.kwargs
+        assert kwargs["_queue_name"] == "arq:queue:dossier-import"
+        assert kwargs["_job_id"].startswith("dossier-import-")
+        assert ctx["redis"].enqueue_job.await_args.args[1] == staged_path
 
     @pytest.mark.asyncio
     async def test_watch_ignores_non_import_extensions(self):
@@ -709,6 +783,7 @@ class TestTaskScheduledImportAll:
         mock_arq_redis.enqueue_job.assert_called_once_with(
             "task_watch_import_folder",
             "rabat",
+            _queue_name="arq:queue:dossier-import",
         )
 
     @pytest.mark.asyncio
@@ -756,4 +831,5 @@ class TestTaskScheduledImportAll:
         mock_arq_redis.enqueue_job.assert_called_once_with(
             "task_watch_import_folder",
             "good",
+            _queue_name="arq:queue:dossier-import",
         )

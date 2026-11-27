@@ -17,6 +17,7 @@ from app.core.config import get_settings
 
 _arq_pool: ArqRedis | None = None
 LEARNING_QUEUE = "arq:queue:learning"
+DOSSIER_IMPORT_QUEUE = "arq:queue:dossier-import"
 
 
 def _get_redis_settings() -> RedisSettings:

@@ -22,6 +22,7 @@ x-backend-environment: &backend-environment
   WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
   WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
   WHATSAPP_DURABLE_INBOX_ENABLED: ${WHATSAPP_DURABLE_INBOX_ENABLED:-false}
+  DOSSIER_NOTIFICATION_OUTBOX_ENABLED: ${DOSSIER_NOTIFICATION_OUTBOX_ENABLED:-false}
   WHATSAPP_WEBHOOK_MAX_BODY_BYTES: ${WHATSAPP_WEBHOOK_MAX_BODY_BYTES:-1048576}
   WEBHOOK_PROXY_SHARED_SECRET: ${WEBHOOK_PROXY_SHARED_SECRET:-}
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
@@ -224,6 +225,44 @@ services:
       disable: true
     restart: unless-stopped
     mem_limit: 1g
+
+  dossier-import-worker:
+    <<: *app-hardening
+    profiles: ["dossier-import"]
+    stop_grace_period: 660s
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    environment:
+      <<: *backend-environment
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: minio:9000
+    command: arq app.workers.import_dossier.WorkerSettings
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [demo-data]
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    mem_limit: 1g
+
+  dossier-outbox-worker:
+    <<: *app-hardening
+    profiles: ["dossier-outbox"]
+    stop_grace_period: 180s
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    environment:
+      <<: *backend-environment
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    command: arq app.workers.notification_outbox.WorkerSettings
+    dns: ["1.1.1.1", "8.8.8.8"]
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [demo-data, demo-edge]
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    mem_limit: 768m
 
   learning-worker:
     <<: *app-hardening

@@ -3,6 +3,8 @@
 All operations MUST target tenant's bucket: cri-{tenant.slug}
 """
 
+import asyncio
+
 import aiohttp
 from miniopy_async import Minio
 
@@ -31,11 +33,23 @@ def get_minio() -> Minio:
     return _minio
 
 
-async def get_object_bytes(bucket_name: str, object_name: str) -> bytes:
+async def get_object_bytes(
+    bucket_name: str, object_name: str, *, max_bytes: int | None = None
+) -> bytes:
     """Read an object while owning the aiohttp session required by miniopy_async."""
+    if max_bytes is not None and max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
     async with aiohttp.ClientSession() as session:
         response = await get_minio().get_object(bucket_name, object_name, session)
         try:
-            return await response.read()
+            if max_bytes is None:
+                return await response.read()
+            try:
+                content = await response.content.readexactly(max_bytes + 1)
+            except asyncio.IncompleteReadError as exc:
+                content = exc.partial
+            if len(content) > max_bytes:
+                raise ValueError("Object exceeds maximum size")
+            return content
         finally:
             response.release()

@@ -15,7 +15,9 @@ Notifications:
 from __future__ import annotations
 
 import hashlib
+import io
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -25,9 +27,9 @@ from pathlib import PurePosixPath
 import structlog
 from arq.connections import RedisSettings
 from arq.cron import cron
-from miniopy_async.commonconfig import CopySource
 from sqlalchemy import select
 
+from app.core.arq import DOSSIER_IMPORT_QUEUE
 from app.core.config import get_settings
 from app.models.enums import SyncSourceType, SyncStatus, TenantStatus
 
@@ -107,7 +109,7 @@ async def task_import_dossier(
     from app.core.minio import get_object_bytes
     from app.core.tenant import TenantResolver
     from app.models.sync import SyncConfig, SyncLog
-    from app.services.dossier.import_service import get_dossier_import_service
+    from app.services.dossier.import_service import MAX_FILE_SIZE_MB, get_dossier_import_service
 
     start = time.monotonic()
     ext = PurePosixPath(file_path).suffix.lower()
@@ -138,13 +140,19 @@ async def task_import_dossier(
 
     log = log.bind(sync_log_id=str(sync_log_id))
 
-    # 3. Download file from MinIO to a temp file
-    file_bytes = await get_object_bytes(tenant.minio_bucket, file_path)
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        tmp_path = tmp.name
-        tmp.write(file_bytes)
+    # Download errors must also mark the sync attempt as failed.
+    tmp_path: str | None = None
     try:
+        file_bytes = await get_object_bytes(
+            tenant.minio_bucket, file_path, max_bytes=MAX_FILE_SIZE_MB * 1024 * 1024
+        )
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            tmp_path = tmp.name
+            tmp.write(file_bytes)
+        if file_path.startswith("imports/staged/"):
+            match = re.fullmatch(r"imports/staged/([0-9a-f]{64})/source\.(xlsx|xls|csv)", file_path)
+            if match is None or hashlib.sha256(file_bytes).hexdigest() != match.group(1):
+                raise ValueError("Import snapshot integrity check failed")
         import_service = get_dossier_import_service()
 
         # 4. Validate file (extension, size, hash, duplicate check)
@@ -257,7 +265,7 @@ async def task_import_dossier(
 
     finally:
         # Always clean up the temp file
-        if os.path.exists(tmp_path):
+        if tmp_path is not None and os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
 
@@ -282,6 +290,7 @@ async def task_watch_import_folder(
     from app.core.minio import get_minio, get_object_bytes
     from app.core.tenant import TenantResolver
     from app.models.sync import SyncConfig, SyncLog
+    from app.services.dossier.import_service import MAX_FILE_SIZE_MB
 
     log = logger.bind(task="watch_import_folder", tenant=tenant_slug)
     log.info("task_start")
@@ -311,6 +320,8 @@ async def task_watch_import_folder(
     objects = minio.list_objects(bucket, prefix=watched_folder, recursive=False)
     files_to_process = []
     async for obj in objects:
+        if obj.object_name.startswith(("imports/direct/", "imports/staged/")):
+            continue
         ext = PurePosixPath(obj.object_name).suffix.lower()
         if ext in _IMPORT_EXTENSIONS:
             files_to_process.append(obj)
@@ -323,7 +334,11 @@ async def task_watch_import_folder(
     for obj in files_to_process:
         try:
             # Download and compute SHA-256
-            file_bytes = await get_object_bytes(bucket, obj.object_name)
+            file_bytes = await get_object_bytes(
+                bucket, obj.object_name, max_bytes=MAX_FILE_SIZE_MB * 1024 * 1024
+            )
+            if len(file_bytes) > MAX_FILE_SIZE_MB * 1024 * 1024:
+                raise ValueError("Import source exceeds maximum size")
             file_hash = hashlib.sha256(file_bytes).hexdigest()
 
             # Check if hash already imported
@@ -337,22 +352,29 @@ async def task_watch_import_folder(
                 if existing.scalar_one_or_none() is not None:
                     log.debug("file_already_imported", file=obj.object_name, hash=file_hash)
                     files_skipped += 1
-                    # Still move to processed
-                    await _move_to_processed(minio, bucket, obj.object_name)
+                    # Keep the source: it may have changed since it was read.
                     continue
 
-            # Enqueue import task
-            await ctx["redis"].enqueue_job(
+            # The snapshot contains exactly the bytes hashed above. Keep the
+            # source untouched until a separate, safe retention process exists.
+            ext = PurePosixPath(obj.object_name).suffix.lower()
+            snapshot_path = f"imports/staged/{file_hash}/source{ext}"
+            await minio.put_object(
+                bucket, snapshot_path, data=io.BytesIO(file_bytes), length=len(file_bytes)
+            )
+            key = hashlib.sha256(
+                f"{tenant_slug}\0{obj.object_name}\0{file_hash}".encode()
+            ).hexdigest()
+            job = await ctx["redis"].enqueue_job(
                 "task_import_dossier",
-                obj.object_name,
+                snapshot_path,
                 sync_config_id,
                 tenant_slug,
                 None,  # triggered_by (automated)
+                _job_id=f"dossier-import-{key}",
+                _queue_name=DOSSIER_IMPORT_QUEUE,
             )
-            files_enqueued += 1
-
-            # Move file to processed folder
-            await _move_to_processed(minio, bucket, obj.object_name)
+            files_enqueued += int(job is not None)
 
         except Exception as exc:
             log.error(
@@ -375,15 +397,6 @@ async def task_watch_import_folder(
         "files_enqueued": files_enqueued,
         "files_skipped": files_skipped,
     }
-
-
-async def _move_to_processed(minio, bucket: str, object_name: str) -> None:  # noqa: ANN001
-    """Move a MinIO object from pending to processed folder."""
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    filename = PurePosixPath(object_name).name
-    dest_path = f"imports/processed/{today}/{filename}"
-    await minio.copy_object(bucket, dest_path, CopySource(bucket, object_name))
-    await minio.remove_object(bucket, object_name)
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +453,7 @@ async def task_scheduled_import_all(ctx: dict) -> dict:
                 await ctx["redis"].enqueue_job(
                     "task_watch_import_folder",
                     t.slug,
+                    _queue_name=DOSSIER_IMPORT_QUEUE,
                 )
                 tenants_enqueued += 1
                 log.debug("tenant_enqueued", tenant=t.slug)
@@ -483,6 +497,7 @@ class WorkerSettings:
     """ARQ worker configuration for dossier import."""
 
     functions = [task_import_dossier, task_watch_import_folder]
+    queue_name = DOSSIER_IMPORT_QUEUE
     cron_jobs = [
         cron(task_scheduled_import_all, hour=6, minute=0),  # Daily 06:00 UTC
     ]
@@ -491,4 +506,5 @@ class WorkerSettings:
     redis_settings = _get_redis_settings()
     max_jobs = 3  # Conservative: imports are I/O heavy
     job_timeout = 600  # 10 minutes
+    job_completion_wait = 630
     max_tries = 3

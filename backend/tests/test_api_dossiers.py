@@ -364,9 +364,10 @@ class TestImportDossiers:
         assert response.status_code == 202
         data = response.json()
         assert "file_path" in data
-        assert data["file_path"].startswith("imports/pending/")
+        assert data["file_path"].startswith("imports/direct/")
         mock_minio.put_object.assert_called_once()
         mock_arq.enqueue_job.assert_called_once()
+        assert mock_arq.enqueue_job.await_args.kwargs["_queue_name"] == "arq:queue:dossier-import"
 
     @pytest.mark.asyncio
     async def test_import_bad_extension(self):

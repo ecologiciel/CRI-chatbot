@@ -9,6 +9,7 @@ Adds edge cases NOT in test_worker_import.py (Wave 24):
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -83,8 +84,11 @@ def _make_tenant_with_session(session: AsyncMock) -> MagicMock:
 def _make_minio_response(content: bytes = b"fake-file-content") -> AsyncMock:
     response = AsyncMock()
     response.read = AsyncMock(return_value=content)
+    response.content.readexactly = AsyncMock(
+        side_effect=asyncio.IncompleteReadError(content, len(content) + 1)
+    )
     response.close = MagicMock()
-    response.release = AsyncMock()
+    response.release = MagicMock()
     return response
 
 

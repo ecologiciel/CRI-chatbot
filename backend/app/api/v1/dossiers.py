@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.core.arq import get_arq_pool
+from app.core.arq import DOSSIER_IMPORT_QUEUE, get_arq_pool
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.minio import get_minio
 from app.core.rbac import require_role
@@ -145,7 +145,9 @@ async def import_dossiers(
     # 3. Upload to MinIO
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     safe_name = filename
-    object_path = f"imports/pending/{timestamp}_{safe_name}"
+    # Direct uploads are queued immediately and must not also be picked up by
+    # the watched-folder scanner. A UUID prevents same-second overwrites.
+    object_path = f"imports/direct/{timestamp}_{uuid.uuid4().hex}_{safe_name}"
     content_type = CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
 
     minio = get_minio()
@@ -165,6 +167,7 @@ async def import_dossiers(
         str(sync_config_id) if sync_config_id else None,
         tenant.slug,
         admin.sub,
+        _queue_name=DOSSIER_IMPORT_QUEUE,
     )
 
     log.info(

@@ -44,6 +44,8 @@ def render(runtime_user=None, runtime_password=None):
             "dossier-import",
             "--profile",
             "dossier-outbox",
+            "--profile",
+            "agent-replies",
             "config",
             "--format",
             "json",
@@ -73,6 +75,7 @@ def check():
         "whatsapp-inbox-worker",
         "dossier-import-worker",
         "dossier-outbox-worker",
+        "agent-reply-worker",
     ):
         settings = split[service]["environment"]
         assert settings["POSTGRES_USER"] == "fixture_runtime"

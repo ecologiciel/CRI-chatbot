@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.services.notification.outbox_retention import redact_tenant_outbox
 from app.services.whatsapp.inbox_retention import _redact_tenant
 from app.workers.purge import WorkerSettings
 
@@ -12,8 +13,11 @@ from app.workers.purge import WorkerSettings
 async def test_invalid_retention_is_rejected_before_database_access(days):
     with pytest.raises(ValueError):
         await _redact_tenant(uuid4(), "tenant_a", days, datetime.now(UTC))
+    with pytest.raises(ValueError):
+        await redact_tenant_outbox(uuid4(), "tenant_a", days, datetime.now(UTC))
 
 
 def test_retention_runs_on_the_isolated_purge_queue():
     assert WorkerSettings.queue_name == "arq:queue:purge"
     assert any(job.name.endswith("redact_expired_inbox") for job in WorkerSettings.cron_jobs)
+    assert any(job.name.endswith("redact_expired_outbox") for job in WorkerSettings.cron_jobs)

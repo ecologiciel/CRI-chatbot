@@ -11,7 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, literal, select
+from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.core.database import get_session_factory
@@ -64,9 +64,6 @@ async def list_events(
         "status": WhatsAppStatusEvent,
         "notification": NotificationOutboxEvent,
     }[kind]
-    redacted_at = (
-        literal(None).label("redacted_at") if kind == "notification" else model.redacted_at
-    )
     async with get_session_factory()() as session:
         rows = (
             await session.execute(
@@ -76,7 +73,7 @@ async def list_events(
                     model.attempts,
                     model.created_at,
                     model.updated_at,
-                    redacted_at,
+                    model.redacted_at,
                 )
                 .where(model.tenant_id == tenant.id, model.state == state)
                 .order_by(model.created_at, model.id)
@@ -128,6 +125,10 @@ async def event_detail(
             ).scalar_one_or_none()
             if event is None:
                 raise HTTPException(status_code=404, detail="Événement introuvable")
+            if event.redacted_at is not None:
+                raise HTTPException(
+                    status_code=410, detail="Détails expirés selon la durée de conservation"
+                )
             recipient = None
             if event.contact_id is not None:
                 recipient = (

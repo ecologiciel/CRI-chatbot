@@ -31,6 +31,7 @@ def upgrade() -> None:
         sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("outcome_code", sa.String(64), nullable=True),
         sa.Column("provider_message_id", sa.String(255), nullable=True),
+        sa.Column("redacted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -75,6 +76,13 @@ def upgrade() -> None:
         "ix_notification_outbox_queue",
         "notification_outbox_events",
         ["tenant_id", "state", "created_at"],
+        schema="public",
+    )
+    op.create_index(
+        "ix_notification_outbox_retention",
+        "notification_outbox_events",
+        ["tenant_id", "created_at"],
+        postgresql_where=sa.text("redacted_at IS NULL"),
         schema="public",
     )
 

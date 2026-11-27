@@ -73,6 +73,7 @@ async def test_notification_details_are_masked_and_audited():
         state="uncertain",
         provider_message_id=None,
         outcome_code="provider_unconfirmed",
+        redacted_at=None,
     )
     event_result, phone_result = MagicMock(), MagicMock()
     event_result.scalar_one_or_none.return_value = event
@@ -89,6 +90,22 @@ async def test_notification_details_are_masked_and_audited():
     assert session.add.call_args.args[0].action == "notif_outbox_view"
     assert tenant.id in session.execute.await_args_list[0].args[0].compile().params.values()
     session.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_expired_notification_details_are_not_disclosed():
+    tenant = TenantContext(uuid.uuid4(), "tenant_a", "A", "active", None)
+    event = MagicMock(redacted_at="expired")
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = event
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.execute.return_value = result
+    with patch.object(TenantContext, "db_session", return_value=session):
+        with pytest.raises(HTTPException) as exc:
+            await event_detail(uuid.uuid4(), kind="notification", tenant=tenant, admin=MagicMock())
+    assert exc.value.status_code == 410
+    session.flush.assert_not_awaited()
 
 
 @pytest.mark.asyncio

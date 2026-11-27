@@ -13,13 +13,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from app.models.contact import Contact
 from app.models.dossier import Dossier, DossierHistory
+from app.models.sync import SyncLog
 from app.models.tenant import Tenant
+from app.services.dossier.import_service import DossierImportRow, DossierImportService
 from app.services.notification.outbox import claim_notification, enqueue_notification
 from app.services.notification.outbox_execution import process_one_notification
 from app.services.notification.service import NotificationService
@@ -43,6 +46,7 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
         (Dossier, "tenant_guard"),
         (DossierHistory, "tenant_guard"),
         (Contact, "tenant_guard"),
+        (SyncLog, "tenant_guard"),
     ]:
         sa.Table(
             model.__tablename__,
@@ -196,4 +200,71 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             )
         ).one()
         assert tuple(outcome) == ("sent", "wamid.accepted")
+
+    # Exercise the actual importer and verify its dossier update and intent commit together.
+    sync_id = uuid.uuid4()
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.text("INSERT INTO tenant_guard.sync_logs (id,status) VALUES (:id,'pending')"),
+            {"id": sync_id},
+        )
+    importer = DossierImportService()
+    report = await importer.import_dossiers(
+        [DossierImportRow(row_number=1, numero="A", statut="rejete")],
+        sync_id,
+        tenant,
+        durable_notifications=True,
+    )
+    assert report.rows_updated == 1 and report.notifications_enqueued == 1
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                sa.text("SELECT statut FROM tenant_guard.dossiers WHERE id=:id"), {"id": dossier_id}
+            )
+        ).scalar_one() == "rejete"
+        assert (
+            await session.execute(
+                sa.text(
+                    "SELECT count(*) FROM public.notification_outbox_events WHERE tenant_id=:tenant AND dossier_id=:dossier AND state='pending'"
+                ),
+                {"tenant": tenant_id, "dossier": dossier_id},
+            )
+        ).scalar_one() == 1
+
+    failure_sync_id = uuid.uuid4()
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.text("INSERT INTO tenant_guard.sync_logs (id,status) VALUES (:id,'pending')"),
+            {"id": failure_sync_id},
+        )
+        await session.execute(
+            sa.text(
+                "ALTER TABLE public.notification_outbox_events ADD CONSTRAINT test_reject_pending CHECK (state <> 'pending') NOT VALID"
+            )
+        )
+    with pytest.raises(IntegrityError):
+        await importer.import_dossiers(
+            [DossierImportRow(row_number=1, numero="A", statut="valide")],
+            failure_sync_id,
+            tenant,
+            durable_notifications=True,
+        )
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                sa.text("SELECT statut FROM tenant_guard.dossiers WHERE id=:id"), {"id": dossier_id}
+            )
+        ).scalar_one() == "rejete"
+        assert (
+            await session.execute(
+                sa.text("SELECT count(*) FROM tenant_guard.dossier_history WHERE sync_log_id=:id"),
+                {"id": failure_sync_id},
+            )
+        ).scalar_one() == 0
+        assert (
+            await session.execute(
+                sa.text("SELECT status FROM tenant_guard.sync_logs WHERE id=:id"),
+                {"id": failure_sync_id},
+            )
+        ).scalar_one() == "pending"
     await engine.dispose()

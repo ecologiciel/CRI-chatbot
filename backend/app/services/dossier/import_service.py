@@ -24,7 +24,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import PurePosixPath
 from typing import Any
@@ -688,7 +688,7 @@ class DossierImportService:
             sync_log = sync_log_result.scalar_one_or_none()
             if sync_log:
                 sync_log.status = SyncStatus.running
-                sync_log.started_at = datetime.utcnow()
+                sync_log.started_at = datetime.now(UTC)
                 sync_log.rows_total = len(rows)
                 await session.flush()
 
@@ -717,7 +717,7 @@ class DossierImportService:
             # Finalise SyncLog
             if sync_log:
                 sync_log.status = SyncStatus.completed
-                sync_log.completed_at = datetime.utcnow()
+                sync_log.completed_at = datetime.now(UTC)
                 sync_log.rows_imported = report.rows_imported
                 sync_log.rows_updated = report.rows_updated
                 sync_log.rows_errored = report.rows_errored

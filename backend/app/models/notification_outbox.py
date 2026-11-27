@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -42,6 +43,12 @@ class NotificationOutboxEvent(UUIDMixin, Base):
         Index("uq_notification_outbox_sequence", "sequence", unique=True),
         Index("ix_notification_outbox_dossier_order", "tenant_id", "dossier_id", "sequence"),
         Index("ix_notification_outbox_queue", "tenant_id", "state", "created_at"),
+        Index(
+            "ix_notification_outbox_retention",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("redacted_at IS NULL"),
+        ),
         {"schema": "public"},
     )
 
@@ -59,6 +66,7 @@ class NotificationOutboxEvent(UUIDMixin, Base):
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     outcome_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

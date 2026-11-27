@@ -7,6 +7,7 @@ import importlib.util
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -21,6 +22,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from app.api.v1 import whatsapp_operations as operations
 from app.services.notification import outbox_execution as execution
+from app.services.notification import outbox_retention as retention
 from app.services.notification.outbox import (
     claim_notification,
     enqueue_notification,
@@ -255,4 +257,70 @@ async def test_outbox_transaction_isolation_and_fenced_leases(monkeypatch):
                 {"tenant": tenant_a},
             )
         ).scalar_one() == 1
+    monkeypatch.setattr(retention, "get_session_factory", lambda: sessions)
+    pending_id, active_id, expired_id, foreign_id = (uuid.uuid4() for _ in range(4))
+    async with sessions.begin() as session:
+        for event_id, tenant_id, state, lease in (
+            (pending_id, tenant_a, "pending", None),
+            (active_id, tenant_a, "processing", "future"),
+            (expired_id, tenant_a, "processing", "past"),
+            (foreign_id, tenant_b, "pending", None),
+        ):
+            await session.execute(
+                text("""
+                INSERT INTO public.notification_outbox_events
+                (id,tenant_id,history_id,dossier_id,contact_id,state,lease_token,lease_until,provider_message_id,created_at)
+                VALUES (:id,:tenant,:history,:dossier,:contact,:state,:token,
+                        CASE WHEN :lease = 'future' THEN now()+interval '1 hour'
+                             WHEN :lease = 'past' THEN now()-interval '1 hour' ELSE NULL END,
+                        'wamid.private',now()-interval '40 days')
+            """),
+                {
+                    "id": event_id,
+                    "tenant": tenant_id,
+                    "history": uuid.uuid4(),
+                    "dossier": uuid.uuid4(),
+                    "contact": uuid.uuid4(),
+                    "state": state,
+                    "token": uuid.uuid4() if lease else None,
+                    "lease": lease,
+                },
+            )
+        await session.execute(
+            text(
+                "ALTER TABLE public.audit_logs ADD CONSTRAINT test_reject_purge CHECK (action <> 'notif_outbox_purge')"
+            )
+        )
+    with pytest.raises(IntegrityError):
+        await retention.redact_tenant_outbox(tenant_a, "test_a", 30, datetime.now(UTC))
+    async with sessions.begin() as session:
+        assert (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM public.notification_outbox_events WHERE id IN (:a,:b) AND redacted_at IS NOT NULL"
+                ),
+                {"a": pending_id, "b": expired_id},
+            )
+        ).scalar_one() == 0
+        await session.execute(
+            text("ALTER TABLE public.audit_logs DROP CONSTRAINT test_reject_purge")
+        )
+    assert await retention.redact_tenant_outbox(tenant_a, "test_a", 30, datetime.now(UTC)) == 2
+    async with sessions.begin() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT id,state,contact_id,provider_message_id,redacted_at,outcome_code FROM public.notification_outbox_events WHERE id IN (:a,:b,:c,:d)"
+                ),
+                {"a": pending_id, "b": expired_id, "c": active_id, "d": foreign_id},
+            )
+        ).all()
+        by_id = {row.id: row for row in rows}
+        for event_id in (pending_id, expired_id):
+            row = by_id[event_id]
+            assert row.state == "uncertain" and row.contact_id is None
+            assert row.provider_message_id is None and row.redacted_at is not None
+            assert row.outcome_code == "retention_expired"
+        assert by_id[active_id].redacted_at is None
+        assert by_id[foreign_id].redacted_at is None
     await engine.dispose()

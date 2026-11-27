@@ -4,7 +4,9 @@ Revision ID: 0022
 Revises: 0021
 
 Existing rows remain NULL and require explicit reconciliation before any
-ordered worker can process them. This migration does not enable the worker.
+ordered worker can process them. Pending legacy events are quarantined as
+uncertain so an operator can find and review them; they are never resent.
+This migration does not enable the worker.
 """
 
 from collections.abc import Sequence
@@ -28,6 +30,15 @@ def upgrade() -> None:
     op.add_column(
         "whatsapp_inbox_events", sa.Column("is_opt_out", sa.Boolean(), nullable=False, server_default=sa.false()),
         schema="public",
+    )
+    # Legacy messages cannot be assigned a conversation safely from metadata
+    # alone. Expose pending ones to the existing manual review workflow rather
+    # than leaving an unclaimable, invisible tenant-wide queue blocker.
+    # In-flight events keep their lease and are quarantined by the reaper.
+    op.execute(
+        "UPDATE public.whatsapp_inbox_events "
+        "SET state = 'uncertain', updated_at = clock_timestamp() "
+        "WHERE sender_fingerprint IS NULL AND state = 'pending'"
     )
     op.create_check_constraint(
         "ck_wa_inbox_sender_fingerprint", "whatsapp_inbox_events",

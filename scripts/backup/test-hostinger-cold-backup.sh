@@ -16,7 +16,7 @@ cleanup() {
     if [[ -n "$lock_pid" ]]; then kill "$lock_pid" 2>/dev/null || true; fi
     # Only the freshly generated test project and its disposable volumes.
     if [[ "$project" =~ ^test_hostingerbackuptest[a-z0-9]+$ ]]; then
-        "${compose[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox down --volumes --remove-orphans >/dev/null 2>&1 || result=1
+        "${compose[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies down --volumes --remove-orphans >/dev/null 2>&1 || result=1
     else
         echo "Invalid fixture project; refusing cleanup" >&2
         result=1
@@ -58,6 +58,10 @@ services:
     image: redis:7-alpine
     entrypoint: [sleep, '600']
     profiles: ["dossier-outbox"]
+  agent-reply-worker:
+    image: redis:7-alpine
+    entrypoint: [sleep, '600']
+    profiles: ["agent-replies"]
 volumes:
   pg:
   objects:
@@ -182,7 +186,7 @@ fi
 
 # Simulate the operating system killing the backup immediately after stopping
 # its services. A shell EXIT trap cannot run after SIGKILL.
-"${compose[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox up -d whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker >/dev/null
+"${compose[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies up -d whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker agent-reply-worker >/dev/null
 mkdir "$fixture/docker-wrapper"
 real_docker=$(command -v docker)
 cat > "$fixture/docker-wrapper/docker" <<'SH'
@@ -214,5 +218,5 @@ fi
 rm "$fixture/.kms-maintenance/journal"
 DEPLOY_DIR="$fixture" BACKUP_DIR="$fixture/backups" COMPOSE_PROJECT_NAME="$project" bash "$script_dir/hostinger-backup-recovery-guard.sh"
 [[ ! -e "$fixture/backups/.cold-backup-services" ]]
-[[ $("${compose[@]}" ps --status running --services | wc -l) -eq 7 ]]
+[[ $("${compose[@]}" ps --status running --services | wc -l) -eq 8 ]]
 echo 'Isolated encrypted backup, decryption, locking and interruption recovery: OK'

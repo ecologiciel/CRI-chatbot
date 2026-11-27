@@ -14,7 +14,7 @@ STOP_TIMEOUT="${BACKUP_STOP_TIMEOUT_SECONDS:-780}"
 [[ "$STOP_TIMEOUT" =~ ^[1-9][0-9]*$ && ${#STOP_TIMEOUT} -le 5 ]] || { echo "Invalid backup stop timeout." >&2; exit 2; }
 MODE="${1:-backup}"
 [[ "$MODE" == backup || "$MODE" == --recover ]] || { echo "Usage: $0 [--recover]" >&2; exit 2; }
-COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$DEPLOY_DIR/.env.demo" -f "$DEPLOY_DIR/docker-compose.hostinger.yml" -f "$DEPLOY_DIR/docker-compose.hostinger.local.yml" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox)
+COMPOSE=(docker compose --project-name "$PROJECT" --env-file "$DEPLOY_DIR/.env.demo" -f "$DEPLOY_DIR/docker-compose.hostinger.yml" -f "$DEPLOY_DIR/docker-compose.hostinger.local.yml" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies)
 
 command -v docker >/dev/null
 command -v flock >/dev/null

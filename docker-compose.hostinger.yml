@@ -24,6 +24,7 @@ x-backend-environment: &backend-environment
   WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
   WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
   WHATSAPP_DURABLE_INBOX_ENABLED: ${WHATSAPP_DURABLE_INBOX_ENABLED:-false}
+  AGENT_REPLY_OUTBOX_ENABLED: ${AGENT_REPLY_OUTBOX_ENABLED:-false}
   DOSSIER_NOTIFICATION_OUTBOX_ENABLED: ${DOSSIER_NOTIFICATION_OUTBOX_ENABLED:-false}
   DOSSIER_IMPORT_WORKER_ENABLED: ${DOSSIER_IMPORT_WORKER_ENABLED:-false}
   DOSSIER_DURABLE_IMPORTS_ENABLED: ${DOSSIER_DURABLE_IMPORTS_ENABLED:-false}
@@ -149,6 +150,7 @@ services:
 
   backend:
     <<: *app-hardening
+    stop_grace_period: 180s
     image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
     build:
       context: *source-repository
@@ -270,6 +272,25 @@ services:
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
     command: arq app.workers.notification_outbox.WorkerSettings
+    dns: ["1.1.1.1", "8.8.8.8"]
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [demo-data, demo-edge]
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    mem_limit: 768m
+
+  agent-reply-worker:
+    <<: *app-hardening
+    profiles: ["agent-replies"]
+    stop_grace_period: 180s
+    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    environment:
+      <<: *backend-environment
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    command: arq app.workers.agent_reply_outbox.WorkerSettings
     dns: ["1.1.1.1", "8.8.8.8"]
     depends_on:
       backend: { condition: service_healthy }

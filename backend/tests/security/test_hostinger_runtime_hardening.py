@@ -14,6 +14,7 @@ def test_hostinger_application_containers_drop_capabilities_and_escalation():
         "ingestion-worker",
         "dossier-import-worker",
         "dossier-outbox-worker",
+        "agent-reply-worker",
         "learning-worker",
         "purge-worker",
         "demo-bootstrap",
@@ -30,6 +31,10 @@ def test_dossier_workers_are_staged_and_outbox_defaults_off():
     services = compose["services"]
     assert services["dossier-import-worker"]["profiles"] == ["dossier-import"]
     assert services["dossier-outbox-worker"]["profiles"] == ["dossier-outbox"]
+    assert services["agent-reply-worker"]["profiles"] == ["agent-replies"]
+    assert services["agent-reply-worker"]["command"] == "arq app.workers.agent_reply_outbox.WorkerSettings"
+    for name in ("backend", "agent-reply-worker"):
+        assert services[name]["environment"]["AGENT_REPLY_OUTBOX_ENABLED"] == "${AGENT_REPLY_OUTBOX_ENABLED:-false}"
     for name in ("backend", "dossier-import-worker", "dossier-outbox-worker"):
         assert (
             services[name]["environment"]["DOSSIER_NOTIFICATION_OUTBOX_ENABLED"]

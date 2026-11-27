@@ -25,6 +25,7 @@ OPTIONAL_WRITERS = (
     "whatsapp-inbox-worker",
     "dossier-import-worker",
     "dossier-outbox-worker",
+    "agent-reply-worker",
 )
 WRITERS = REQUIRED_WRITERS + OPTIONAL_WRITERS
 STATE_NAME = ".kms-maintenance"
@@ -155,6 +156,8 @@ class RotationOperator:
             "dossier-import",
             "--profile",
             "dossier-outbox",
+            "--profile",
+            "agent-replies",
             *args,
             capture=capture,
         )

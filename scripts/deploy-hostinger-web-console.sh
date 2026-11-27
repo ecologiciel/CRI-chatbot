@@ -7,9 +7,14 @@ COMPOSE=(docker compose --env-file .env.demo -f docker-compose.hostinger.yml -f 
 
 cd "$DEPLOY_DIR"
 test -f .env.demo
+profile_running=$("${COMPOSE[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies ps --status running --services)
+if grep -Eq '^(whatsapp-inbox-worker|dossier-import-worker|dossier-outbox-worker|agent-reply-worker)$' <<< "$profile_running"; then
+  echo "A durable worker is running; use a coordinated maintenance procedure." >&2
+  exit 1
+fi
 
 "${COMPOSE[@]}" build backend frontend-demo frontend-admin
-"${COMPOSE[@]}" up -d --remove-orphans --force-recreate
+"${COMPOSE[@]}" up -d --force-recreate
 
 echo "Waiting for the API to become healthy..."
 for attempt in $(seq 1 36); do

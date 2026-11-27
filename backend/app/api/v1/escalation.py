@@ -20,12 +20,12 @@ from app.core.rbac import require_role
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext, get_current_tenant
 from app.models.agent_reply_outbox import AgentReplyOutboxEvent
-from app.models.escalation import Escalation
 from app.models.enums import (
     AdminRole,
     EscalationPriority,
     EscalationStatus,
 )
+from app.models.escalation import Escalation
 from app.schemas.auth import AdminTokenPayload
 from app.schemas.conversation import MessageResponse
 from app.schemas.escalation import (

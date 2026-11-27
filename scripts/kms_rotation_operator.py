@@ -45,9 +45,7 @@ def valid_writer_services(services: object) -> bool:
 
 
 def command(*args: str, capture: bool = False) -> str:
-    result = subprocess.run(
-        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
+    result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode:
         # Environment contents and container output are never written to logs.
         raise RuntimeError(f"Command failed: {' '.join(args[:3])}")
@@ -104,8 +102,7 @@ def verify_backup(path: Path) -> None:
         env = {**os.environ, "GNUPGHOME": keydir}
         result = subprocess.run(
             ["gpg", "--batch", "--no-options", "--list-packets", str(path)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             timeout=60,
             env=env,
         )

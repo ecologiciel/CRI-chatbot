@@ -109,6 +109,8 @@ async def test_reply_registration_is_idempotent_scoped_and_audited():
             await conn.execute(text("UPDATE tenant_fixture_reply_a.contacts SET opt_in_status='opted_out' WHERE id=:id"), {"id": ca})
         with pytest.raises(AgentReplyConflictError):
             await register_agent_reply(a, ea, aa, uuid.uuid4(), "fixture", cipher=cipher)
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM public.agent_reply_outbox_events WHERE tenant_id IN (:a,:b)"), {"a": ta, "b": tb})
     await engine.dispose()
 
 

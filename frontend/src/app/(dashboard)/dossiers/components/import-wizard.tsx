@@ -352,7 +352,7 @@ export function ImportWizard({ open, onOpenChange }: ImportWizardProps) {
             ) : durableRequest.data.state === "failed" ? (
               <p role="alert">L’import a échoué. Consultez les journaux de synchronisation.</p>
             ) : (
-              <p role="alert">Le résultat doit être examiné par un administrateur avant toute nouvelle tentative.</p>
+              <p role="alert">{durableRequest.data.outcome_code === "configuration_changed" ? "Le paramétrage a changé depuis le dépôt. L’import est suspendu et doit être examiné par un administrateur." : "Le résultat doit être examiné par un administrateur avant toute nouvelle tentative."}</p>
             )}
           </div>
         )}

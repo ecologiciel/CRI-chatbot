@@ -7,6 +7,8 @@ Expired leases become uncertain and are never auto-replayed.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from dataclasses import dataclass
@@ -17,6 +19,22 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dossier_import_request import DossierImportRequest
+from app.models.sync import SyncConfig
+
+
+def mapping_digest(mapping: dict | None) -> str:
+    """Bind interpretation without storing column names in the shared registry."""
+    normalized = None if mapping is None or mapping == {} else mapping
+    if normalized is not None and (
+        not isinstance(normalized, dict)
+        or any(not isinstance(k, str) or not isinstance(v, str) for k, v in normalized.items())
+    ):
+        raise ValueError("invalid import column mapping")
+    encoded = json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+EMPTY_MAPPING_DIGEST = mapping_digest(None)
 
 
 class LostImportLeaseError(RuntimeError):
@@ -25,6 +43,10 @@ class LostImportLeaseError(RuntimeError):
 
 class ImportConfigurationConflictError(ValueError):
     """The same file already exists with different import configuration."""
+
+
+class ImportConfigurationChangedError(ValueError):
+    """An accepted import configuration changed or became unavailable."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +58,31 @@ class ImportClaim:
     content_sha256: str
     sync_config_id: uuid.UUID | None
     requested_by: uuid.UUID | None
+    mapping_sha256: str = EMPTY_MAPPING_DIGEST
+
+
+async def verified_claim_mapping(session: AsyncSession, claim: ImportClaim) -> dict | None:
+    """Read and lock the tenant mapping for the surrounding transaction."""
+    if claim.sync_config_id is None:
+        if claim.mapping_sha256 != EMPTY_MAPPING_DIGEST:
+            raise ImportConfigurationChangedError("import mapping no longer matches")
+        return None
+    config = (
+        await session.execute(
+            select(SyncConfig)
+            .where(SyncConfig.id == claim.sync_config_id)
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+    if config is None or not config.is_active:
+        raise ImportConfigurationChangedError("import configuration unavailable")
+    try:
+        matches = mapping_digest(config.column_mapping) == claim.mapping_sha256
+    except ValueError as exc:
+        raise ImportConfigurationChangedError("import mapping invalid") from exc
+    if not matches:
+        raise ImportConfigurationChangedError("import mapping changed")
+    return dict(config.column_mapping) if config.column_mapping else None
 
 
 async def find_existing_import(
@@ -43,10 +90,15 @@ async def find_existing_import(
     tenant_id: uuid.UUID,
     content_sha256: str,
     sync_config_id: uuid.UUID | None,
+    mapping_sha256: str = EMPTY_MAPPING_DIGEST,
 ) -> uuid.UUID | None:
     existing = (
         await session.execute(
-            select(DossierImportRequest.id, DossierImportRequest.sync_config_id).where(
+            select(
+                DossierImportRequest.id,
+                DossierImportRequest.sync_config_id,
+                DossierImportRequest.mapping_sha256,
+            ).where(
                 DossierImportRequest.tenant_id == tenant_id,
                 DossierImportRequest.content_sha256 == content_sha256,
                 DossierImportRequest.state != "failed",
@@ -55,7 +107,7 @@ async def find_existing_import(
     ).one_or_none()
     if existing is None:
         return None
-    if existing.sync_config_id != sync_config_id:
+    if existing.sync_config_id != sync_config_id or existing.mapping_sha256 != mapping_sha256:
         raise ImportConfigurationConflictError(
             "file already registered with different configuration"
         )
@@ -71,6 +123,7 @@ async def register_import(
     content_sha256: str,
     sync_config_id: uuid.UUID | None,
     requested_by: uuid.UUID | None,
+    mapping_sha256: str = EMPTY_MAPPING_DIGEST,
 ) -> tuple[uuid.UUID, bool]:
     """Record only generated object keys, after successful object storage."""
     prefix = f"imports/requests/{request_id.hex}/source."
@@ -78,6 +131,8 @@ async def register_import(
         raise ValueError("invalid import object key")
     if not re.fullmatch(r"[0-9a-f]{64}", content_sha256):
         raise ValueError("invalid import content hash")
+    if not re.fullmatch(r"[0-9a-f]{64}", mapping_sha256):
+        raise ValueError("invalid import mapping hash")
     result = await session.execute(
         insert(DossierImportRequest)
         .values(
@@ -85,6 +140,7 @@ async def register_import(
             tenant_id=tenant_id,
             object_key=object_key,
             content_sha256=content_sha256,
+            mapping_sha256=mapping_sha256,
             sync_config_id=sync_config_id,
             requested_by=requested_by,
         )
@@ -94,7 +150,9 @@ async def register_import(
     inserted_id = result.scalar_one_or_none()
     if inserted_id is not None:
         return inserted_id, True
-    existing = await find_existing_import(session, tenant_id, content_sha256, sync_config_id)
+    existing = await find_existing_import(
+        session, tenant_id, content_sha256, sync_config_id, mapping_sha256
+    )
     if existing is None:
         raise RuntimeError("import request conflict cannot be resolved safely")
     return existing, False
@@ -133,6 +191,7 @@ async def claim_import(
         request.content_sha256,
         request.sync_config_id,
         request.requested_by,
+        request.mapping_sha256,
     )
 
 
@@ -158,6 +217,7 @@ async def finish_import(
             DossierImportRequest.tenant_id == claim.tenant_id,
             DossierImportRequest.object_key == claim.object_key,
             DossierImportRequest.content_sha256 == claim.content_sha256,
+            DossierImportRequest.mapping_sha256 == claim.mapping_sha256,
             DossierImportRequest.sync_config_id == claim.sync_config_id,
             DossierImportRequest.requested_by == claim.requested_by,
             DossierImportRequest.state == "processing",

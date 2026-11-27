@@ -176,26 +176,29 @@ async def import_dossiers(
         from app.services.dossier.import_requests import (
             ImportConfigurationConflictError,
             find_existing_import,
+            mapping_digest,
             register_import,
         )
 
         content_hash = hashlib.sha256(file_bytes).hexdigest()
+        mapping_hash = mapping_digest(None)
         async with tenant.db_session() as session:
             if sync_config_id is not None:
-                config_id = (
+                config = (
                     await session.execute(
-                        select(SyncConfig.id).where(
+                        select(SyncConfig).where(
                             SyncConfig.id == sync_config_id, SyncConfig.is_active.is_(True)
                         )
                     )
                 ).scalar_one_or_none()
-                if config_id is None:
+                if config is None:
                     raise HTTPException(
                         status_code=404, detail="Configuration d’import introuvable ou inactive"
                     )
+                mapping_hash = mapping_digest(config.column_mapping)
             try:
                 existing_id = await find_existing_import(
-                    session, tenant.id, content_hash, sync_config_id
+                    session, tenant.id, content_hash, sync_config_id, mapping_hash
                 )
             except ImportConfigurationConflictError as exc:
                 raise HTTPException(
@@ -237,6 +240,7 @@ async def import_dossiers(
                     tenant_id=tenant.id,
                     object_key=object_path,
                     content_sha256=content_hash,
+                    mapping_sha256=mapping_hash,
                     sync_config_id=sync_config_id,
                     requested_by=uuid.UUID(admin.sub),
                 )

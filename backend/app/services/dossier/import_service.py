@@ -691,6 +691,10 @@ class DossierImportService:
         report = ImportReport(sync_log_id=sync_log_id, rows_total=len(rows))
 
         async with tenant.db_session() as session:
+            if durable_claim is not None:
+                from app.services.dossier.import_requests import verified_claim_mapping
+
+                await verified_claim_mapping(session, durable_claim)
             # Mark SyncLog as running
             sync_log_result = await session.execute(
                 select(SyncLog).where(SyncLog.id == sync_log_id),

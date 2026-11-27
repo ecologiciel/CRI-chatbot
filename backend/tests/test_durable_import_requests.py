@@ -3,7 +3,46 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.services.dossier.import_requests import ImportClaim, finish_import, register_import
+from app.services.dossier.import_requests import (
+    ImportClaim,
+    ImportConfigurationChangedError,
+    finish_import,
+    mapping_digest,
+    register_import,
+    verified_claim_mapping,
+)
+
+
+def test_mapping_digest_is_canonical_and_rejects_invalid_values():
+    assert mapping_digest({"b": "statut", "a": "numero"}) == mapping_digest(
+        {"a": "numero", "b": "statut"}
+    )
+    assert mapping_digest({}) == mapping_digest(None)
+    assert mapping_digest({"a": "statut"}) != mapping_digest({"a": "numero"})
+    with pytest.raises(ValueError):
+        mapping_digest({"a": ["numero"]})
+    with pytest.raises(ValueError):
+        mapping_digest([])
+
+
+@pytest.mark.asyncio()
+async def test_automatic_mapping_is_bound_to_no_config():
+    session = AsyncMock()
+    claim = ImportClaim(uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), "key", "a" * 64, None, None)
+    assert await verified_claim_mapping(session, claim) is None
+    session.execute.assert_not_awaited()
+    altered = ImportClaim(
+        claim.request_id,
+        claim.tenant_id,
+        claim.token,
+        claim.object_key,
+        claim.content_sha256,
+        None,
+        None,
+        "a" * 64,
+    )
+    with pytest.raises(ImportConfigurationChangedError):
+        await verified_claim_mapping(session, altered)
 
 
 @pytest.mark.asyncio()

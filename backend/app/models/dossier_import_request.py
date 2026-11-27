@@ -43,6 +43,7 @@ class DossierImportRequest(UUIDMixin, Base):
     )
     object_key: Mapped[str] = mapped_column(String(160), nullable=False)
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    mapping_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     sync_config_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     requested_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     sync_log_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

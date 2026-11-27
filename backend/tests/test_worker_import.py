@@ -624,7 +624,7 @@ class TestTaskWatchImportFolder:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("duplicate", [False, True])
     async def test_durable_watcher_registers_once_without_redis_job(self, duplicate):
-        config = MagicMock(id=TEST_CONFIG_ID, watched_folder="imports/pending/")
+        config = MagicMock(id=TEST_CONFIG_ID, watched_folder="imports/pending/", column_mapping={})
         config_result, hash_result = MagicMock(), MagicMock()
         config_result.scalar_one_or_none.return_value = config
         hash_result.scalar_one_or_none.return_value = None

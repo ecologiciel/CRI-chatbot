@@ -505,6 +505,34 @@ async def test_dossier_lock_serializes_changes_during_provider_send():
             uuid.UUID(first["request_id"]), tenant=tenant, _admin=admin
         )
         assert status["state"] == "completed" and status["sync_log_id"] is not None
+        config_id = uuid.uuid4()
+        async with sessions.begin() as session:
+            await session.execute(
+                sa.text(
+                    "INSERT INTO tenant_guard.sync_configs (id, is_active, column_mapping) "
+                    "VALUES (:id, true, CAST(:mapping AS jsonb))"
+                ),
+                {"id": config_id, "mapping": '{"numero":"numero","statut":"statut"}'},
+            )
+        changed = await accept_import(
+            UploadFile(filename="changed.csv", file=io.BytesIO(b"numero,statut\nA,valide\n\n")),
+            sync_config_id=config_id,
+            tenant=tenant,
+            admin=admin,
+        )
+        async with sessions.begin() as session:
+            await session.execute(
+                sa.text(
+                    "UPDATE tenant_guard.sync_configs SET column_mapping=CAST(:mapping AS jsonb) WHERE id=:id"
+                ),
+                {"id": config_id, "mapping": '{"numero":"statut","statut":"numero"}'},
+            )
+        assert await poll_durable_imports({}) == "already_finalized_or_lease_lost"
+        changed_status = await get_import_request(
+            uuid.UUID(changed["request_id"]), tenant=tenant, _admin=admin
+        )
+        assert changed_status["state"] == "uncertain"
+        assert changed_status["outcome_code"] == "configuration_changed"
     async with sessions.begin() as session:
         assert (
             await session.execute(

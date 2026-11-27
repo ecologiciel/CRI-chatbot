@@ -110,8 +110,8 @@ async def task_import_dossier(
         ctx: ARQ context (contains redis pool).
         file_path: Relative path inside the tenant's MinIO bucket
             (e.g. ``imports/pending/dossiers_2024.xlsx``).
-        sync_config_id: UUID string of the SyncConfig to use, or None
-            for auto-detection (first active config).
+        sync_config_id: UUID string of the SyncConfig to use. A durable
+            request with None uses automatic column detection.
         tenant_slug: Tenant slug for resolution.
         triggered_by: UUID string of the admin who triggered the import,
             or None for automated/cron imports.
@@ -245,19 +245,24 @@ async def task_import_dossier(
         # 5. Load SyncConfig for column mapping
         column_mapping: dict | None = None
         async with tenant.db_session() as session:
-            if sync_config_id:
-                result = await session.execute(
-                    select(SyncConfig).where(SyncConfig.id == uuid.UUID(sync_config_id)),
-                )
+            if durable_claim is not None:
+                from app.services.dossier.import_requests import verified_claim_mapping
+
+                column_mapping = await verified_claim_mapping(session, durable_claim)
             else:
-                result = await session.execute(
-                    select(SyncConfig).where(SyncConfig.is_active.is_(True)).limit(1),
-                )
-            config = result.scalar_one_or_none()
-            if sync_config_id and (config is None or not config.is_active):
-                raise ValueError("import configuration is unavailable or inactive")
-            if config and config.column_mapping:
-                column_mapping = config.column_mapping
+                if sync_config_id:
+                    result = await session.execute(
+                        select(SyncConfig).where(SyncConfig.id == uuid.UUID(sync_config_id)),
+                    )
+                else:
+                    result = await session.execute(
+                        select(SyncConfig).where(SyncConfig.is_active.is_(True)).limit(1),
+                    )
+                config = result.scalar_one_or_none()
+                if sync_config_id and (config is None or not config.is_active):
+                    raise ValueError("import configuration is unavailable or inactive")
+                if config and config.column_mapping:
+                    column_mapping = config.column_mapping
 
         # 6. Parse file
         if ext == ".csv":
@@ -318,13 +323,20 @@ async def task_import_dossier(
                         else {"error": str(exc)[:500]}
                     )
                 if durable_claim is not None:
-                    from app.services.dossier.import_requests import finish_import
+                    from app.services.dossier.import_requests import (
+                        ImportConfigurationChangedError,
+                        finish_import,
+                    )
 
                     await finish_import(
                         session,
                         durable_claim,
                         state="uncertain",
-                        outcome_code="processing_error",
+                        outcome_code=(
+                            "configuration_changed"
+                            if isinstance(exc, ImportConfigurationChangedError)
+                            else "processing_error"
+                        ),
                         sync_log_id=sync_log_id,
                     )
         except Exception:
@@ -430,13 +442,15 @@ async def task_watch_import_folder(
             if get_settings().dossier_durable_imports_enabled:
                 from app.services.dossier.import_requests import (
                     find_existing_import,
+                    mapping_digest,
                     register_import,
                 )
 
                 config_uuid = uuid.UUID(sync_config_id) if sync_config_id else None
+                mapping_hash = mapping_digest(config.column_mapping if config else None)
                 async with tenant.db_session() as session:
                     existing_id = await find_existing_import(
-                        session, tenant.id, file_hash, config_uuid
+                        session, tenant.id, file_hash, config_uuid, mapping_hash
                     )
                 if existing_id is not None:
                     files_skipped += 1
@@ -453,6 +467,7 @@ async def task_watch_import_folder(
                         tenant_id=tenant.id,
                         object_key=snapshot_path,
                         content_sha256=file_hash,
+                        mapping_sha256=mapping_hash,
                         sync_config_id=config_uuid,
                         requested_by=None,
                     )

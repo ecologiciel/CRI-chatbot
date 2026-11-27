@@ -23,6 +23,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", sa.UUID(), nullable=False),
         sa.Column("object_key", sa.String(160), nullable=False),
         sa.Column("content_sha256", sa.String(64), nullable=False),
+        sa.Column("mapping_sha256", sa.String(64), nullable=False),
         sa.Column("sync_config_id", sa.UUID(), nullable=True),
         sa.Column("requested_by", sa.UUID(), nullable=True),
         sa.Column("sync_log_id", sa.UUID(), nullable=True),

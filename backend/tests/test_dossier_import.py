@@ -6,8 +6,10 @@ Excel/CSV parsing, file validation, and statut mapping.
 
 from __future__ import annotations
 
+import asyncio
+import uuid
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from openpyxl import Workbook
@@ -23,6 +25,48 @@ from app.services.dossier.import_service import (
 @pytest.fixture
 def import_service() -> DossierImportService:
     return DossierImportService()
+
+
+@pytest.mark.asyncio()
+async def test_concurrent_imports_keep_notification_batches_separate(import_service, monkeypatch):
+    """Two tenants using the singleton must never exchange pending events."""
+    both_started = asyncio.Event()
+    started = 0
+    published = {}
+
+    async def process_batch(batch, sync_id, session, report, pending):
+        nonlocal started
+        pending.append({"numero": batch[0].numero})
+        started += 1
+        if started == 2:
+            both_started.set()
+        await both_started.wait()
+
+    async def publish(tenant, pending):
+        published[tenant.slug] = list(pending)
+
+    monkeypatch.setattr(import_service, "_process_batch", process_batch)
+    monkeypatch.setattr(import_service, "_publish_notifications", publish)
+
+    def tenant(slug):
+        instance = MagicMock()
+        instance.slug = slug
+        session = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        session.execute.return_value = result
+        instance.db_session.return_value.__aenter__ = AsyncMock(return_value=session)
+        instance.db_session.return_value.__aexit__ = AsyncMock(return_value=False)
+        return instance
+
+    await asyncio.wait_for(
+        asyncio.gather(
+            import_service.import_dossiers([DossierImportRow(row_number=1, numero="A")], uuid.uuid4(), tenant("a")),
+            import_service.import_dossiers([DossierImportRow(row_number=1, numero="B")], uuid.uuid4(), tenant("b")),
+        ),
+        timeout=5,
+    )
+    assert published == {"a": [{"numero": "A"}], "b": [{"numero": "B"}]}
 
 
 # ── Sanitisation ─────────────────────────────────────────────────

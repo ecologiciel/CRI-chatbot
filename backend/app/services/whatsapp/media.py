@@ -182,13 +182,13 @@ class WhatsAppMediaHandler:
                 "whatsapp_media_failed",
                 tenant_slug=tenant.slug,
                 media_id=media_id,
-                error=str(exc)[:200],
+                error_type=type(exc).__name__,
             )
             return MediaResult(
                 extracted_text="",
                 minio_path="",
                 media_type=media_type,
-                analysis=f"Erreur: {str(exc)[:100]}",
+                analysis="Erreur lors du traitement du média",
                 success=False,
             )
 
@@ -340,7 +340,7 @@ class WhatsAppMediaHandler:
         except Exception as exc:
             self.logger.warning(
                 "whatsapp_media_analysis_failed",
-                error=str(exc)[:200],
+                error_type=type(exc).__name__,
                 media_type=media_type,
             )
             return ""

@@ -192,7 +192,7 @@ class WhatsAppWebhookService:
                 "message_handler_error",
                 tenant_slug=tenant.slug,
                 wamid=msg.id,
-                error=str(exc),
+                error_type=type(exc).__name__,
             )
 
     @staticmethod

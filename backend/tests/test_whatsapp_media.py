@@ -394,8 +394,9 @@ class TestGeminiFailureGraceful:
         # Genai raises on analysis
         mock_genai_client = MagicMock()
         mock_genai_client.aio.models.generate_content = AsyncMock(
-            side_effect=RuntimeError("Gemini API unavailable"),
+            side_effect=RuntimeError("private-gemini-diagnostic"),
         )
+        handler.logger = MagicMock()
 
         with (
             patch("app.services.whatsapp.media.httpx.AsyncClient", return_value=mock_client),
@@ -410,6 +411,7 @@ class TestGeminiFailureGraceful:
         assert result.extracted_text == ""
         assert result.minio_path != ""
         assert result.analysis == "success"
+        assert "private-gemini-diagnostic" not in str(handler.logger.warning.call_args)
 
         # MinIO was still called
         mock_minio.put_object.assert_awaited_once()
@@ -429,6 +431,18 @@ class TestMissingAccessToken:
 
 
 class TestMetaApiError:
+    @pytest.mark.asyncio
+    async def test_sensitive_exception_not_returned_or_logged(self):
+        tenant = _make_tenant_context()
+        handler = WhatsAppMediaHandler()
+        handler.logger = MagicMock()
+        with patch.object(handler, "_download_media", new=AsyncMock(side_effect=RuntimeError("private-token-123"))):
+            result = await handler.process_media(tenant, "media_err", "image/jpeg")
+        assert result.success is False
+        assert "private-token-123" not in result.analysis
+        assert "private-token-123" not in str(handler.logger.error.call_args)
+        assert handler.logger.error.call_args.kwargs["error_type"] == "RuntimeError"
+
     @pytest.mark.asyncio
     async def test_meta_api_error(self):
         """Meta API HTTP error → success=False."""

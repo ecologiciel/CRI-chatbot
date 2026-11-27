@@ -110,16 +110,18 @@ async def main():
             raise RuntimeError("Fixture API did not start")
         if proxy:
             async with httpx.AsyncClient(trust_env=False) as client:
+                last_failure = "no response"
                 for _ in range(100):
                     try:
                         response = await client.get("http://codex-ws-traefik:8080/api/fixture-peer")
                         response.raise_for_status()
                         ip_address = response.json()["ip"]
                         break
-                    except (httpx.HTTPError, KeyError):
+                    except (httpx.HTTPError, KeyError) as exc:
+                        last_failure = str(exc)
                         await asyncio.sleep(0.1)
                 else:
-                    raise RuntimeError("Fixture proxy did not route API")
+                    raise RuntimeError(f"Fixture proxy did not route API: {last_failure}")
             url = "ws://codex-ws-traefik:8080/ws/escalations"
         else:
             ip_address = "127.0.0.1"

@@ -5,12 +5,28 @@ import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
-from app.api.v1.whatsapp_operations import ReviewRequest, event_detail, review_event
+from app.api.v1.whatsapp_operations import ReviewRequest, availability, event_detail, review_event
 from app.core.rbac import get_current_admin
 from app.core.tenant import TenantContext
 from app.main import app
 from app.models.enums import AdminRole
 from app.schemas.auth import AdminTokenPayload
+
+
+@pytest.mark.asyncio
+async def test_disabled_intake_does_not_claim_worker_or_query_backlog():
+    tenant = TenantContext(uuid.uuid4(), "alpha", "Alpha", "active", None)
+    with (
+        patch("app.api.v1.whatsapp_operations.get_settings", return_value=MagicMock(whatsapp_durable_inbox_enabled=False)),
+        patch("app.api.v1.whatsapp_operations.get_session_factory") as factory,
+        patch("app.api.v1.whatsapp_operations.get_redis") as redis,
+    ):
+        result = await availability(tenant=tenant, _admin=MagicMock())
+    assert result["intake_enabled"] is False
+    assert result["worker_seen"] is None
+    assert result["pending_messages"] is None
+    factory.assert_not_called()
+    redis.assert_not_called()
 
 
 @pytest.mark.asyncio

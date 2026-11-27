@@ -19,7 +19,14 @@ from app.models.agent_reply_outbox import AgentReplyOutboxEvent
 from app.models.audit import AuditLog
 from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
-from app.models.enums import AdminRole, EscalationStatus, MessageDirection, MessageType, OptInStatus, TenantStatus
+from app.models.enums import (
+    AdminRole,
+    EscalationStatus,
+    MessageDirection,
+    MessageType,
+    OptInStatus,
+    TenantStatus,
+)
 from app.models.escalation import Escalation
 from app.models.tenant import Tenant
 from app.services.contact.phone_identity import phone_variants

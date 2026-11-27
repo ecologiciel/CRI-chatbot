@@ -41,6 +41,7 @@ from app.core.tenant import TenantResolver
 from app.models.enums import AdminRole
 from app.schemas.auth import AdminTokenPayload
 from app.services.auth.jwt import JWTManager
+from app.services.auth.service import AuthService
 
 logger = structlog.get_logger()
 
@@ -180,31 +181,35 @@ async def escalation_ws_endpoint(
         tenant_slug: Tenant slug from URL path.
         token: JWT access token from query parameter.
     """
-    # --- Authenticate ---
+    # An absent peer address must not bypass session validation.
+    ip_address = websocket.client.host if websocket.client else None
+    if not ip_address:
+        await websocket.close(code=4001, reason="Unable to validate session")
+        return
+
+    async def validate_access() -> AdminTokenPayload:
+        admin = await AuthService().verify_access_token(token, ip_address=ip_address)
+        if admin.role not in _WS_ALLOWED_ROLES:
+            raise AuthorizationError("Insufficient permissions")
+        tenant = await TenantResolver.from_slug(tenant_slug)
+        await ensure_admin_access(admin, tenant.id)
+        return admin
+
+    # --- Authenticate, including the current Redis-backed session ---
     try:
-        admin = _authenticate_token(token)
-    except (AuthenticationError, Exception):
+        admin = await validate_access()
+    except AuthenticationError:
         await websocket.close(code=4001, reason="Invalid or expired token")
         return
-
-    if admin.role not in _WS_ALLOWED_ROLES:
+    except AuthorizationError:
         await websocket.close(code=4003, reason="Insufficient permissions")
         return
-
-    # --- Resolve tenant ---
-    try:
-        tenant = await TenantResolver.from_slug(tenant_slug)
     except (TenantNotFoundError, TenantInactiveError):
         await websocket.close(code=4004, reason="Invalid or inactive tenant")
         return
-
-    try:
-        await ensure_admin_access(admin, tenant.id)
-    except AuthenticationError:
-        await websocket.close(code=4001, reason="Inactive or changed account")
-        return
-    except AuthorizationError:
-        await websocket.close(code=4003, reason="Tenant access denied")
+    except Exception:
+        logger.warning("ws_escalation_auth_unavailable", tenant=tenant_slug)
+        await websocket.close(code=1011, reason="Session validation unavailable")
         return
 
     # --- Accept connection ---
@@ -217,10 +222,22 @@ async def escalation_ws_endpoint(
     )
 
     # --- Set up Redis pub/sub ---
-    redis = get_redis()
-    pubsub = redis.pubsub()
+    try:
+        redis = get_redis()
+        pubsub = redis.pubsub()
+    except Exception:
+        await ws_manager.disconnect(websocket, tenant_slug)
+        await websocket.close(code=1011, reason="Notifications unavailable")
+        return
     channel_pattern = f"{tenant_slug}:escalations:*"
-    await pubsub.psubscribe(channel_pattern)
+    try:
+        await pubsub.psubscribe(channel_pattern)
+    except Exception:
+        with contextlib.suppress(Exception):
+            await pubsub.aclose()
+        await ws_manager.disconnect(websocket, tenant_slug)
+        await websocket.close(code=1011, reason="Notifications unavailable")
+        return
 
     async def _listen_redis() -> None:
         """Forward Redis pub/sub messages to the WebSocket client."""
@@ -244,7 +261,28 @@ async def escalation_ws_endpoint(
             except (json.JSONDecodeError, TypeError):
                 data = {"raw": raw_data}
 
-            await ws_manager.broadcast(tenant_slug, event_name, data)
+            # Each connection has its own subscription; broadcasting here
+            # would send every event once per connection to every client.
+            try:
+                await validate_access()
+            except Exception:
+                await websocket.close(code=4001, reason="Session no longer valid")
+                return
+            await websocket.send_text(json.dumps({
+                "event": event_name,
+                "data": data,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }, default=str, ensure_ascii=False))
+
+    async def _watch_access() -> None:
+        """Close idle connections after revocation, expiry or tenant changes."""
+        while True:
+            await asyncio.sleep(30)
+            try:
+                await validate_access()
+            except Exception:
+                await websocket.close(code=4001, reason="Session no longer valid")
+                return
 
     async def _listen_client() -> None:
         """Listen for client messages (ping/pong keepalive)."""
@@ -261,23 +299,28 @@ async def escalation_ws_endpoint(
     # --- Run both listeners concurrently ---
     redis_task = asyncio.create_task(_listen_redis())
     client_task = asyncio.create_task(_listen_client())
+    access_task = asyncio.create_task(_watch_access())
+    tasks = [redis_task, client_task, access_task]
 
     try:
-        done, pending = await asyncio.wait(
-            [redis_task, client_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
     except WebSocketDisconnect:
         pass
     finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         # Cleanup
-        await pubsub.punsubscribe(channel_pattern)
-        await pubsub.aclose()
+        with contextlib.suppress(Exception):
+            await pubsub.punsubscribe(channel_pattern)
+        with contextlib.suppress(Exception):
+            await pubsub.aclose()
         await ws_manager.disconnect(websocket, tenant_slug)
+        with contextlib.suppress(Exception):
+            await websocket.close()
         logger.info(
             "ws_escalation_disconnected",
             tenant=tenant_slug,

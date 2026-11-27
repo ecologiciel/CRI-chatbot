@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.tenant import TenantContext
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.escalation.reply_execution import AgentReplyPreconditionError, execute_agent_reply
 from app.services.escalation.reply_leases import (
     AgentReplyClaim,
     AgentReplyLeaseLostError,
@@ -167,4 +168,121 @@ async def test_claims_keep_conversation_order_and_quarantine_expiry():
     async with engine.connect() as conn:
         row = (await conn.execute(text("SELECT state,attempts FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": a2})).one()
         assert row.state == "uncertain" and row.attempts == 1
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
+    engine = create_async_engine(URL, pool_size=12)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id, actor_id, contact_id, conversation_id, escalation_id = (uuid.uuid4() for _ in range(5))
+    tenant = TenantContext(tenant_id, "fixture_reply_exec", "Fixture", "active", None)
+    async with engine.begin() as conn:
+        assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status,whatsapp_config) VALUES (:id,'Fixture','fixture_reply_exec','Test','active','{\"phone_number_id\":\"973\",\"access_token\":\"fixture\"}')"), {"id": tenant_id})
+        await conn.execute(text("INSERT INTO public.admins (id,email,password_hash,full_name,role,tenant_id) VALUES (:id,'reply-exec@example.test','fixture','Fixture','admin_tenant',:tenant)"), {"id": actor_id, "tenant": tenant_id})
+    with patch("app.services.tenant.provisioning.get_session_factory", return_value=factory):
+        await TenantProvisioningService()._create_schema(tenant.slug)
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO tenant_fixture_reply_exec.contacts (id,phone,opt_in_status) VALUES (:id,'+212600000098','opted_in')"), {"id": contact_id})
+        await conn.execute(text("INSERT INTO tenant_fixture_reply_exec.conversations (id,contact_id,status) VALUES (:id,:contact,'human_handled')"), {"id": conversation_id, "contact": contact_id})
+        await conn.execute(text("INSERT INTO tenant_fixture_reply_exec.escalations (id,conversation_id,trigger_type,priority,status) VALUES (:id,:conversation,'manual','medium','assigned')"), {"id": escalation_id, "conversation": conversation_id})
+    kms = KMSService(factory, AsyncMock(), "06" * 32)
+    cipher = VersionedEnvelopeService(factory, "06" * 32)
+    await kms.generate_tenant_key(tenant_id)
+    sender = AsyncMock()
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def provider_send(*_args, **_kwargs):
+        started.set()
+        await release.wait()
+        return "fixture-provider-id"
+
+    sender.send_text.side_effect = provider_send
+
+    async def claim():
+        async with factory() as session:
+            item = await claim_next_reply(session)
+            await session.commit()
+            return item
+
+    with (patch("app.core.tenant.get_session_factory", return_value=factory),
+          patch("app.services.escalation.reply_outbox.get_session_factory", return_value=factory),
+          patch("app.services.escalation.reply_execution.get_session_factory", return_value=factory)):
+        first = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-one", cipher=cipher)
+        first_claim = await claim()
+        assert first_claim and first_claim.id == first.id
+        sending = asyncio.create_task(execute_agent_reply(first_claim, cipher=cipher, sender=sender))
+        await asyncio.wait_for(started.wait(), timeout=10)
+        async with engine.connect() as stopper:
+            transaction = await stopper.begin()
+            stopper_pid = (await stopper.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            stop = asyncio.create_task(stopper.execute(text("UPDATE tenant_fixture_reply_exec.contacts SET opt_in_status='opted_out' WHERE id=:id"), {"id": contact_id}))
+            blocked = False
+            try:
+                for _ in range(50):
+                    async with engine.connect() as monitor:
+                        blocked = await monitor.scalar(text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"), {"pid": stopper_pid})
+                    if blocked or stop.done():
+                        break
+                    await asyncio.sleep(0.1)
+                assert blocked and not stop.done()
+            finally:
+                release.set()
+            assert await asyncio.wait_for(sending, timeout=10) == "accepted"
+            await asyncio.wait_for(stop, timeout=10)
+            await transaction.commit()
+        with pytest.raises(AgentReplyConflictError):
+            await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture", cipher=cipher)
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE tenant_fixture_reply_exec.contacts SET opt_in_status='opted_in' WHERE id=:id"), {"id": contact_id})
+        blocked_reply = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-blocked", cipher=cipher)
+        blocked_claim = await claim()
+        assert blocked_claim and blocked_claim.id == blocked_reply.id
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE tenant_fixture_reply_exec.contacts SET opt_in_status='opted_out' WHERE id=:id"), {"id": contact_id})
+        with pytest.raises(AgentReplyPreconditionError):
+            await execute_agent_reply(blocked_claim, cipher=cipher, sender=sender)
+        assert sender.send_text.await_count == 1
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET lease_until=now()-interval '1 second' WHERE id=:id"), {"id": blocked_reply.id})
+            await conn.execute(text("UPDATE tenant_fixture_reply_exec.contacts SET opt_in_status='opted_in' WHERE id=:id"), {"id": contact_id})
+        async with factory() as session:
+            assert await quarantine_expired_replies(session) >= 1
+            await session.commit()
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": blocked_reply.id})
+        second = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-two", cipher=cipher)
+        second_claim = await claim()
+        assert second_claim and second_claim.id == second.id
+        sender.send_text.side_effect = RuntimeError("fixture ambiguous provider result")
+        assert await execute_agent_reply(second_claim, cipher=cipher, sender=sender) == "uncertain"
+        third = await register_agent_reply(tenant, escalation_id, actor_id, uuid.uuid4(), "fixture-three", cipher=cipher)
+        assert await claim() is None
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='resolved' WHERE id=:id"), {"id": second.id})
+            await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_agent_send CHECK (action <> 'agent_reply_sent') NOT VALID"))
+        third_claim = await claim()
+        assert third_claim and third_claim.id == third.id
+        sender.send_text.side_effect = None
+        sender.send_text.return_value = "fixture-third-provider-id"
+        try:
+            with pytest.raises(DBAPIError):
+                await execute_agent_reply(third_claim, cipher=cipher, sender=sender)
+            async with engine.begin() as conn:
+                assert (await conn.scalar(text("SELECT state FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": third.id})) == "processing"
+                assert (await conn.scalar(text("SELECT count(*) FROM tenant_fixture_reply_exec.messages WHERE content='fixture-three'"))) == 0
+                await conn.execute(text("UPDATE public.agent_reply_outbox_events SET lease_until=now()-interval '1 second' WHERE id=:id"), {"id": third.id})
+            async with factory() as session:
+                assert await quarantine_expired_replies(session) >= 1
+                await session.commit()
+            assert await claim() is None
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_agent_send"))
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text("SELECT content,metadata->>'delivery_state' AS state FROM tenant_fixture_reply_exec.messages ORDER BY created_at"))).all()
+            assert rows == [("fixture-one", "accepted"), ("fixture-two", "unconfirmed")]
+            assert (await conn.scalar(text("SELECT state FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": third.id})) == "uncertain"
+        assert sender.send_text.await_count == 3
     await engine.dispose()

@@ -39,7 +39,14 @@ async def test_only_one_agent_claims_and_closed_escalation_cannot_be_reopened():
         await conn.execute(text("INSERT INTO tenant_fixture_escalation.conversations (id,contact_id,status) VALUES (:id,:contact,'escalated')"), {"id": conversation_id, "contact": cid})
         await conn.execute(text("INSERT INTO tenant_fixture_escalation.escalations (id,conversation_id,trigger_type,priority,status) VALUES (:id,:conversation,'manual','medium','pending')"), {"id": escalation_id, "conversation": conversation_id})
     sender = AsyncMock()
-    sender.send_text.return_value = "fixture-wamid"
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def provider_send(*_args, **_kwargs):
+        started.set()
+        await release.wait()
+        return "fixture-wamid"
+
+    sender.send_text.side_effect = provider_send
     service = EscalationService(gemini=AsyncMock(), sender=sender, audit=AsyncMock())
     with (patch("app.core.tenant.get_session_factory", return_value=factory),
           patch("app.services.escalation.service.get_redis", return_value=AsyncMock())):
@@ -54,6 +61,33 @@ async def test_only_one_agent_claims_and_closed_escalation_cannot_be_reopened():
             row = (await conn.execute(text("SELECT status::text,assigned_to FROM tenant_fixture_escalation.escalations WHERE id=:id"), {"id": escalation_id})).one()
             assert row.status == "assigned" and row.assigned_to == winner
         assert service._audit.log_action.await_count == 1
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE tenant_fixture_escalation.contacts SET opt_in_status='opted_out' WHERE id=:id"), {"id": cid})
+        with pytest.raises(EscalationConflictError):
+            await service.respond_via_whatsapp(escalation_id, "fixture", winner, tenant)
+        sender.send_text.assert_not_awaited()
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE tenant_fixture_escalation.contacts SET opt_in_status='opted_in' WHERE id=:id"), {"id": cid})
+        response = asyncio.create_task(service.respond_via_whatsapp(escalation_id, "fixture", winner, tenant))
+        await asyncio.wait_for(started.wait(), timeout=10)
+        async with engine.connect() as stopper:
+            transaction = await stopper.begin()
+            stopper_pid = (await stopper.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            stop = asyncio.create_task(stopper.execute(text("UPDATE tenant_fixture_escalation.contacts SET opt_in_status='opted_out' WHERE id=:id"), {"id": cid}))
+            blocked = False
+            try:
+                for _ in range(50):
+                    async with engine.connect() as monitor:
+                        blocked = (await monitor.scalar(text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"), {"pid": stopper_pid}))
+                    if blocked or stop.done():
+                        break
+                    await asyncio.sleep(0.1)
+                assert blocked and not stop.done()
+            finally:
+                release.set()
+            assert await asyncio.wait_for(response, timeout=10) == "fixture-wamid"
+            await asyncio.wait_for(stop, timeout=10)
+            await transaction.commit()
         await service.close_escalation(escalation_id, "fixture", winner, tenant)
         with pytest.raises(EscalationConflictError):
             await service.assign_escalation(escalation_id, admin_b, tenant)
@@ -61,7 +95,7 @@ async def test_only_one_agent_claims_and_closed_escalation_cannot_be_reopened():
             await service.respond_via_whatsapp(escalation_id, "fixture", admin_b, tenant)
         with pytest.raises(EscalationConflictError):
             await service.close_escalation(escalation_id, "fixture", admin_b, tenant)
-        # Only the first close sends a closure message.
+        # STOP committed before closure, so only the earlier response was sent.
         assert sender.send_text.await_count == 1
         async with engine.connect() as conn:
             assert (await conn.scalar(text("SELECT status::text FROM tenant_fixture_escalation.conversations WHERE id=:id"), {"id": conversation_id})) == "active"

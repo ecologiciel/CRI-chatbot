@@ -37,6 +37,7 @@ from app.models.enums import (
     EscalationTrigger,
     MessageDirection,
     MessageType,
+    OptInStatus,
 )
 from app.models.escalation import Escalation
 from app.schemas.audit import AuditLogCreate
@@ -557,16 +558,20 @@ class EscalationService:
                     details={"escalation_id": str(escalation_id), "current_status": escalation.status.value},
                 )
 
-            # Get the phone number via conversation → contact
+            # Serialize the provider call with a concurrent opt-out. The
+            # canonical unique index ensures alternate spellings share a row.
             conv_result = await session.execute(
-                select(Contact.phone)
+                select(Contact)
                 .join(Conversation, Conversation.contact_id == Contact.id)
-                .where(Conversation.id == escalation.conversation_id),
+                .where(Conversation.id == escalation.conversation_id)
+                .with_for_update(of=Contact),
             )
-            phone = conv_result.scalar_one()
+            contact = conv_result.scalar_one()
+            if contact.opt_in_status == OptInStatus.opted_out:
+                raise EscalationConflictError("Le contact a retiré son consentement WhatsApp")
 
             # Send WhatsApp message
-            wamid = await self._sender.send_text(tenant, phone, message)
+            wamid = await self._sender.send_text(tenant, contact.phone, message)
 
             # Persist outbound message
             msg = Message(
@@ -658,14 +663,6 @@ class EscalationService:
                 .values(status=ConversationStatus.active),
             )
 
-            # Get phone for closure message
-            conv_result = await session.execute(
-                select(Contact.phone)
-                .join(Conversation, Conversation.contact_id == Contact.id)
-                .where(Conversation.id == escalation.conversation_id),
-            )
-            phone = conv_result.scalar_one()
-
         self._logger.info(
             "escalation_closed",
             escalation_id=str(escalation_id),
@@ -676,11 +673,19 @@ class EscalationService:
         # Send closure message
         try:
             closure_msg = CLOSURE_MESSAGES.get(language, CLOSURE_MESSAGES["fr"])
-            await self._sender.send_text(tenant, phone, closure_msg)
+            async with tenant.db_session() as session:
+                contact = (await session.execute(
+                    select(Contact)
+                    .join(Conversation, Conversation.contact_id == Contact.id)
+                    .where(Conversation.id == escalation.conversation_id)
+                    .with_for_update(of=Contact)
+                )).scalar_one()
+                if contact.opt_in_status != OptInStatus.opted_out:
+                    await self._sender.send_text(tenant, contact.phone, closure_msg)
         except Exception as exc:
             self._logger.warning(
                 "closure_message_failed",
-                error=str(exc),
+                error_type=type(exc).__name__,
                 tenant=tenant.slug,
             )
 

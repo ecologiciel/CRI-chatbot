@@ -26,6 +26,7 @@ from app.models.enums import (
     EscalationPriority,
     EscalationStatus,
     EscalationTrigger,
+    OptInStatus,
 )
 
 TEST_TENANT_ID = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -318,7 +319,7 @@ class TestEscalationLifecycle:
             if call_count == 1:
                 mock_r.scalar_one.return_value = escalation_mock
             else:
-                mock_r.scalar_one.return_value = "+212600000001"
+                mock_r.scalar_one.return_value = MagicMock(phone="+212600000001", opt_in_status=OptInStatus.pending)
             return mock_r
 
         session.execute = AsyncMock(side_effect=_side_effect)
@@ -354,7 +355,7 @@ class TestEscalationLifecycle:
             if call_count == 1:
                 mock_r.scalar_one.return_value = escalation_mock
             else:
-                mock_r.scalar_one.return_value = "+212600000001"
+                mock_r.scalar_one.return_value = MagicMock(phone="+212600000001", opt_in_status=OptInStatus.pending)
             return mock_r
 
         session.execute = AsyncMock(side_effect=_side_effect)
@@ -386,7 +387,7 @@ class TestEscalationLifecycle:
             if call_count == 1:
                 mock_r.scalar_one.return_value = escalation_mock
             else:
-                mock_r.scalar_one.return_value = "+212600000001"
+                mock_r.scalar_one.return_value = MagicMock(phone="+212600000001", opt_in_status=OptInStatus.pending)
             return mock_r
 
         session.execute = AsyncMock(side_effect=_side_effect)
@@ -430,7 +431,7 @@ class TestEscalationLifecycle:
             if call_count == 1:
                 mock_r.scalar_one.return_value = escalation_mock
             else:
-                mock_r.scalar_one.return_value = "+212600000001"
+                mock_r.scalar_one.return_value = MagicMock(phone="+212600000001", opt_in_status=OptInStatus.pending)
             return mock_r
 
         session.execute = AsyncMock(side_effect=_side_effect)

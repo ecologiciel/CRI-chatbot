@@ -17,6 +17,15 @@ d'un schéma d'institution existant, ainsi que la création et la suppression d'
 nouveau schéma. Elle ne prouve pas l'isolation entre institutions au niveau des
 droits SQL : le groupe expérimental possède l'accès aux schémas existants.
 
+Une seconde répétition sur le VPS a restauré uniquement la structure de la base
+de production dans PostgreSQL 16 isolé. Avec un identifiant synthétique membre
+du groupe, le vrai service de provisionnement a créé puis supprimé un schéma
+d'institution synthétique ; l'ajout à l'audit a réussi et les mutations de
+l'audit et de la version Alembic ont été refusées. La suppression de la copie
+du schéma ONSSA existant a aussi été refusée. La base réelle et ses données
+n'ont pas été modifiées. Cette répétition ne valide ni l'ensemble des services
+ni les privilèges originaux, exclus de la copie de structure.
+
 La suppression d'un schéma existant échoue car il appartient encore au rôle
 de migration. Les droits sur les objets créés par les migrations suivantes ne
 sont pas attribués automatiquement. Avant toute activation il reste notamment

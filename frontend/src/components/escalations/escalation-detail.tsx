@@ -17,7 +17,7 @@ import { PriorityBadge } from "./priority-badge";
 import { TriggerBadge } from "./trigger-badge";
 import { AiSummaryBanner } from "./ai-summary-banner";
 import { ConversationBubbles } from "./conversation-bubbles";
-import { ResponseInput } from "./response-input";
+import { EscalationReplyArea } from "./reply-recovery";
 import { CloseDialog } from "./close-dialog";
 import {
   useEscalation,
@@ -144,10 +144,7 @@ export function EscalationDetail({ escalationId }: EscalationDetailProps) {
         escalation={escalation}
       />
 
-      {/* Response input — only when assigned */}
-      {isActive && (
-        <ResponseInput escalationId={escalationId} />
-      )}
+      <EscalationReplyArea escalationId={escalationId} active={isActive} />
 
       {/* Read-only banner for closed escalations */}
       {isClosed && (

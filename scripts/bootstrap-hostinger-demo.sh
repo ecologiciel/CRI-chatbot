@@ -10,7 +10,7 @@ ENV_FILE=".env.demo"
 : "${SEED_ADMIN_PASSWORD:?SEED_ADMIN_PASSWORD is required}"
 
 cd "${DEPLOY_DIR}"
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" run --rm backend alembic upgrade head
+docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" run --rm db-migrate
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" run --rm \
   -e "SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL}" \
   -e "SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD}" \

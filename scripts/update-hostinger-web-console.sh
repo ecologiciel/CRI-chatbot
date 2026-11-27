@@ -23,7 +23,7 @@ echo "PostgreSQL backup catalog verified: $backup_file"
 # The old ingestion worker must not publish old-format chunks during migration.
 "${COMPOSE[@]}" stop ingestion-worker learning-worker purge-worker
 echo "Applying database migrations..."
-"${COMPOSE[@]}" run --rm --no-deps backend alembic upgrade head
+"${COMPOSE[@]}" run --rm --no-deps db-migrate
 
 # The isolated extractor runs the backend image too. Recreate it and wait for
 # its health check before restarting workers, so extraction code is not stale.

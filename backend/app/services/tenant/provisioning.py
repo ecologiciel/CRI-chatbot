@@ -105,7 +105,7 @@ async def _assert_template_compatible(session: Any) -> None:
     tables = (
         await session.execute(
             text("""
-                SELECT c.relname, c.relkind, c.relrowsecurity, c.relforcerowsecurity,
+                SELECT c.relname, c.relkind::text, c.relrowsecurity, c.relforcerowsecurity,
                        EXISTS (SELECT 1 FROM pg_trigger t
                                WHERE t.tgrelid=c.oid AND NOT t.tgisinternal),
                        EXISTS (SELECT 1 FROM pg_attrdef d
@@ -129,7 +129,7 @@ async def _assert_template_compatible(session: Any) -> None:
         await session.execute(
             text("""
                 SELECT src.relname, a.attname, dst_ns.nspname, dst.relname, da.attname,
-                       c.confupdtype, c.confdeltype, c.confmatchtype,
+                       c.confupdtype::text, c.confdeltype::text, c.confmatchtype::text,
                        c.condeferrable, c.condeferred, c.convalidated,
                        cardinality(c.conkey), cardinality(c.confkey)
                 FROM pg_constraint c

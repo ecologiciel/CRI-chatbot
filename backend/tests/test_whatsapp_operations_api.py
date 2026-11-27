@@ -152,7 +152,7 @@ async def test_review_clears_only_expired_resolved_message_fingerprint(redacted,
     tenant = TenantContext(uuid.uuid4(), "tenant_a", "A", "active", None)
     event_id = uuid.uuid4()
     event = MagicMock(id=event_id, state="uncertain", redacted_at="expired" if redacted else None,
-                      sender_fingerprint="a" * 64)
+                      sender_fingerprint="a" * 64, is_opt_out=True)
     result = MagicMock()
     result.scalar_one_or_none.return_value = event
     session = AsyncMock()
@@ -163,6 +163,7 @@ async def test_review_clears_only_expired_resolved_message_fingerprint(redacted,
         await review_event(event_id, ReviewRequest(action="resolve"), kind="message",
                            tenant=tenant, admin=MagicMock(sub=str(uuid.uuid4())))
     assert event.sender_fingerprint == expected
+    assert event.is_opt_out is (not redacted)
     session.commit.assert_awaited_once()
 
 

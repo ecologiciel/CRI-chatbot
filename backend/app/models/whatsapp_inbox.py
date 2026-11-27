@@ -49,6 +49,7 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
         ),
         Index("uq_wa_inbox_tenant_message", "tenant_id", "provider_message_id", unique=True),
         Index("ix_wa_inbox_pending", "state", "created_at"),
+        Index("uq_wa_inbox_arrival_sequence", "arrival_sequence", unique=True),
         Index(
             "ix_wa_inbox_conversation_order",
             "tenant_id", "sender_fingerprint", "arrival_sequence",
@@ -70,7 +71,7 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
     phone_number_id: Mapped[str] = mapped_column(String(32), nullable=False)
     # Nullable only for pre-migration events; they must be reconciled before use.
     sender_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    arrival_sequence: Mapped[int] = mapped_column(BigInteger, Identity(), nullable=False)
+    arrival_sequence: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
     is_opt_out: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

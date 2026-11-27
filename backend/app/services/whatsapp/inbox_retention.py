@@ -65,6 +65,10 @@ async def _redact_tenant(
                         (model.state.in_(["completed", "resolved"]), None),
                         else_=model.sender_fingerprint,
                     ),
+                    "is_opt_out": case(
+                        (model.state.in_(["completed", "resolved"]), False),
+                        else_=model.is_opt_out,
+                    ),
                     "redacted_at": now,
                     "updated_at": func.clock_timestamp(),
                     "state": case(

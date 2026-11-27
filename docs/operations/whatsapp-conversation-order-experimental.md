@@ -35,6 +35,6 @@ déjà commencé ne peut pas être annulé. Les interactions avec tous les canau
 et les pannes doivent encore être éprouvées avant activation. Le planificateur
 utilise des lots bornés ; le débit réel avec les services externes reste à mesurer.
 
-À expiration de la conservation, l'empreinte d'un événement terminé ou résolu
-est supprimée. Celle d'un événement non résolu est conservée pour empêcher
-une réponse hors ordre, puis supprimée lors de sa résolution après expiration.
+À expiration de la conservation, l'empreinte et l'indicateur STOP d'un événement
+terminé ou résolu sont supprimés. Pour un événement non résolu, ils sont
+conservés pour empêcher une réponse hors ordre, puis supprimés à sa résolution.

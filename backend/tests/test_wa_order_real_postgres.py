@@ -84,19 +84,21 @@ async def test_retention_clears_only_terminal_fingerprints():
         assert (await conn.execute(text("SELECT current_database()"))).scalar_one().startswith("ragtest_")
         await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status) VALUES (:id,'Fixture','fixture_retention','Test','active')"), {"id": tenant_id})
         await conn.execute(text("""
-            INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,sender_fingerprint,state,created_at)
-            VALUES (:a,:tenant,'ret-a','123','fixture',1,repeat('a',64),'completed',now()-interval '5 days'),
-                   (:b,:tenant,'ret-b','123','fixture',1,repeat('b',64),'uncertain',now()-interval '5 days'),
-                   (:c,:tenant,'ret-c','123','fixture',1,repeat('c',64),'pending',now()-interval '5 days')
+            INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,sender_fingerprint,is_opt_out,state,created_at)
+            VALUES (:a,:tenant,'ret-a','123','fixture',1,repeat('a',64),true,'completed',now()-interval '5 days'),
+                   (:b,:tenant,'ret-b','123','fixture',1,repeat('b',64),true,'uncertain',now()-interval '5 days'),
+                   (:c,:tenant,'ret-c','123','fixture',1,repeat('c',64),true,'pending',now()-interval '5 days')
         """), {"a": completed, "b": uncertain, "c": pending, "tenant": tenant_id})
     with patch("app.services.whatsapp.inbox_retention.get_session_factory", return_value=factory):
         counts = await _redact_tenant(tenant_id, "fixture_retention", 1, datetime.now(UTC))
     assert counts["messages"] == 3
     async with engine.connect() as conn:
-        rows = (await conn.execute(text("SELECT id,state,sender_fingerprint,ciphertext FROM public.whatsapp_inbox_events WHERE tenant_id=:id"), {"id": tenant_id})).all()
+        rows = (await conn.execute(text("SELECT id,state,sender_fingerprint,is_opt_out,ciphertext FROM public.whatsapp_inbox_events WHERE tenant_id=:id"), {"id": tenant_id})).all()
     by_id = {row.id: row for row in rows}
     assert by_id[completed].sender_fingerprint is None
+    assert not by_id[completed].is_opt_out
     assert by_id[uncertain].sender_fingerprint == "b" * 64
+    assert by_id[uncertain].is_opt_out
     assert by_id[pending].state == "uncertain" and by_id[pending].sender_fingerprint == "c" * 64
     assert all(row.ciphertext == "" for row in rows)
     await engine.dispose()

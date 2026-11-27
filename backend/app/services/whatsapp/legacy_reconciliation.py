@@ -11,17 +11,16 @@ import uuid
 
 from pydantic import ValidationError
 from sqlalchemy import func, select, text
-from sqlalchemy.dialects.postgresql import insert
 
 from app.core.database import get_session_factory
 from app.core.tenant import TenantContext
 from app.core.tenant_lifecycle import protect_ingestion
 from app.models.audit import AuditLog
-from app.models.contact import Contact
-from app.models.enums import ContactSource, OptInStatus, TenantStatus
+from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.schemas.whatsapp import IncomingMessage
+from app.services.contact.consent import lock_and_opt_out
 from app.services.contact.segmentation import SegmentationService
 from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
 from app.services.whatsapp.conversation_lock import lock_for_acceptance
@@ -104,16 +103,7 @@ async def reconcile_legacy_text(
                     text("SELECT set_config('search_path', :path, true)"),
                     {"path": f"{tenant.db_schema}, public"},
                 )
-                statement = insert(Contact).values(
-                    phone=message.from_, source=ContactSource.whatsapp,
-                    opt_in_status=OptInStatus.opted_out,
-                )
-                contact_id = (await session.execute(
-                    statement.on_conflict_do_update(
-                        index_elements=[Contact.phone],
-                        set_={"opt_in_status": OptInStatus.opted_out, "updated_at": func.now()},
-                    ).returning(Contact.id)
-                )).scalar_one()
+                contact_id = await lock_and_opt_out(session, message.from_)
                 session.add(AuditLog(
                     tenant_slug=tenant.slug, user_id=actor_id, user_type="admin",
                     action="opt_in_change", resource_type="contact", resource_id=str(contact_id),

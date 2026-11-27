@@ -28,6 +28,7 @@ from app.schemas.dossier import (
     DossierStats,
 )
 from app.services.audit.service import AuditService, get_audit_service
+from app.services.contact.phone_identity import phone_variants
 
 logger = structlog.get_logger()
 
@@ -92,7 +93,7 @@ class DossierService:
         phone: str,
     ) -> Contact | None:
         """Look up a contact by phone number within an existing session."""
-        result = await session.execute(select(Contact).where(Contact.phone == phone))
+        result = await session.execute(select(Contact).where(Contact.phone.in_(phone_variants(phone))))
         return result.scalar_one_or_none()
 
     # ── Public methods ───────────────────────────────────────────

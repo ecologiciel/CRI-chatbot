@@ -26,6 +26,7 @@ from app.models.conversation import Conversation, Message
 from app.models.enums import ContactSource, Language, OptInStatus
 from app.schemas.audit import AuditLogCreate
 from app.schemas.contact import ContactCreate, ContactUpdate
+from app.services.contact.phone_identity import phone_variants
 
 logger = structlog.get_logger()
 
@@ -59,7 +60,7 @@ class ContactService:
         """
         async with tenant.db_session() as session:
             result = await session.execute(
-                select(Contact).where(Contact.phone == phone),
+                select(Contact).where(Contact.phone.in_(phone_variants(phone))),
             )
             contact = result.scalar_one_or_none()
 
@@ -238,7 +239,7 @@ class ContactService:
         async with tenant.db_session() as session:
             # Check phone uniqueness
             existing = await session.execute(
-                select(Contact.id).where(Contact.phone == data.phone),
+                select(Contact.id).where(Contact.phone.in_(phone_variants(data.phone))),
             )
             if existing.scalar_one_or_none() is not None:
                 raise DuplicateResourceError(

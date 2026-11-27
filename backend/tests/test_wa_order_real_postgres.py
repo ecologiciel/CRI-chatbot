@@ -46,7 +46,7 @@ async def test_legacy_stop_reconciliation_is_atomic_and_never_sends():
     cipher = VersionedEnvelopeService(factory, "03" * 32)
     await kms.generate_tenant_key(tenant_id)
     async with engine.begin() as conn:
-        await conn.execute(text("INSERT INTO tenant_fixture_reconcile.contacts (phone,opt_in_status) VALUES ('212600000005','opted_in'),('212600000006','opted_in')"))
+        await conn.execute(text("INSERT INTO tenant_fixture_reconcile.contacts (phone,opt_in_status) VALUES ('+212600000005','opted_in'),('212600000006','opted_in')"))
     for eid, mid, phone, body in ((event_id, "legacy-stop-a", "212600000005", "STOP"), (fail_id, "legacy-stop-b", "212600000006", "STOP"), (ordinary_id, "legacy-natural", "212600000007", "Je ne souhaite plus recevoir de messages")):
         payload = {"phone_number_id": "888", "message": {"id": mid, "from": phone, "timestamp": "1", "type": "text", "text": {"body": body}}, "contacts": []}
         envelope = await cipher.encrypt(json.dumps(payload).encode(), tenant_id=tenant_id, purpose="wa_inbox", record_id=eid)
@@ -75,7 +75,7 @@ async def test_legacy_stop_reconciliation_is_atomic_and_never_sends():
         with pytest.raises(LegacyReconciliationError):
             await reconcile_legacy_text(tenant, event_id, actor, cipher=cipher)
         async with engine.begin() as conn:
-            assert (await conn.scalar(text("SELECT opt_in_status::text FROM tenant_fixture_reconcile.contacts WHERE phone='212600000005'"))) == "opted_out"
+            assert (await conn.scalar(text("SELECT opt_in_status::text FROM tenant_fixture_reconcile.contacts WHERE phone='+212600000005'"))) == "opted_out"
             row = (await conn.execute(text("SELECT state, sender_fingerprint, is_opt_out FROM public.whatsapp_inbox_events WHERE id=:id"), {"id": event_id})).one()
             assert row.state == "uncertain" and row.sender_fingerprint and row.is_opt_out
             assert (await conn.scalar(text("SELECT count(*) FROM public.audit_logs WHERE tenant_slug='fixture_reconcile' AND action='wa_legacy_reconcile'"))) == 1
@@ -236,7 +236,7 @@ async def test_stop_commits_consent_before_ack_and_bypasses_uncertain_messages()
     fail_stop = IncomingMessage.model_validate({"id": "stop-fail", "from": "212600000003", "timestamp": "2", "type": "text", "text": {"body": "STOP"}})
     fingerprint = await cipher.whatsapp_sender_fingerprint(tenant_id=tenant_id, channel_id="777", sender_id=stop.from_)
     async with engine.begin() as conn:
-        await conn.execute(text("INSERT INTO tenant_fixture_stop.contacts (phone,opt_in_status) VALUES ('212600000002','opted_in'),('212600000003','opted_in'),('212600000004','opted_in')"))
+        await conn.execute(text("INSERT INTO tenant_fixture_stop.contacts (phone,opt_in_status) VALUES ('+212600000002','opted_in'),('212600000003','opted_in'),('212600000004','opted_in')"))
         await conn.execute(text("""
             INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,sender_fingerprint,state)
             VALUES (gen_random_uuid(),:id,'older','777','fixture',1,:fingerprint,'uncertain'),
@@ -249,13 +249,13 @@ async def test_stop_commits_consent_before_ack_and_bypasses_uncertain_messages()
     ):
         assert await persist_incoming_message(tenant, "777", stop, [], cipher=cipher)
         async with engine.connect() as conn:
-            assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='212600000002'"))).scalar_one() == "opted_out"
+            assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='+212600000002'"))).scalar_one() == "opted_out"
             assert (await conn.execute(text("SELECT count(*) FROM public.audit_logs WHERE tenant_slug='fixture_stop' AND action='opt_in_change'"))).scalar_one() == 1
         claim = await claim_next()
         assert claim and claim.is_opt_out and (await decrypt_claim(claim, cipher)).message.id == "stop-1"
         assert await finish_claim(claim.id, claim.lease_token, uncertain=False)
         async with engine.begin() as conn:
-            await conn.execute(text("UPDATE tenant_fixture_stop.contacts SET opt_in_status='opted_in' WHERE phone='212600000002'"))
+            await conn.execute(text("UPDATE tenant_fixture_stop.contacts SET opt_in_status='opted_in' WHERE phone='+212600000002'"))
         assert not await persist_incoming_message(tenant, "777", stop, [], cipher=cipher)
         # Simulate a consent-checked provider send already holding the contact
         # lock. STOP cannot be acknowledged until that transaction completes.
@@ -281,8 +281,31 @@ async def test_stop_commits_consent_before_ack_and_bypasses_uncertain_messages()
             assert await asyncio.wait_for(delayed, timeout=10)
         async with engine.connect() as conn:
             assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='212600000004'"))).scalar_one() == "opted_out"
+        # The alternate spelling is concurrently inserted after STOP's
+        # initial lookup. The unique index and retry must select that row.
+        racing_stop = IncomingMessage.model_validate({"id": "stop-racing-insert", "from": "212600000008", "timestamp": "4", "type": "text", "text": {"body": "STOP"}})
+        async with engine.connect() as creator:
+            transaction = await creator.begin()
+            await creator.execute(text("INSERT INTO tenant_fixture_stop.contacts (phone,opt_in_status) VALUES ('+212600000008','opted_in')"))
+            creator_pid = (await creator.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            pending = asyncio.create_task(persist_incoming_message(tenant, "777", racing_stop, [], cipher=cipher))
+            blocked = False
+            try:
+                for _ in range(50):
+                    async with engine.connect() as monitor:
+                        blocked = (await monitor.execute(text("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE :pid = ANY(pg_blocking_pids(pid)))"), {"pid": creator_pid})).scalar_one()
+                    if blocked or pending.done():
+                        break
+                    await asyncio.sleep(0.1)
+                assert blocked and not pending.done()
+            finally:
+                await transaction.commit()
+            assert await asyncio.wait_for(pending, timeout=10)
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text("SELECT phone,opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone IN ('212600000008','+212600000008')"))).all()
+            assert rows == [("+212600000008", "opted_out")]
         async with engine.begin() as conn:
-            assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='212600000002'"))).scalar_one() == "opted_in"
+            assert (await conn.execute(text("SELECT opt_in_status::text FROM tenant_fixture_stop.contacts WHERE phone='+212600000002'"))).scalar_one() == "opted_in"
             await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_optout CHECK (action <> 'opt_in_change') NOT VALID"))
         try:
             with pytest.raises(DBAPIError):

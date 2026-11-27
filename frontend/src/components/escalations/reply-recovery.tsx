@@ -8,7 +8,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ResponseInput } from "./response-input";
+import { DurableReplyInput, LegacyReplyGuard } from "./durable-reply-input";
 
 type ReplyMode = { durable: boolean; worker_seen: boolean | null };
 type ReplyEvent = {
@@ -32,7 +32,7 @@ const decisions: { value: Decision; label: string }[] = [
 ];
 
 /** No automatic resend: a review records the operator's declaration only. */
-function RecoveryPanel({ escalationId, mode }: { escalationId: string; mode: ReplyMode }) {
+function RecoveryPanel({ escalationId, mode, active }: { escalationId: string; mode: ReplyMode; active: boolean }) {
   const api = useApiClient();
   const { admin } = useAuth();
   const queryClient = useQueryClient();
@@ -66,7 +66,7 @@ function RecoveryPanel({ escalationId, mode }: { escalationId: string; mode: Rep
   return <div className="shrink-0 border-t border-border px-4 py-3 space-y-3 text-sm">
     <p className="font-medium">Suivi des réponses de cette conversation</p>
     {mode.worker_seen !== true && <p role="alert">La disponibilité du traitement ne peut pas être confirmée ; des réponses peuvent rester en attente.</p>}
-    <p className="text-muted-foreground">Un worker détecté ne confirme pas la livraison. L’envoi depuis cette interface est en cours de préparation.</p>
+    <p className="text-muted-foreground">Un worker détecté ne confirme pas la livraison.</p>
     {(!tenantId || !admin?.id || events.isError) && <p role="alert">Impossible de charger le suivi. Actualisez avant toute décision.</p>}
     {events.isLoading && <p>Chargement du suivi…</p>}
     {events.data?.events.length === 0 && <p>Aucune demande en cours ou à examiner.</p>}
@@ -79,6 +79,7 @@ function RecoveryPanel({ escalationId, mode }: { escalationId: string; mode: Rep
       </div>}
     </div>)}
     {events.data?.has_more && <p role="alert">D’autres demandes existent ; cette liste est limitée. Faites examiner la conversation avant un nouvel envoi.</p>}
+    {active && <DurableReplyInput escalationId={escalationId} maySend={mode.worker_seen === true && events.isSuccess && !events.isFetching && !events.data.has_more && events.data.events.length === 0} />}
     {feedback && <p role="status">{feedback}</p>}
     <AlertDialog open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
       <AlertDialogContent><AlertDialogHeader>
@@ -105,6 +106,6 @@ export function EscalationReplyArea({ escalationId, active }: { escalationId: st
   });
   if (!tenantId || !admin?.id || mode.isError) return <p role="alert" className="border-t p-3 text-sm">Mode de réponse indisponible. Actualisez avant d’envoyer un message.</p>;
   if (!mode.data) return <p className="border-t p-3 text-sm">Vérification du mode de réponse…</p>;
-  if (mode.data.durable) return <RecoveryPanel key={`${tenantId}:${admin.id}:${escalationId}`} escalationId={escalationId} mode={mode.data} />;
-  return active ? <ResponseInput escalationId={escalationId} /> : null;
+  if (mode.data.durable) return <RecoveryPanel key={`${tenantId}:${admin.id}:${escalationId}`} escalationId={escalationId} mode={mode.data} active={active} />;
+  return active ? <LegacyReplyGuard key={`${tenantId}:${admin.id}:${escalationId}`} escalationId={escalationId} /> : null;
 }

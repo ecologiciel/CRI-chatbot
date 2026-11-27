@@ -310,6 +310,14 @@ L'endpoint `/api/v1/health` du backend verifie la connectivite a PostgreSQL, Red
 
 ## 8. Sauvegarde et restauration (PRA)
 
+Les exemples génériques ci-dessous ne constituent pas une procédure de reprise
+validée pour Hostinger. Les anciens scripts `scripts/backup/restore.sh` et
+`scripts/backup/test_restore.sh` sont désactivés : ils pouvaient ignorer des
+échecs ou ne garantissaient pas l'isolation de la cible. Pour vérifier une
+archive dans un environnement jetable, voir
+[Vérification locale d’une sauvegarde Hostinger réelle](securite/verification-sauvegarde-locale.md).
+Une procédure de restauration en production complète et testée reste à établir.
+
 ### 8.1. PostgreSQL
 
 ```bash

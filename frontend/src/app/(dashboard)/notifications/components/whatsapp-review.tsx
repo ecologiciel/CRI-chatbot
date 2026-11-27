@@ -12,7 +12,7 @@ import {
 
 type Kind = "message" | "status" | "notification";
 type ReviewState = "uncertain" | "follow_up";
-type Event = { id: string; state: string; attempts: number; created_at: string; redacted_at: string | null };
+type Event = { id: string; state: string; attempts: number; created_at: string; redacted_at: string | null; requires_reconciliation: boolean };
 type Detail = { id: string; provider_message_id: string; recipient_masked: string; event_type: string; view: string };
 type Availability = { intake_enabled: boolean; notification_outbox_enabled: boolean; worker_seen: boolean | null; pending_messages: number | null; oldest_pending_seconds: number | null; review_messages: number | null; review_statuses: number | null };
 
@@ -25,6 +25,7 @@ export function WhatsAppReview() {
   const [selected, setSelected] = useState<{ id: string; action: "follow_up" | "resolve" } | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [reconcileId, setReconcileId] = useState<string | null>(null);
   const availability = useQuery({
     queryKey: ["wa-operations", "availability"],
     queryFn: () => api.get<Availability>("/whatsapp/operations/availability"),
@@ -51,6 +52,14 @@ export function WhatsAppReview() {
       queryClient.invalidateQueries({ queryKey: ["wa-operations"] });
     },
     onError: () => setMessage("Décision non enregistrée. Actualisez la liste avant de réessayer."),
+  });
+  const reconcile = useMutation({
+    mutationFn: (id: string) => api.post<{ stop_applied: boolean }>(`/whatsapp/operations/events/${id}/reconcile`, {}),
+    onSuccess: (data) => {
+      setMessage(data.stop_applied ? "Demande STOP appliquée. Le résultat du message reste à examiner." : "Message rapproché. Son résultat reste à examiner.");
+      queryClient.invalidateQueries({ queryKey: ["wa-operations"] });
+    },
+    onError: () => setMessage("Rapprochement impossible. Le canal, le message ou sa durée de conservation nécessitent un examen spécifique."),
   });
 
   function changeView(nextKind: Kind, nextState: ReviewState) {
@@ -87,11 +96,12 @@ export function WhatsAppReview() {
       {events.data?.events.length === 0 && <p>Aucun événement dans cette page.</p>}
       {events.data?.events.map((event) => (
         <div key={event.id} className="flex flex-wrap items-center justify-between gap-3 border rounded-md p-3">
-          <div className="text-sm"><p>Événement {event.id}</p><p className="text-muted-foreground">{new Date(event.created_at).toLocaleString("fr-FR")} · {event.attempts} tentative(s)</p>{event.redacted_at && <p>Détails expirés selon la durée de conservation.</p>}</div>
+          <div className="text-sm"><p>Événement {event.id}</p><p className="text-muted-foreground">{new Date(event.created_at).toLocaleString("fr-FR")} · {event.attempts} tentative(s)</p>{event.requires_reconciliation && <p>Ancien message : rapprochement nécessaire avant clôture.</p>}{event.redacted_at && <p>Détails expirés selon la durée de conservation.</p>}</div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" disabled={details.isPending || !!event.redacted_at} onClick={() => details.mutate(event.id)}>Voir les détails</Button>
+            {event.requires_reconciliation && <Button variant="outline" disabled={reconcile.isPending || !!event.redacted_at} onClick={() => setReconcileId(event.id)}>Rapprocher</Button>}
             {state === "uncertain" && <Button variant="outline" disabled={review.isPending} onClick={() => setSelected({ id: event.id, action: "follow_up" })}>À suivre</Button>}
-            <Button variant="outline" disabled={review.isPending} onClick={() => setSelected({ id: event.id, action: "resolve" })}>Clôturer le suivi</Button>
+            <Button variant="outline" disabled={review.isPending || event.requires_reconciliation} onClick={() => setSelected({ id: event.id, action: "resolve" })}>Clôturer le suivi</Button>
           </div>
         </div>
       ))}
@@ -112,6 +122,14 @@ export function WhatsAppReview() {
         </AlertDialogHeader><AlertDialogFooter>
           <AlertDialogCancel>Annuler</AlertDialogCancel>
           <AlertDialogAction onClick={() => { if (selected) review.mutate(selected); setSelected(null); }}>Enregistrer</AlertDialogAction>
+        </AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={reconcileId !== null} onOpenChange={(open) => { if (!open) setReconcileId(null); }}>
+        <AlertDialogContent><AlertDialogHeader>
+          <AlertDialogTitle>Rapprocher cet ancien message ?</AlertDialogTitle>
+          <AlertDialogDescription>Le message texte sera vérifié. Une demande STOP sera appliquée et journalisée ; aucun message ne sera envoyé et le résultat restera à examiner.</AlertDialogDescription>
+        </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annuler</AlertDialogCancel>
+          <AlertDialogAction onClick={() => { if (reconcileId) reconcile.mutate(reconcileId); setReconcileId(null); }}>Rapprocher</AlertDialogAction>
         </AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
     </CardContent></Card>

@@ -71,6 +71,17 @@ async def test_legacy_stop_reconciliation_is_atomic_and_never_sends():
         finally:
             async with engine.begin() as conn:
                 await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_legacy"))
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.tenants SET whatsapp_config=CAST('{\"phone_number_id\":\"999\"}' AS jsonb) WHERE id=:id"), {"id": tenant_id})
+        with pytest.raises(LegacyReconciliationError):
+            await reconcile_legacy_text(tenant, fail_id, actor, cipher=cipher)
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.tenants SET whatsapp_config=CAST('{\"phone_number_id\":\"888\"}' AS jsonb) WHERE id=:id"), {"id": tenant_id})
+            await conn.execute(text("UPDATE public.whatsapp_inbox_events SET redacted_at=now(), ciphertext='' WHERE id=:id"), {"id": fail_id})
+        with pytest.raises(LegacyReconciliationError):
+            await reconcile_legacy_text(tenant, fail_id, actor, cipher=cipher)
+        async with engine.connect() as conn:
+            assert (await conn.scalar(text("SELECT opt_in_status::text FROM tenant_fixture_reconcile.contacts WHERE phone='212600000006'"))) == "opted_in"
     await engine.dispose()
 
 

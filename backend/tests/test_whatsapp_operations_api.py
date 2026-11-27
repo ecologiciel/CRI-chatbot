@@ -14,6 +14,32 @@ from app.schemas.auth import AdminTokenPayload
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("role,expected", [(AdminRole.viewer, 403), (AdminRole.admin_tenant, 200)])
+async def test_reconciliation_requires_admin_and_passes_tenant_identity(role, expected):
+    tenant_id, event_id, admin_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    tenant = TenantContext(tenant_id, "tenant_a", "A", "active", None)
+    payload = AdminTokenPayload(sub=str(admin_id), role=role.value, tenant_id=str(tenant_id),
+                                exp=9999999999, iat=1700000000, jti=str(uuid.uuid4()), type="access")
+    app.dependency_overrides[get_current_admin] = lambda: payload
+    try:
+        with (patch("app.core.middleware.TenantResolver.from_tenant_id_header", new=AsyncMock(return_value=tenant)),
+              patch("app.api.v1.whatsapp_operations.VersionedEnvelopeService"),
+              patch("app.api.v1.whatsapp_operations.get_settings", return_value=MagicMock(kms_master_key="fixture")),
+              patch("app.api.v1.whatsapp_operations.reconcile_legacy_text", new=AsyncMock(return_value=True)) as reconcile):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post(f"/api/v1/whatsapp/operations/events/{event_id}/reconcile",
+                                             headers={"X-Tenant-ID": str(tenant_id)})
+        assert response.status_code == expected
+        if expected == 200:
+            assert response.json() == {"stop_applied": True}
+            assert reconcile.await_args.args == (tenant, event_id, admin_id)
+        else:
+            reconcile.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_disabled_intake_does_not_claim_worker_or_query_backlog():
     tenant = TenantContext(uuid.uuid4(), "alpha", "Alpha", "active", None)
     with (

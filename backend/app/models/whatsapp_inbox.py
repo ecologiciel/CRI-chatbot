@@ -36,12 +36,21 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
         ),
         CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_inbox_counters"),
         CheckConstraint(
+            "sender_fingerprint IS NULL OR sender_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_wa_inbox_sender_fingerprint",
+        ),
+        CheckConstraint(
             "(state = 'processing' AND lease_until IS NOT NULL AND lease_token IS NOT NULL) "
             "OR (state <> 'processing' AND lease_until IS NULL AND lease_token IS NULL)",
             name="ck_wa_inbox_lease",
         ),
         Index("uq_wa_inbox_tenant_message", "tenant_id", "provider_message_id", unique=True),
         Index("ix_wa_inbox_pending", "state", "created_at"),
+        Index(
+            "ix_wa_inbox_conversation_order",
+            "tenant_id", "sender_fingerprint", "created_at", "id",
+            postgresql_where=text("state IN ('pending', 'processing', 'uncertain', 'follow_up')"),
+        ),
         Index(
             "ix_wa_inbox_retention",
             "tenant_id",
@@ -56,6 +65,8 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
     )
     provider_message_id: Mapped[str] = mapped_column(String(255), nullable=False)
     phone_number_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Nullable only for pre-migration events; they must be reconciled before use.
+    sender_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)

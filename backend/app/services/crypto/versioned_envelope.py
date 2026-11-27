@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import hmac
+import json
 import re
 import secrets
 import uuid
@@ -78,6 +81,23 @@ class VersionedEnvelopeService:
             return VersionedEnvelope(version, base64.b64encode(nonce + encrypted).decode("ascii"))
         except (TypeError, ValueError) as exc:
             raise CRIEncryptionError("Unable to encrypt tenant record") from exc
+
+    async def whatsapp_sender_fingerprint(
+        self, *, tenant_id: uuid.UUID, channel_id: str, sender_id: str
+    ) -> str:
+        """Return a stable, tenant-bound opaque conversation key.
+
+        Version 1 of the tenant data key is deliberately retained across data
+        key rotations; missing historical key material is a hard failure.
+        """
+        if not channel_id or len(channel_id) > 32 or not sender_id or len(sender_id) > 128:
+            raise ValueError("Invalid WhatsApp conversation identifier")
+        _, data_key = await self._key(tenant_id, 1)
+        purpose_key = hmac.new(data_key, b"cri-wa-conversation-key-v1", hashlib.sha256).digest()
+        context = json.dumps(
+            [str(tenant_id), channel_id, sender_id], ensure_ascii=True, separators=(",", ":")
+        ).encode("ascii")
+        return hmac.new(purpose_key, context, hashlib.sha256).hexdigest()
 
     async def decrypt(
         self,

@@ -72,7 +72,7 @@ async def claim_notification(
     token = uuid.uuid4()
     row.state = "processing"
     row.lease_token = token
-    row.lease_until = func.now() + timedelta(seconds=lease_seconds)
+    row.lease_until = func.clock_timestamp() + timedelta(seconds=lease_seconds)
     row.attempts += 1
     row.updated_at = func.now()
     await session.flush()
@@ -108,7 +108,7 @@ async def finish_notification(
             NotificationOutboxEvent.id == claim.event_id,
             NotificationOutboxEvent.state == "processing",
             NotificationOutboxEvent.lease_token == claim.lease_token,
-            NotificationOutboxEvent.lease_until > func.now(),
+            NotificationOutboxEvent.lease_until > func.clock_timestamp(),
         )
         .values(
             state=outcome,
@@ -129,7 +129,7 @@ async def quarantine_expired_notifications(session: AsyncSession, tenant_id: uui
         .where(
             NotificationOutboxEvent.tenant_id == tenant_id,
             NotificationOutboxEvent.state == "processing",
-            NotificationOutboxEvent.lease_until <= func.now(),
+            NotificationOutboxEvent.lease_until <= func.clock_timestamp(),
         )
         .values(
             state="uncertain",

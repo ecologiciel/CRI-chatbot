@@ -141,10 +141,21 @@ async def test_outbox_transaction_isolation_and_fenced_leases(monkeypatch):
         )
         await session.execute(
             text(
-                "UPDATE public.notification_outbox_events SET lease_until=now()-interval '1 second' "
+                "UPDATE public.notification_outbox_events SET lease_until=clock_timestamp()+interval '0.2 second' "
                 "WHERE tenant_id=:tenant AND state='processing'"
             ),
             {"tenant": tenant_b},
+        )
+        # PostgreSQL now() is fixed at transaction start; use a real-time
+        # clock so a claim expiring during this transaction cannot be accepted.
+        await asyncio.sleep(0.3)
+        assert not await finish_notification(
+            session,
+            tenant_b,
+            other,
+            outcome="sent",
+            outcome_code="provider_accepted",
+            provider_message_id="wamid.test",
         )
         assert await quarantine_expired_notifications(session, tenant_a) == 0
         assert await quarantine_expired_notifications(session, tenant_b) == 1

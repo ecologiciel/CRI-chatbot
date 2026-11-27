@@ -33,7 +33,9 @@ async def redact_tenant_outbox(tenant_id, slug: str, retention_days: int, now: d
                         Event.tenant_id == tenant_id,
                         Event.created_at < now - timedelta(days=retention_days),
                         Event.redacted_at.is_(None),
-                        or_(Event.state != "processing", Event.lease_until <= func.now()),
+                        or_(
+                            Event.state != "processing", Event.lease_until <= func.clock_timestamp()
+                        ),
                     )
                     .order_by(Event.created_at, Event.id)
                     .limit(BATCH_SIZE)

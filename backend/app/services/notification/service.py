@@ -324,7 +324,7 @@ class NotificationService:
                             NotificationOutboxEvent.sequence == durable_claim.sequence,
                             NotificationOutboxEvent.state == "processing",
                             NotificationOutboxEvent.lease_token == durable_claim.lease_token,
-                            NotificationOutboxEvent.lease_until > func.now(),
+                            NotificationOutboxEvent.lease_until > func.clock_timestamp(),
                         )
                         .with_for_update()
                     )

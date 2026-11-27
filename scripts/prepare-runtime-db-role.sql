@@ -29,23 +29,8 @@ BEGIN
 END $$;
 
 GRANT USAGE ON SCHEMA public TO cri_runtime_access;
-GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES ON ALL TABLES IN SCHEMA public TO cri_runtime_access;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO cri_runtime_access;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.alembic_version FROM cri_runtime_access;
-REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.audit_logs FROM cri_runtime_access;
-GRANT SELECT, INSERT ON public.audit_logs TO cri_runtime_access;
-
--- Tenant tables remain owned by the migration role. Schema ownership is not
--- transferred here; deletion of legacy tenants needs a separately reviewed path.
-DO $$
-DECLARE item record;
-BEGIN
-  FOR item IN SELECT nspname FROM pg_namespace WHERE nspname ~ '^tenant_[a-z0-9_]+$' LOOP
-    EXECUTE format('GRANT USAGE ON SCHEMA %I TO cri_runtime_access', item.nspname);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES ON ALL TABLES IN SCHEMA %I TO cri_runtime_access', item.nspname);
-    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO cri_runtime_access', item.nspname);
-  END LOOP;
-END $$;
+-- Apply the same explicit table and sequence policy atomically at creation.
+\ir rehearse-refresh-runtime-grants.sql
 
 -- Future migration objects require reviewed explicit grants. Default table
 -- privileges are intentionally not widened: a replacement audit table must

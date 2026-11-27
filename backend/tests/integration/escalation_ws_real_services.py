@@ -154,6 +154,15 @@ async def main():
                     raise AssertionError("Revoked session received a message")
                 except ConnectionClosed as exc:
                     assert exc.code == 4001
+        if proxy:
+            async with httpx.AsyncClient(trust_env=False) as client:
+                responses = [
+                    (
+                        await client.get(f"http://codex-ws-traefik:8080/ws/escalations/{tenant_id}")
+                    ).status_code
+                    for _ in range(50)
+                ]
+                assert 429 in responses, "Proxy did not limit repeated connection attempts"
         print(
             "REAL_WS_POSTGRES_REDIS_PROXY_OK" if proxy else "REAL_WS_POSTGRES_REDIS_ISOLATION_OK",
             flush=True,

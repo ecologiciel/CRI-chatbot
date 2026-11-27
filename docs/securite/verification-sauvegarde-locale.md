@@ -1,5 +1,10 @@
 # Vérification locale d’une sauvegarde Hostinger réelle
 
+Les anciens scripts génériques `scripts/backup/restore.sh` et
+`scripts/backup/test_restore.sh` sont désactivés. Le contrôle isolé décrit ici
+ne restaure pas la plateforme en production et ne remplace pas une procédure de
+reprise complète, qui reste à établir et à tester.
+
 Le 26 novembre 2026, la copie chiffrée du 25 novembre à 21 h 22 UTC a été restaurée deux fois sur l’ordinateur de l’utilisateur. L’empreinte et le déchiffrement ont été contrôlés ; PostgreSQL, MinIO et Qdrant ont été restaurés dans des volumes Docker temporaires `tmpfs`, avec un Redis neuf. L’API et ses quatre dépendances ont démarré sur un réseau interne sans port publié. La base contenait six documents ONSSA indexés ; un fichier MinIO a été relu et un point Qdrant a été rapproché de son document PostgreSQL. Les conteneurs, volumes, réseau et fichiers temporaires ont ensuite été supprimés.
 
 Ce contrôle porte sur **une archive datée et un échantillon**, pas sur tous les fichiers, toutes les recherches ou une conversation IA. L’archive est antérieure aux derniers changements et aux rotations de certains secrets. Avant toute remise en ligne après une véritable restauration, les secrets exposés doivent être renouvelés. Redis est volontairement recréé vide afin de ne pas rejouer d’anciennes tâches. Les systèmes `tmpfs` peuvent utiliser le swap de l’ordinateur : ils ne garantissent pas l’absence de traces sur disque.

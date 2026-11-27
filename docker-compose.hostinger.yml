@@ -62,7 +62,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    # Redis also holds jobs and security state: never silently evict accepted keys.
+    # At capacity writes fail instead, so monitor memory and provision headroom.
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
     volumes: [redis_data:/data]
     networks: [demo-data]
     healthcheck:

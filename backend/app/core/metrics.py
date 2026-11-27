@@ -68,6 +68,13 @@ ACTIVE_SESSIONS = Gauge(
     ["tenant"],
 )
 
+# Do not label audit outcomes with tenant or request details.
+AUDIT_WRITE_TOTAL = Counter(
+    "cri_audit_writes_total",
+    "Audit write outcomes, including failures and timeouts",
+    ["outcome"],
+)
+
 # ---------------------------------------------------------------------------
 # Import
 # ---------------------------------------------------------------------------

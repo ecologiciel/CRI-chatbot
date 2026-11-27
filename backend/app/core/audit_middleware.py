@@ -1,7 +1,7 @@
 """Audit trail middleware — captures mutating HTTP requests automatically.
 
-Fires audit log entries asynchronously (fire-and-forget) to avoid
-blocking the HTTP response. Only POST/PUT/PATCH/DELETE are captured.
+Awaits a bounded best-effort audit write before returning the HTTP response.
+This does not make the audit atomic with the business transaction.
 
 Excluded paths: webhooks (too voluminous), health checks, docs, metrics.
 Login/logout are captured with specific action overrides.
@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from app.core.metrics import AUDIT_WRITE_TOTAL
 from app.schemas.audit import AuditLogCreate
 from app.services.audit import get_audit_service
 
@@ -27,6 +28,7 @@ logger = structlog.get_logger()
 # --- Constants ---
 
 AUDITED_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+AUDIT_TIMEOUT_SECONDS = 3
 
 AUDIT_EXCLUDED_PREFIXES: tuple[str, ...] = (
     "/api/v1/webhook/",
@@ -118,7 +120,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
     """Middleware that auto-captures mutating HTTP requests in the audit trail.
 
     Intercepts POST/PUT/PATCH/DELETE requests (excluding webhooks, health,
-    docs) and logs them asynchronously via AuditService.
+    docs) and waits briefly for AuditService after the request executes.
 
     Admin identity is extracted from the JWT token (lightweight decode,
     no DB verification). Tenant is read from request.state.tenant
@@ -184,23 +186,28 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 details={"http_status": response.status_code},
             )
 
-            # Fire-and-forget — do not await, do not block the response
-            asyncio.create_task(_fire_audit(audit_data))
+            # The business operation has already executed. Never report a
+            # rollback on audit failure; record the outcome for monitoring.
+            try:
+                await asyncio.wait_for(_fire_audit(audit_data), timeout=AUDIT_TIMEOUT_SECONDS)
+            except TimeoutError:
+                AUDIT_WRITE_TOTAL.labels(outcome="timeout").inc()
+                logger.error("audit_write_timeout", resource_type=resource_type)
 
         except Exception as exc:
             # Audit middleware must NEVER crash the request
             logger.error(
                 "audit_middleware_error",
-                error=str(exc),
+                error_type=type(exc).__name__,
                 path=path,
                 method=request.method,
-                exc_info=True,
             )
+            AUDIT_WRITE_TOTAL.labels(outcome="failure").inc()
 
         return response
 
 
-async def _fire_audit(data: AuditLogCreate) -> None:
-    """Execute the audit log write (called via asyncio.create_task)."""
+async def _fire_audit(data: AuditLogCreate) -> bool:
+    """Execute the best-effort audit log write."""
     service = get_audit_service()
-    await service.log_action(data)
+    return await service.log_action(data)

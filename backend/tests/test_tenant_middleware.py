@@ -45,6 +45,11 @@ class TestTenantContext:
         with pytest.raises(ValueError, match="Invalid tenant slug"):
             _make_tenant_context(slug="rabat; DROP TABLE tenants;--")
 
+    @pytest.mark.parametrize("slug", ["rabat\n", "a" * 51, "rabat,public", "école"])
+    def test_slug_rejects_path_aliases_and_overlong_names(self, slug):
+        with pytest.raises(ValueError, match="Invalid tenant slug"):
+            _make_tenant_context(slug=slug)
+
     def test_slug_validation_accepts_valid(self):
         """Valid slugs with letters, numbers, and underscores should work."""
         ctx = _make_tenant_context(slug="rabat_sale_kenitra")

@@ -24,3 +24,9 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ""
         NEXT_PUBLIC_BASE_PATH: /admin
+
+  whatsapp-relay:
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: backend/docker/local-relay.Dockerfile

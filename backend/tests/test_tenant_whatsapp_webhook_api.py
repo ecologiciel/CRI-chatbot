@@ -14,6 +14,7 @@ from app.core.exceptions import CRIBaseException
 from app.core.tenant import TenantContext
 from app.main import app
 from app.schemas.tenant import WhatsAppConfig
+from app.services.whatsapp import local_relay
 
 
 def fixture_tenant(phone, secret, token):
@@ -96,6 +97,31 @@ async def test_configured_relay_secret_is_required(harness):
         assert (await client.get("/api/v1/webhook/whatsapp/tenant/one", params=params)).status_code == 403
         assert (await client.get("/api/v1/webhook/whatsapp/tenant/one", params=params, headers=[(b"x-demo-webhook-proxy", b"\xff")])).status_code == 403
         assert (await client.get("/api/v1/webhook/whatsapp/tenant/one", params=params, headers={"x-demo-webhook-proxy": "fixture-relay-secret"})).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_local_relay_enforces_tenant_authentication_end_to_end(harness):
+    settings, _, redis, inbox, statuses = harness
+    settings.webhook_proxy_shared_secret = "fixture-relay-secret"
+    local_relay.app.state.relay_secret = settings.webhook_proxy_shared_secret
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://backend") as internal:
+        local_relay.app.state.relay_client = internal
+        async with AsyncClient(transport=ASGITransport(app=local_relay.app), base_url="https://relay") as client:
+            params = {"hub.mode": "subscribe", "hub.verify_token": "fixture-first-token", "hub.challenge": "ok"}
+            assert (await client.get("/wa/whatsapp/tenant/one", params=params)).text == "ok"
+            assert (await client.get("/wa/whatsapp/tenant/two", params=params)).status_code == 403
+            raw = payload("111")
+            headers = {"X-Hub-Signature-256": sign(raw, "fixture-first-secret")}
+            assert (await client.post("/wa/whatsapp/tenant/two", content=raw, headers=headers)).status_code == 403
+            mixed = payload("111", "222")
+            assert (await client.post("/wa/whatsapp/tenant/one", content=mixed, headers={"X-Hub-Signature-256": sign(mixed, "fixture-first-secret")})).status_code == 400
+            inbox.assert_not_awaited()
+            statuses.assert_not_awaited()
+            assert (await client.post("/wa/whatsapp/tenant/one", content=raw, headers=headers)).status_code == 200
+            assert inbox.await_count == statuses.await_count == 1
+            redis.exists.return_value = 0
+            assert (await client.post("/wa/whatsapp/tenant/one", content=raw, headers=headers)).status_code == 503
+            assert inbox.await_count == statuses.await_count == 1
 
 
 @pytest.mark.asyncio

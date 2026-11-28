@@ -191,6 +191,39 @@ services:
     restart: unless-stopped
     mem_limit: 2g
 
+  whatsapp-relay:
+    <<: *app-hardening
+    profiles: ["local-wa-relay"]
+    image: chatbot-wa-relay:hostinger-v1
+    build:
+      context: *source-repository
+      dockerfile: backend/docker/local-relay.Dockerfile
+    environment:
+      WEBHOOK_PROXY_SHARED_SECRET: ${WEBHOOK_PROXY_SHARED_SECRET:-}
+    networks: [demo-edge]
+    read_only: true
+    tmpfs: ["/tmp:noexec,nosuid,nodev,size=32m"]
+    pids_limit: 32
+    cpus: 1.0
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.local-wa-relay.rule=Host(`${DEMO_HOSTNAME}`) && PathPrefix(`/wa/whatsapp/tenant/`)
+      - traefik.http.routers.local-wa-relay.priority=50
+      - traefik.http.routers.local-wa-relay.entrypoints=websecure
+      - traefik.http.routers.local-wa-relay.tls.certresolver=le
+      - traefik.http.routers.local-wa-relay.middlewares=local-wa-relay-rate
+      - traefik.http.middlewares.local-wa-relay-rate.ratelimit.average=10
+      - traefik.http.middlewares.local-wa-relay-rate.ratelimit.burst=40
+      - traefik.http.services.local-wa-relay.loadbalancer.server.port=8081
+    restart: unless-stopped
+
   ingestion-worker:
     <<: *app-hardening
     stop_grace_period: 660s

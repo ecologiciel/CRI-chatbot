@@ -85,11 +85,11 @@ docker exec -e EXPECTED_IP="$client_ip" "$client" python -c '
 import asyncio,http.client,json,os,urllib.request
 import websockets
 expected=os.environ["EXPECTED_IP"]
-def http(url, headers):
+def request_json(url, headers):
  req=urllib.request.Request(url,headers=headers)
  return json.load(urllib.request.urlopen(req,timeout=5))
 for url in ("http://proxy:8080/", "http://backend:8000/"):
- result=http(url,{"X-Forwarded-For":"203.0.113.99", "X-Internal-Client-IP-Proof":"attacker"})
+ result=request_json(url,{"X-Forwarded-For":"203.0.113.99", "X-Internal-Client-IP-Proof":"attacker"})
  assert result == {"client":expected,"proof_present":False}, result
 conn=http.client.HTTPConnection("proxy",8080,timeout=5)
 conn.putrequest("GET","/")

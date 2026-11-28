@@ -340,5 +340,10 @@ def get_dossier_otp_service() -> DossierOTPService:
     """Get or create the DossierOTPService singleton."""
     global _dossier_otp_service
     if _dossier_otp_service is None:
-        _dossier_otp_service = DossierOTPService()
+        # Import lazily to avoid a circular dependency: the atomic service
+        # reuses this module's session and audit helpers. Tracking remains
+        # unavailable until code delivery and the full flow are validated.
+        from app.services.dossier.otp_atomic import AtomicDossierOTPService
+
+        _dossier_otp_service = AtomicDossierOTPService()
     return _dossier_otp_service

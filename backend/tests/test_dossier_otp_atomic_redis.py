@@ -15,6 +15,7 @@ from redis.exceptions import ResponseError
 from app.core.exceptions import RateLimitExceededError
 from app.core.tenant import TenantContext
 from app.services.dossier import otp_atomic
+from app.services.dossier import otp
 from app.services.dossier.otp_atomic import AtomicDossierOTPService
 
 URL = os.getenv("TEST_ATOMIC_OTP_REDIS_URL")
@@ -120,3 +121,14 @@ async def test_persistent_verification_counter_is_rejected(environment):
     await redis.set(key, "1")
     with pytest.raises(ResponseError, match="invalid OTP verification budget"):
         await service.verify_otp(PHONE, code, tenant)
+
+
+@pytest.mark.asyncio
+async def test_factory_service_runs_atomic_protocol_on_real_redis(environment, monkeypatch):
+    _, _, tenant = environment
+    monkeypatch.setattr(otp, "_dossier_otp_service", None)
+    service = otp.get_dossier_otp_service()
+    service._audit = AsyncMock()
+    code = await service.generate_otp(PHONE, tenant)
+    outcomes = await asyncio.gather(*(service.verify_otp(PHONE, code, tenant) for _ in range(10)))
+    assert sum(outcomes) == 1

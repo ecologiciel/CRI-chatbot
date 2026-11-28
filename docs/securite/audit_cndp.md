@@ -191,26 +191,26 @@ Hostinger et les services utilisés par la démonstration.
 
 | Composant | Technologie | Preuve |
 |-----------|-------------|--------|
-| PostgreSQL (champs sensibles) | pgcrypto | Configuration PostgreSQL |
-| MinIO (fichiers) | SSE-S3 (Server-Side Encryption) | Configuration MinIO |
-| Qdrant | Encryption at-rest | Configuration Qdrant |
+| PostgreSQL (champs sensibles) | Chiffrement applicatif selon les champs et services | À vérifier pour chaque parcours |
+| MinIO (fichiers) | Chiffrement au repos | Configuration effective à vérifier |
+| Qdrant | Chiffrement au repos | Configuration effective à vérifier |
 
 #### Chiffrement par tenant (KMS logiciel)
 
 - **Fichier** : `backend/app/services/crypto/kms.py`
-- **Algorithme** : AES-256-GCM (chiffrement authentifié avec données associées)
+- **Algorithme** : AES-256-GCM ; le service KMS historique ne fournit pas de données associées (AAD)
 - **Architecture** : Chiffrement enveloppe (envelope encryption)
   - **Master key** : 32 octets hex depuis variable d'environnement `KMS_MASTER_KEY`
   - **Data keys** : Une clé AES-256 par tenant, chiffrée par la master key
   - **Nonce** : 12 octets aléatoires par opération (stocké en préfixe du ciphertext)
   - **Format** : Base64(`nonce[12B] + ciphertext + GCM_tag[16B]`)
 - **Rotation** : Méthode `rotate_key()` — désactive l'ancienne clé, génère une nouvelle (incrémentation version)
-- **Cache** : Clé déchiffrée en cache Redis 5 minutes (`{slug}:kms:data_key`, TTL 300s)
+- **Cache** : Le service KMS ne conserve plus de clé déchiffrée dans Redis ; il charge la clé active depuis PostgreSQL. Les anciennes entrées de cache sont ignorées.
 - **Modèle** : `backend/app/models/tenant_key.py` — table `public.tenant_keys` avec index unique partiel garantissant une seule clé active par tenant
 
 **Tests** : `backend/tests/test_kms.py` — ~15 tests couvrant : génération, chiffrement/déchiffrement, rotation, validation ciphertext
 
-**Résultat** : ✅ VÉRIFIÉ — Chiffrement multi-couche conforme à l'état de l'art.
+**Résultat** : Le chiffrement applicatif décrit ci-dessus existe. La configuration effective du chiffrement au repos, la couverture de tous les parcours et la conformité réglementaire exigent une vérification indépendante ; ce document ne constitue pas une certification.
 
 ---
 

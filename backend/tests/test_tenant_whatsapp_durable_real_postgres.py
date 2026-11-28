@@ -19,6 +19,7 @@ from app.core.tenant import TenantResolver
 from app.main import app
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.whatsapp import local_relay
 from app.services.whatsapp.config_envelope import seal_channel_config
 from app.services.whatsapp.inbox_intake import persist_tenant_authenticated_webhook
 
@@ -85,10 +86,26 @@ async def test_encrypted_tenant_intake_commits_deduplicates_and_rejects_rotated_
                 assert wrong.status_code == 403
                 replay = await client.post(route, content=raw, headers={"X-Hub-Signature-256": sign(raw, config["app_secret"])})
                 assert replay.status_code == 200
+            # Exercise the public relay and real encrypted PostgreSQL intake in
+            # one request, including retransmission and tenant authentication.
+            settings.webhook_proxy_shared_secret = "fixture-relay-secret"
+            relay_raw = event(config["phone_number_id"], "fixture-relay-1")
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://backend") as upstream:
+                local_relay.app.state.relay_secret = settings.webhook_proxy_shared_secret
+                local_relay.app.state.relay_client = upstream
+                async with AsyncClient(transport=ASGITransport(app=local_relay.app), base_url="https://relay") as client:
+                    route = f"/wa/whatsapp/tenant/{tenant.slug}"
+                    challenge = await client.get(route, params={"hub.mode": "subscribe", "hub.verify_token": config["verify_token"], "hub.challenge": "fixture-challenge"})
+                    assert challenge.status_code == 200 and challenge.text == "fixture-challenge"
+                    invalid = await client.post(route, content=relay_raw, headers={"X-Hub-Signature-256": sign(relay_raw, "wrong")})
+                    assert invalid.status_code == 403
+                    headers = {"X-Hub-Signature-256": sign(relay_raw, config["app_secret"])}
+                    assert (await client.post(route, content=relay_raw, headers=headers)).status_code == 200
+                    assert (await client.post(route, content=relay_raw, headers=headers)).status_code == 200
             async with engine.connect() as conn:
                 row = (await conn.execute(text("SELECT ciphertext FROM public.whatsapp_inbox_events WHERE tenant_id=:id"), {"id": tenant_id})).all()
                 status_count = await conn.scalar(text("SELECT count(*) FROM public.whatsapp_status_events WHERE tenant_id=:id"), {"id": tenant_id})
-            assert len(row) == 1 and "synthetic-private-message" not in row[0].ciphertext
+            assert len(row) == 2 and all("synthetic-private-message" not in item.ciphertext for item in row)
             assert status_count == 1
             rotated = await seal_channel_config(tenant_id, dict(config, app_secret="fixture-rotated-key"), cipher)
             async with engine.begin() as conn:
@@ -102,7 +119,7 @@ async def test_encrypted_tenant_intake_commits_deduplicates_and_rejects_rotated_
             with pytest.raises(TenantInactiveError):
                 await persist_tenant_authenticated_webhook(tenant, raw_status, sign(raw_status, config["app_secret"]))
             async with engine.connect() as conn:
-                assert await conn.scalar(text("SELECT count(*) FROM public.whatsapp_inbox_events WHERE tenant_id=:id"), {"id": tenant_id}) == 1
+                assert await conn.scalar(text("SELECT count(*) FROM public.whatsapp_inbox_events WHERE tenant_id=:id"), {"id": tenant_id}) == 2
                 assert await conn.scalar(text("SELECT count(*) FROM public.whatsapp_status_events WHERE tenant_id=:id"), {"id": tenant_id}) == 1
     finally:
         async with engine.begin() as conn:

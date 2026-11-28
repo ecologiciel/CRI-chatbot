@@ -23,7 +23,6 @@ from app.core.tenant import TenantContext
 from app.models.conversation import Message
 from app.models.enums import (
     AgentType,
-    ConversationStatus,
     FeedbackRating,
     Language,
     MessageDirection,
@@ -33,7 +32,7 @@ from app.schemas.feedback import FeedbackCreate
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
 from app.services.contact.segmentation import SegmentationService, get_segmentation_service
 from app.services.contact.service import get_contact_service
-from app.services.conversation.service import get_conversation_service
+from app.services.conversation.service import HUMAN_HANDOFF_STATUSES, get_conversation_service
 from app.services.feedback.service import get_feedback_service
 from app.services.rag.prompts import PromptTemplates
 from app.services.whatsapp.media import WhatsAppMediaHandler
@@ -238,7 +237,7 @@ class MessageHandler:
             # Do not resume the bot while a human handoff is open. The inbound
             # message was persisted above; notify the operator interface
             # without putting message content or the phone number on pub/sub.
-            if await self._conversation_service.get_status(tenant, conversation.id) == ConversationStatus.escalated:
+            if await self._conversation_service.get_status(tenant, conversation.id) in HUMAN_HANDOFF_STATUSES:
                 try:
                     await get_redis().publish(
                         f"{tenant.slug}:escalations:message",

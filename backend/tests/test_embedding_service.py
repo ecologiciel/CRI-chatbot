@@ -205,3 +205,25 @@ async def test_embed_empty_raises_validation():
     """Empty text list → Pydantic validation error."""
     with pytest.raises(ValidationError):
         EmbeddingRequest(texts=[])
+
+
+@pytest.mark.asyncio
+async def test_rejects_per_batch_count_mismatch_even_if_later_batch_could_compensate(small_batch_service):
+    service, client = small_batch_service
+    client.aio.models.embed_content = AsyncMock(side_effect=[
+        _make_mock_embed_response(1), _make_mock_embed_response(3),
+    ])
+    with pytest.raises(EmbeddingError, match="invalid batch count"):
+        await service.embed(EmbeddingRequest(texts=["a", "b", "c", "d"]), TEST_TENANT)
+    assert client.aio.models.embed_content.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", [[0.1] * (DIMENSION - 1), [float("nan")] * DIMENSION, [float("inf")] * DIMENSION, [True] * DIMENSION, None])
+async def test_rejects_invalid_query_embedding(embedding_service, invalid):
+    service, client = embedding_service
+    result = _make_mock_embed_response(1)
+    result.embeddings[0].values = invalid
+    client.aio.models.embed_content = AsyncMock(return_value=result)
+    with pytest.raises(EmbeddingError, match="invalid vector"):
+        await service.embed_single("question", TEST_TENANT)

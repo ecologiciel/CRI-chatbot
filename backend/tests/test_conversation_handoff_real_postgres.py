@@ -75,6 +75,35 @@ async def test_concurrent_creation_and_resuming_open_handoff():
                 await session.execute(update(Conversation).where(
                     Conversation.id == conversation_id
                 ).values(status=ConversationStatus.active))
+
+            # A contact update cannot commit during a bot send. Once STOP has
+            # committed, no new automatic send is allowed for that contact.
+            entered, release = asyncio.Event(), asyncio.Event()
+            sending = asyncio.create_task(send_with_lock())
+            await asyncio.wait_for(entered.wait(), timeout=5)
+
+            async def opt_out():
+                async with engine.begin() as conn:
+                    await conn.execute(text("UPDATE tenant_fixturehandoff.contacts "
+                                            "SET opt_in_status='opted_out' WHERE id=:id"), {"id": first})
+
+            stopping = asyncio.create_task(opt_out())
+            try:
+                done, _ = await asyncio.wait({stopping}, timeout=0.2)
+                assert not done
+            finally:
+                release.set()
+                await asyncio.gather(sending, stopping)
+            async with service.guard_bot_reply(tenant, conversation_id) as allowed:
+                assert allowed is False
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE tenant_fixturehandoff.contacts SET opt_in_status='pending' WHERE id=:id"), {"id": first})
+                # A busy contact fails closed quickly without a lock-order
+                # deadlock; the transaction remains usable after NOWAIT.
+                async with service.guard_bot_reply(tenant, conversation_id) as allowed:
+                    assert allowed is False
+            async with service.guard_bot_reply(tenant, conversation_id) as allowed:
+                assert allowed is True
             retrieval = AsyncMock()
             retrieval.retrieve.return_value = MagicMock(chunks=[])
             faq = FAQAgent(retrieval, AsyncMock())

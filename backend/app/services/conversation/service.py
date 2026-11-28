@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import DBAPIError
 
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
@@ -25,6 +26,7 @@ from app.models.enums import (
     EscalationStatus,
     MessageDirection,
     MessageType,
+    OptInStatus,
 )
 from app.models.escalation import Escalation
 
@@ -176,6 +178,23 @@ class ConversationService:
                     allowed = pending.scalar_one_or_none() is not None
                 else:
                     allowed = False
+                if allowed:
+                    # STOP and contact consent updates lock the same row. Do
+                    # not wait while holding a conversation lock: another path
+                    # may hold the contact and be waiting on this conversation.
+                    # A savepoint keeps the transaction usable after NOWAIT.
+                    try:
+                        async with session.begin_nested():
+                            contact = (await session.execute(
+                                select(Contact.opt_in_status)
+                                .where(Contact.id == conversation.contact_id)
+                                .with_for_update(nowait=True)
+                            )).scalar_one_or_none()
+                    except DBAPIError as exc:
+                        if getattr(exc.orig, "sqlstate", None) != "55P03":
+                            raise
+                        contact = None
+                    allowed = contact is not None and contact != OptInStatus.opted_out
                 yield allowed
 
     async def record_faq_outcome(

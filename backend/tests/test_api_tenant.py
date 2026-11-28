@@ -71,6 +71,7 @@ def _make_tenant_orm(**overrides) -> MagicMock:
             "access_token": "secret-token",
             "verify_token": "verify-secret",
             "business_account_id": "biz-123",
+            "custom_secret": "other-secret-value",
         },
         "status": TenantStatus.active,
         "max_contacts": 20000,
@@ -152,8 +153,12 @@ class TestCreateTenantEndpoint:
         assert data["name"] == "CRI Rabat-Salé-Kénitra"
         assert data["slug"] == "rabat"
         assert data["status"] == "active"
-        # TenantAdminResponse includes whatsapp_config
+        # Channel identifiers are returned; all credentials are write-only.
         assert "whatsapp_config" in data
+        assert data["whatsapp_config"] == {"phone_number_id": "123456", "business_account_id": "biz-123"}
+        assert "secret-token" not in response.text
+        assert "verify-secret" not in response.text
+        assert "other-secret-value" not in response.text
 
     @pytest.mark.asyncio
     async def test_create_tenant_non_super_admin_forbidden(self):
@@ -349,9 +354,13 @@ class TestGetTenantEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["slug"] == "rabat"
-        # Super admin gets whatsapp_config
+        # Super-admin responses never include any credential or unknown key.
         assert "whatsapp_config" in data
         assert data["whatsapp_config"]["phone_number_id"] == "123456"
+        assert set(data["whatsapp_config"]) == {"phone_number_id", "business_account_id"}
+        assert "secret-token" not in response.text
+        assert "verify-secret" not in response.text
+        assert "other-secret-value" not in response.text
 
     @pytest.mark.asyncio
     async def test_get_tenant_own_admin(self):
@@ -480,6 +489,30 @@ class TestUpdateTenantEndpoint:
 
         assert response.status_code == 200
         mock_session.commit.assert_called_once()
+        assert set(response.json()["whatsapp_config"]) == {"phone_number_id", "business_account_id"}
+        assert "secret-token" not in response.text
+        assert "verify-secret" not in response.text
+        assert "other-secret-value" not in response.text
+
+    @pytest.mark.asyncio
+    async def test_update_channel_credentials_are_not_echoed(self):
+        tenant_id = uuid.uuid4()
+        tenant_orm = _make_tenant_orm(id=tenant_id)
+        app.dependency_overrides[get_current_admin] = lambda: _make_super_admin_payload()
+        factory, _ = _mock_session_factory(result_value=tenant_orm)
+        try:
+            with patch("app.api.v1.tenant.get_session_factory", return_value=factory):
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                    response = await client.patch(
+                        f"/api/v1/tenants/{tenant_id}",
+                        json={"whatsapp_config": {"phone_number_id": "123456", "access_token": "new-private-token", "verify_token": "new-private-verifier", "custom_secret": "new-extra-secret"}},
+                    )
+        finally:
+            app.dependency_overrides.pop(get_current_admin, None)
+        assert response.status_code == 200
+        assert tenant_orm.whatsapp_config["access_token"] == "new-private-token"
+        assert set(response.json()["whatsapp_config"]) == {"phone_number_id", "business_account_id"}
+        assert all(value not in response.text for value in ("new-private-token", "new-private-verifier", "new-extra-secret"))
 
     @pytest.mark.asyncio
     async def test_update_nonexistent_tenant(self):

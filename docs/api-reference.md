@@ -212,7 +212,7 @@ Creer et provisionner un nouveau tenant. Pipeline atomique : schema PG + collect
 }
 ```
 
-**Reponse 201 :** `TenantAdminResponse` (inclut `whatsapp_config`)
+**Reponse 201 :** `TenantAdminResponse` (identifiants de canal uniquement ; les secrets ne sont jamais renvoyés)
 
 **Erreurs :**
 - `409 DuplicateTenantError` : slug deja existant
@@ -237,7 +237,7 @@ Lister tous les tenants.
 Obtenir les details d'un tenant.
 
 **Auth requise :** Bearer token
-- `super_admin` : acces a tout tenant → `TenantAdminResponse` (avec `whatsapp_config`)
+- `super_admin` : acces a tout tenant → `TenantAdminResponse` (identifiants de canal sans secrets)
 - `admin_tenant` : uniquement son propre tenant → `TenantResponse` (sans `whatsapp_config`)
 
 ---

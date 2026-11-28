@@ -549,6 +549,31 @@ class TestUpdateTenantEndpoint:
 
 class TestDeleteTenantEndpoint:
     @pytest.mark.asyncio
+    async def test_retained_whatsapp_history_returns_conflict(self):
+        from app.core.exceptions import TenantRetentionConflictError
+
+        tenant_id = uuid.uuid4()
+        payload = _make_super_admin_payload()
+        app.dependency_overrides[get_current_admin] = lambda: payload
+        mock_factory, _ = _mock_session_factory(result_value="rabat")
+        try:
+            with (
+                patch("app.api.v1.tenant.get_session_factory", return_value=mock_factory),
+                patch("app.api.v1.tenant.TenantProvisioningService") as service,
+            ):
+                service.return_value.deprovision_tenant = AsyncMock(
+                    side_effect=TenantRetentionConflictError("suppression suspendue pour revue")
+                )
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                    response = await client.delete(
+                        f"/api/v1/tenants/{tenant_id}", headers={"Authorization": "Bearer mock-token"}
+                    )
+        finally:
+            app.dependency_overrides.pop(get_current_admin, None)
+        assert response.status_code == 409
+        assert "suppression suspendue" in response.text
+
+    @pytest.mark.asyncio
     async def test_delete_tenant_success(self):
         """DELETE /tenants/{id} as super_admin returns 204."""
         tenant_id = uuid.uuid4()

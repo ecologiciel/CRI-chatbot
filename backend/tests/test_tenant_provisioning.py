@@ -383,6 +383,7 @@ class TestDeprovisionTenant:
         tenant = _make_tenant_orm(status=TenantStatus.active) if replacement else None
         session = AsyncMock()
         session.add = MagicMock()
+        session.scalar.return_value = False
         session.__aenter__.return_value = session
         session.execute.return_value = MagicMock(scalar_one_or_none=lambda: tenant)
         service = TenantProvisioningService()
@@ -419,6 +420,7 @@ class TestDeprovisionTenant:
         tenant = _make_tenant_orm(status=TenantStatus.active, whatsapp_config=None)
         session = AsyncMock()
         session.add = MagicMock()
+        session.scalar.return_value = False
         session.__aenter__.return_value = session
         session.execute.return_value = MagicMock(scalar_one_or_none=lambda: tenant)
         service = TenantProvisioningService()
@@ -447,6 +449,7 @@ class TestDeprovisionTenant:
         tenant = _make_tenant_orm(status=TenantStatus.active, whatsapp_config=None)
         session = AsyncMock()
         session.add = MagicMock()
+        session.scalar.return_value = False
         session.__aenter__.return_value = session
         session.execute.side_effect = [
             MagicMock(scalar_one_or_none=lambda: tenant),
@@ -478,6 +481,7 @@ class TestDeprovisionTenant:
 
         mock_session = AsyncMock()
         mock_session.add = MagicMock()
+        mock_session.scalar.return_value = False
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
         mock_result = MagicMock()
@@ -590,6 +594,7 @@ class TestTenantRedisCleanup:
         tenant = _make_tenant_orm(status=TenantStatus.active, whatsapp_config=None)
         session = AsyncMock()
         session.add = MagicMock()
+        session.scalar.return_value = False
         session.__aenter__.return_value = session
         session.execute.return_value = MagicMock(scalar_one_or_none=lambda: tenant)
         service = TenantProvisioningService()

@@ -127,3 +127,43 @@ async def test_audit_and_deactivation_are_committed_before_cleanup():
             await conn.execute(text("DELETE FROM public.audit_logs WHERE tenant_slug=:slug"), {"slug": slug})
             await conn.execute(text("DELETE FROM public.tenants WHERE id=:id"), {"id": tenant_id})
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_kind", ["inbox", "status", "reply"])
+async def test_retained_messaging_records_block_deletion_before_cleanup(event_kind):
+    url = make_url(URL)
+    if not url.database or not url.database.startswith("ragtest_"):
+        raise RuntimeError("Refusing to run outside a disposable ragtest_ database")
+    engine = create_async_engine(URL)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id = uuid.uuid4()
+    slug = "fixture" + tenant_id.hex
+    service = TenantProvisioningService()
+    try:
+        async with engine.begin() as conn:
+            assert (await conn.scalar(text("SELECT current_database()"))) == url.database
+            await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status) VALUES (:id,'Fixture',:slug,'Fixture','active')"), {"id": tenant_id, "slug": slug})
+            if event_kind == "inbox":
+                await conn.execute(text("INSERT INTO public.whatsapp_inbox_events (tenant_id,provider_message_id,phone_number_id,ciphertext,key_version) VALUES (:id,'fixture','fixture','fixture',1)"), {"id": tenant_id})
+            elif event_kind == "status":
+                await conn.execute(text("INSERT INTO public.whatsapp_status_events (tenant_id,phone_number_id,fingerprint,ciphertext,key_version) VALUES (:id,'fixture',:fingerprint,'fixture',1)"), {"id": tenant_id, "fingerprint": "a" * 64})
+            else:
+                await conn.execute(text("INSERT INTO public.agent_reply_outbox_events (tenant_id,request_key,actor_id,escalation_id,conversation_id,contact_id,phone_number_id,recipient_fingerprint,ciphertext,key_version) VALUES (:id,:request,:actor,:escalation,:conversation,:contact,'fixture',:fingerprint,'fixture',1)"), {"id": tenant_id, "request": uuid.uuid4(), "actor": uuid.uuid4(), "escalation": uuid.uuid4(), "conversation": uuid.uuid4(), "contact": uuid.uuid4(), "fingerprint": "b" * 64})
+        with (
+            patch("app.services.tenant.provisioning.get_session_factory", return_value=sessions),
+            patch("app.core.tenant_lifecycle.get_session_factory", return_value=sessions),
+            patch.object(service, "_empty_and_remove_bucket", new_callable=AsyncMock) as bucket,
+            patch.object(service, "_drop_schema", new_callable=AsyncMock) as schema,
+        ):
+            with pytest.raises(TenantProvisioningError, match="suppression suspendue"):
+                await service.deprovision_tenant(slug, tenant_id=tenant_id, actor_id=uuid.uuid4())
+            bucket.assert_not_awaited()
+            schema.assert_not_awaited()
+        async with engine.connect() as conn:
+            assert await conn.scalar(text("SELECT status::text FROM public.tenants WHERE id=:id"), {"id": tenant_id}) == "active"
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM public.agent_reply_outbox_events WHERE tenant_id=:id"), {"id": tenant_id})
+            await conn.execute(text("DELETE FROM public.tenants WHERE id=:id"), {"id": tenant_id})
+        await engine.dispose()

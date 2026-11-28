@@ -34,6 +34,10 @@ class TenantProvisioningError(CRIBaseException):
     """Error during tenant provisioning."""
 
 
+class TenantRetentionConflictError(TenantProvisioningError):
+    """Removal would erase retained messaging evidence."""
+
+
 class TenantInactiveError(CRIBaseException):
     """Tenant exists but is not active (inactive/suspended/provisioning)."""
 

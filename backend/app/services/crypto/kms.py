@@ -9,7 +9,7 @@ Nonce: 12 bytes (96 bits), random per operation, stored as ciphertext prefix.
 
 SECURITY INVARIANTS:
   - Master key and decrypted data keys are NEVER logged.
-  - Data keys are cached in Redis for 5 min (hex-encoded, not raw bytes).
+  - Unwrapped data keys are never stored in Redis or another shared cache.
   - Each tenant has exactly one active key (enforced by partial unique index).
 """
 
@@ -43,7 +43,6 @@ class KMSService:
     """
 
     NONCE_SIZE = 12  # 96 bits, recommended for AES-GCM
-    CACHE_TTL = 300  # 5 minutes
 
     def __init__(
         self,
@@ -241,29 +240,12 @@ class KMSService:
     # ── Internal ──
 
     async def _get_data_key(self, tenant_slug: str) -> bytes:
-        """Retrieve the decrypted data key for a tenant (cached in Redis).
+        """Load and unwrap the active data key from PostgreSQL.
 
-        Resolution path:
-          1. Redis cache hit → hex string → bytes
-          2. Cache miss → DB JOIN (tenant_keys + tenants) → decrypt → cache
-
-        Args:
-            tenant_slug: Tenant slug for cache key and DB lookup.
-
-        Returns:
-            Raw 32-byte data key.
-
-        Raises:
-            CRIDecryptionError: If no active key found or decryption fails.
+        Redis is intentionally not used: a shared cache must not contain
+        unwrapped tenant keys or bypass the database access boundary. Old
+        cache entries from previous releases are ignored and expire naturally.
         """
-        cache_key = f"{tenant_slug}:kms:data_key"
-
-        # 1. Check Redis cache (stored as hex string due to decode_responses=True)
-        cached = await self._redis.get(cache_key)
-        if cached:
-            return bytes.fromhex(cached)
-
-        # 2. Cache miss — query DB
         async with self._session_factory() as session:
             result = await session.execute(
                 select(TenantKey.encrypted_key)
@@ -289,8 +271,5 @@ class KMSService:
                 f"Failed to unwrap data key for tenant {tenant_slug}: "
                 "master key mismatch or corrupted key"
             ) from None
-
-        # 4. Cache as hex string (Redis decode_responses=True)
-        await self._redis.set(cache_key, data_key.hex(), ex=self.CACHE_TTL)
 
         return data_key

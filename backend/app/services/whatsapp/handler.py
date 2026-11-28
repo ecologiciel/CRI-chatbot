@@ -311,6 +311,14 @@ class MessageHandler:
                 and await self._conversation_service.get_status(tenant, conversation.id)
                 in HUMAN_HANDOFF_STATUSES
             ):
+                try:
+                    await get_redis().publish(
+                        f"{tenant.slug}:escalations:message",
+                        json.dumps({"conversation_id": str(conversation.id)}),
+                    )
+                except Exception:
+                    self._logger.warning("handoff_message_notification_failed", tenant=tenant.slug)
+                    uncertain = True
                 return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
 
             response_text = result.get("response", "")

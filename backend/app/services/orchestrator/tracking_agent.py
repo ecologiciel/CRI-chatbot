@@ -695,9 +695,13 @@ def get_tracking_agent() -> TrackingAgent:
     """Get or create the TrackingAgent singleton."""
     global _tracking_agent  # noqa: PLW0603
     if _tracking_agent is None:
+        # Staged only: the router still refuses tracking until delivery and
+        # all channel security requirements have been verified.
+        from app.services.orchestrator.secure_tracking_state import SecureTrackingStateManager
+
         _tracking_agent = TrackingAgent(
             otp_service=get_dossier_otp_service(),
             dossier_service=get_dossier_service(),
-            state_manager=TrackingStateManager(),
+            state_manager=SecureTrackingStateManager(),
         )
     return _tracking_agent

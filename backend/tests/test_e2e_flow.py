@@ -186,6 +186,11 @@ def _make_mock_db_session(query_result=None):
     return mock_session
 
 
+@asynccontextmanager
+async def _allow_reply(*_args):
+    yield True
+
+
 # ── Fixture: create handler with all deps mocked ──
 
 
@@ -201,6 +206,7 @@ def handler_env():
     mock_media = AsyncMock()
     mock_contact_svc = AsyncMock()
     mock_conv_svc = AsyncMock()
+    mock_conv_svc.guard_bot_reply = MagicMock(side_effect=_allow_reply)
     mock_feedback_svc = AsyncMock()
     mock_redis = AsyncMock()
 
@@ -252,10 +258,6 @@ def _setup_happy_path(mocks, contact=None, conversation=None, run_result=None):
     mocks["conv_svc"].get_or_create.return_value = conversation
     mocks["conv_svc"].add_message.return_value = _make_mock_message()
     mocks["conv_svc"].get_history.return_value = []
-    @asynccontextmanager
-    async def allow_reply(*_args):
-        yield True
-    mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=allow_reply)
     mocks["sender"].send_text.return_value = "wamid.out123"
     mocks["sender"].mark_as_read.return_value = None
 
@@ -686,6 +688,34 @@ class TestFeedbackRouting:
         assert outcome.value == "uncertain"
 
     @pytest.mark.asyncio()
+    async def test_human_takeover_suppresses_source_reply(self, handler_env):
+        handler, mocks = handler_env
+        _, conversation, _ = _setup_happy_path(mocks)
+        @asynccontextmanager
+        async def deny_reply(*_args):
+            yield False
+        mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=deny_reply)
+        mocks["conv_svc"].get_latest_sources.return_value = []
+        await handler.handle_message(TEST_TENANT, _make_text_message("source"), None)
+        assert mocks["conv_svc"].add_message.await_count == 1
+        mocks["sender"].send_text.assert_not_awaited()
+        mocks["redis"].publish.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    async def test_human_takeover_suppresses_feedback_ack(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        @asynccontextmanager
+        async def deny_reply(*_args):
+            yield False
+        mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=deny_reply)
+        session = _make_mock_db_session(query_result=_make_mock_message())
+        with patch.object(TenantContext, "db_session", return_value=session):
+            await handler._handle_feedback(TEST_TENANT, _make_feedback_message(), uuid.uuid4(), TEST_PHONE)
+        mocks["feedback_svc"].create_feedback.assert_awaited_once()
+        mocks["sender"].send_text.assert_not_awaited()
+
+    @pytest.mark.asyncio()
     async def test_feedback_positive_routed(self, handler_env):
         handler, mocks = handler_env
         contact = _make_mock_contact()
@@ -779,8 +809,7 @@ class TestQuota:
     @pytest.mark.asyncio()
     async def test_quota_exhausted(self, handler_env):
         handler, mocks = handler_env
-        mocks["session_mgr"].is_duplicate_message.return_value = False
-        mocks["redis"].incr.return_value = 1
+        _setup_happy_path(mocks)
         mocks["session_mgr"].check_quota.return_value = _make_quota(is_exhausted=True)
 
         msg = _make_text_message()
@@ -790,7 +819,22 @@ class TestQuota:
         sent_text = mocks["sender"].send_text.await_args.args[2]
         assert "limite" in sent_text.lower()
 
-        mocks["contact_svc"].get_or_create.assert_not_awaited()
+        mocks["contact_svc"].get_or_create.assert_awaited_once()
+        assert mocks["conv_svc"].add_message.await_count == 1
+
+    @pytest.mark.asyncio()
+    async def test_bot_quota_does_not_drop_message_for_human_handoff(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        mocks["session_mgr"].check_quota.return_value = _make_quota(is_exhausted=True)
+        mocks["conv_svc"].get_status.return_value = ConversationStatus.human_handled
+
+        await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+
+        mocks["session_mgr"].check_quota.assert_not_awaited()
+        assert mocks["conv_svc"].add_message.await_count == 1
+        mocks["sender"].send_text.assert_not_awaited()
+        mocks["redis"].publish.assert_awaited_once()
 
 
 class TestContactManagement:

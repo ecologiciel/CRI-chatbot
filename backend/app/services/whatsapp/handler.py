@@ -105,6 +105,8 @@ class MessageHandler:
         phone = msg.from_
         wamid = msg.id
         uncertain = False
+        conversation = None
+        outbound_attempted = False
 
         # Opt-out must not be blocked by Redis deduplication, rate limits,
         # quotas, privacy-notice delivery or conversation creation.
@@ -147,17 +149,6 @@ class MessageHandler:
                 )
                 return HandlingOutcome.accepted if sent else HandlingOutcome.uncertain
 
-            # 3. Quota check
-            quota = await self._session_manager.check_quota(tenant)
-            if quota.is_exhausted:
-                self._logger.warning("tenant_quota_exhausted", tenant=tenant.slug)
-                sent = await self._sender.send_text(
-                    tenant,
-                    phone,
-                    PromptTemplates.get_message("quota_exhausted", "fr"),
-                )
-                return HandlingOutcome.accepted if sent else HandlingOutcome.uncertain
-
             # 4. Get or create contact
             sender_name = _extract_sender_name(contacts, phone)
             contact = await self._contact_service.get_or_create(
@@ -194,25 +185,6 @@ class MessageHandler:
             # 6.5 STOP command opt-out (CNDP §9.9)
             if content and SegmentationService.is_stop_command(content):
                 confirmed = await self._handle_stop_request(tenant, phone, contact)
-                return (
-                    HandlingOutcome.accepted
-                    if confirmed and not uncertain
-                    else HandlingOutcome.uncertain
-                )
-
-            # 7. Feedback routing — interactive buttons starting with "feedback_"
-            if self._is_feedback_reply(msg):
-                confirmed = await self._handle_feedback(tenant, msg, conversation.id, phone)
-                return (
-                    HandlingOutcome.accepted
-                    if confirmed and not uncertain
-                    else HandlingOutcome.uncertain
-                )
-
-            if self._is_source_command(content):
-                confirmed = await self._handle_source_command(
-                    tenant, conversation.id, phone, content, wamid
-                )
                 return (
                     HandlingOutcome.accepted
                     if confirmed and not uncertain
@@ -261,6 +233,37 @@ class MessageHandler:
                     self._logger.warning("handoff_message_notification_failed", tenant=tenant.slug)
                     uncertain = True
                 return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
+
+            # Bot quota must not prevent delivery of inbound messages to an
+            # already-open human handoff. This check is deliberately after the
+            # inbound record and human-state check above.
+            quota = await self._session_manager.check_quota(tenant)
+            if quota.is_exhausted:
+                self._logger.warning("tenant_quota_exhausted", tenant=tenant.slug)
+                async with self._conversation_service.guard_bot_reply(tenant, conversation.id) as allowed:
+                    if not allowed:
+                        with contextlib.suppress(Exception):
+                            await get_redis().publish(
+                                f"{tenant.slug}:escalations:message",
+                                json.dumps({"conversation_id": str(conversation.id)}),
+                            )
+                        return HandlingOutcome.uncertain
+                    outbound_attempted = True
+                    sent = await self._sender.send_text(
+                        tenant, phone, PromptTemplates.get_message("quota_exhausted", "fr")
+                    )
+                return HandlingOutcome.accepted if sent else HandlingOutcome.uncertain
+
+            # 7. Feedback routing — interactive buttons starting with "feedback_"
+            if self._is_feedback_reply(msg):
+                outbound_attempted = True
+                confirmed = await self._handle_feedback(tenant, msg, conversation.id, phone)
+                return HandlingOutcome.accepted if confirmed and not uncertain else HandlingOutcome.uncertain
+
+            if self._is_source_command(content):
+                outbound_attempted = True
+                confirmed = await self._handle_source_command(tenant, conversation.id, phone, content, wamid)
+                return HandlingOutcome.accepted if confirmed and not uncertain else HandlingOutcome.uncertain
 
             # 11. Get conversation history for LangGraph context
             try:
@@ -332,6 +335,7 @@ class MessageHandler:
                     tenant, conversation.id, uuid.UUID(str(escalation_id)) if escalation_id else None,
                 ) as allowed:
                     if allowed:
+                        outbound_attempted = True
                         out_wamid = await self._sender.send_text(tenant, phone, response_text)
                     else:
                         suppressed = True
@@ -465,13 +469,13 @@ class MessageHandler:
                 phone_last4=_mask_phone(phone),
             )
             # Best-effort error message to user
-            if not durable:
+            if not durable and conversation is not None and not outbound_attempted:
                 with contextlib.suppress(Exception):
-                    await self._sender.send_text(
-                        tenant,
-                        phone,
-                        PromptTemplates.get_message("error_generic", "fr"),
-                    )
+                    async with self._conversation_service.guard_bot_reply(tenant, conversation.id) as allowed:
+                        if allowed:
+                            await self._sender.send_text(
+                                tenant, phone, PromptTemplates.get_message("error_generic", "fr")
+                            )
             return HandlingOutcome.uncertain
 
     async def _handle_stop_request(self, tenant: TenantContext, phone: str, contact) -> bool:
@@ -509,18 +513,18 @@ class MessageHandler:
         content: str | None,
         wamid: str,
     ) -> bool:
-        """Persist a `Source` request and answer from local message metadata only."""
-        await self._conversation_service.add_message(
-            tenant,
-            conversation_id,
-            MessageDirection.inbound,
-            MessageType.text,
-            content,
-            whatsapp_message_id=wamid,
-        )
+        """Answer a persisted `Source` request from local message metadata only."""
         sources = await self._conversation_service.get_latest_sources(tenant, conversation_id)
         response = PromptTemplates.format_sources_message(sources)
-        out_wamid = await self._sender.send_text(tenant, phone, response)
+        async with self._conversation_service.guard_bot_reply(tenant, conversation_id) as allowed:
+            if not allowed:
+                with contextlib.suppress(Exception):
+                    await get_redis().publish(
+                        f"{tenant.slug}:escalations:message",
+                        json.dumps({"conversation_id": str(conversation_id)}),
+                    )
+                return False
+            out_wamid = await self._sender.send_text(tenant, phone, response)
         await self._conversation_service.add_message(
             tenant,
             conversation_id,
@@ -647,7 +651,10 @@ class MessageHandler:
         ack_key = FEEDBACK_ACK_KEYS.get(rating, "feedback_ack_positive")
         ack_text = PromptTemplates.get_message(ack_key, "fr")
         try:
-            acknowledged = await self._sender.send_text(tenant, phone, ack_text)
+            async with self._conversation_service.guard_bot_reply(tenant, conversation_id) as allowed:
+                if not allowed:
+                    return False
+                acknowledged = await self._sender.send_text(tenant, phone, ack_text)
         except OutboundSupersededError:
             raise
         except Exception:

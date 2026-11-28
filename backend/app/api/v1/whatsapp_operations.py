@@ -54,6 +54,7 @@ async def availability(
         "notification_outbox_enabled": settings.dossier_notification_outbox_enabled,
         "worker_seen": None,
         "pending_messages": None,
+        "deferred_messages": None,
         "oldest_pending_seconds": None,
         "review_messages": None,
         "review_statuses": None,
@@ -78,6 +79,10 @@ async def availability(
                         ),
                     ),
                     func.count().filter(WhatsAppInboxEvent.state.in_(["uncertain", "follow_up"])),
+                    func.count().filter(
+                        WhatsAppInboxEvent.state == "pending",
+                        WhatsAppInboxEvent.not_before > func.clock_timestamp(),
+                    ),
                 ).where(WhatsAppInboxEvent.tenant_id == tenant.id)
             )
         ).one()
@@ -93,6 +98,7 @@ async def availability(
         pending_messages=message[0],
         oldest_pending_seconds=max(0, int(message[1])) if message[1] is not None else None,
         review_messages=message[2],
+        deferred_messages=message[3],
         review_statuses=statuses,
     )
     return result

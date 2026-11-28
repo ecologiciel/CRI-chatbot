@@ -14,7 +14,7 @@ type Kind = "message" | "status" | "notification";
 type ReviewState = "uncertain" | "follow_up";
 type Event = { id: string; state: string; attempts: number; created_at: string; redacted_at: string | null; requires_reconciliation: boolean };
 type Detail = { id: string; provider_message_id: string; recipient_masked: string; event_type: string; view: string };
-type Availability = { intake_enabled: boolean; notification_outbox_enabled: boolean; worker_seen: boolean | null; pending_messages: number | null; oldest_pending_seconds: number | null; review_messages: number | null; review_statuses: number | null };
+type Availability = { intake_enabled: boolean; notification_outbox_enabled: boolean; worker_seen: boolean | null; pending_messages: number | null; deferred_messages: number | null; oldest_pending_seconds: number | null; review_messages: number | null; review_statuses: number | null };
 
 export function WhatsAppReview() {
   const api = useApiClient();
@@ -80,6 +80,7 @@ export function WhatsAppReview() {
         {availability.data.worker_seen === null && <p role="alert">Présence du worker impossible à vérifier.</p>}
         {availability.data.worker_seen === true && <p>Un worker WhatsApp a signalé sa présence récemment.</p>}
         <p>Messages en attente : {availability.data.pending_messages ?? "indisponible"}{availability.data.oldest_pending_seconds !== null && ` · plus ancien : ${Math.floor(availability.data.oldest_pending_seconds / 60)} min`}</p>
+        <p>Dont reprises différées après limitation : {availability.data.deferred_messages ?? "indisponible"}</p>
         <p>À examiner ou à suivre : {availability.data.review_messages ?? "—"} message(s), {availability.data.review_statuses ?? "—"} statut(s).</p>
         <p className="text-muted-foreground">La présence d’un worker ne confirme pas la réception ni la livraison par Meta.</p>
       </div>}

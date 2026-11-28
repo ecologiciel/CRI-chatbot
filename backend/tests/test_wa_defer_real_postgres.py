@@ -2,12 +2,16 @@
 
 import os
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.api.v1.whatsapp_operations import availability
+from app.core.tenant import TenantContext
+from app.services.whatsapp.handler import HandlingOutcome
+from app.services.whatsapp.inbox_execution import execute_claim
 from app.services.whatsapp.inbox_leases import claim_next, defer_claim, finish_claim
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
@@ -41,8 +45,20 @@ async def test_deferred_first_event_blocks_its_stream_but_not_others_or_stop():
             assert not await defer_claim(first, claim.lease_token)
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE public.whatsapp_inbox_events SET lease_until=now()+interval '2 minutes' WHERE id=:id"), {"id": first})
-            assert await defer_claim(first, claim.lease_token)
+            with patch("app.services.whatsapp.inbox_execution._process", new=AsyncMock(return_value=HandlingOutcome.deferred)):
+                assert await execute_claim(claim)
             assert not await defer_claim(first, claim.lease_token)
+            context = TenantContext(tenant, slug, "Test", "active", None)
+            with (
+                patch("app.api.v1.whatsapp_operations.get_session_factory", return_value=factory),
+                patch("app.api.v1.whatsapp_operations.get_settings", return_value=MagicMock(
+                    whatsapp_durable_inbox_enabled=True, dossier_notification_outbox_enabled=False
+                )),
+                patch("app.api.v1.whatsapp_operations.get_redis", return_value=AsyncMock()),
+            ):
+                metrics = await availability(tenant=context, _admin=MagicMock())
+                assert metrics["deferred_messages"] == 1
+                assert metrics["pending_messages"] == 4
             # STOP must bypass the deferred event, another sender can proceed.
             claims = [await claim_next(), await claim_next()]
             assert {c.id for c in claims if c} == {other, stop}

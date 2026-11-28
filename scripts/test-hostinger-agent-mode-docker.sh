@@ -91,7 +91,15 @@ export EXPECTED_HEAD="$(git rev-parse HEAD)" CANDIDATE_ADMIN="$TEST_NEW_ADMIN"
 c=(docker compose -p "$project" --env-file .env.demo -f docker-compose.hostinger.yml -f docker-compose.hostinger.local.yml)
 initialise(){
   "${c[@]}" up -d postgres redis qdrant minio >/dev/null
-  for i in $(seq 1 60); do "${c[@]}" exec -T postgres pg_isready -U fixture -d ragtest_release >/dev/null 2>&1 && break; sleep 1; done
+  ready=0
+  for i in $(seq 1 60); do
+    if "${c[@]}" exec -T postgres psql -U fixture -d ragtest_release -Atqc 'SELECT 1' >/dev/null 2>&1; then
+      sleep 2
+      if "${c[@]}" exec -T postgres psql -U fixture -d ragtest_release -Atqc 'SELECT 1' >/dev/null 2>&1; then ready=1; break; fi
+    fi
+    sleep 1
+  done
+  [[ "$ready" == 1 ]] || { echo 'Fixture PostgreSQL did not become ready' >&2; return 1; }
   docker exec "$TEST_SCHEMA_SOURCE" sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --schema-only --no-owner --no-acl' | "${c[@]}" exec -T postgres psql -U fixture -d ragtest_release -v ON_ERROR_STOP=1 -q >/dev/null
   "${c[@]}" exec -T postgres psql -U fixture -d ragtest_release -v ON_ERROR_STOP=1 -q -c "INSERT INTO public.alembic_version VALUES ('0019d_reply')"
   "${c[@]}" up -d --wait --wait-timeout 120 backend frontend-admin ingestion-worker learning-worker purge-worker >/dev/null

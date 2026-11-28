@@ -148,3 +148,11 @@ async def test_exception_logging_omits_webhook_query_tokens():
             await client.get("/api/v1/webhook/whatsapp", params=params)
     assert logger.warning.call_args.kwargs["path"] == "/api/v1/webhook/whatsapp"
     assert "fixture-private-token" not in str(logger.warning.call_args)
+
+
+@pytest.mark.asyncio
+async def test_legacy_webhook_disabled_when_tenant_routes_active(harness):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        params = {"hub.mode": "subscribe", "hub.verify_token": "test", "hub.challenge": "test"}
+        assert (await client.get("/api/v1/webhook/whatsapp", params=params)).status_code == 404
+        assert (await client.post("/api/v1/webhook/whatsapp", content=b"{}")).status_code == 404

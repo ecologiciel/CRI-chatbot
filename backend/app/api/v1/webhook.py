@@ -123,6 +123,8 @@ async def verify_whatsapp_webhook(
     Meta sends a GET request with hub.mode, hub.verify_token, and hub.challenge.
     We verify the token and echo back the challenge string.
     """
+    if get_settings().whatsapp_tenant_webhook_enabled is True:
+        raise HTTPException(status_code=404, detail="Not found")
     _require_proxy_secret(x_demo_webhook_proxy)
     try:
         challenge = webhook_service.verify_webhook(
@@ -153,6 +155,8 @@ async def receive_whatsapp_webhook(
     Raw body is read directly for HMAC verification — we do NOT use
     a Pydantic body parameter because that would re-serialize the JSON.
     """
+    if get_settings().whatsapp_tenant_webhook_enabled is True:
+        raise HTTPException(status_code=404, detail="Not found")
     _require_proxy_secret(x_demo_webhook_proxy)
     maximum = get_settings().whatsapp_webhook_max_body_bytes
     body = bytearray()

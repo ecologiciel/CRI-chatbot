@@ -63,6 +63,7 @@ from app.core.middleware import TenantMiddleware
 from app.core.minio import init_minio
 from app.core.qdrant import close_qdrant, init_qdrant
 from app.core.redis import close_redis, init_redis
+from app.core.trusted_proxy import TrustedProxyIPMiddleware
 
 logger = structlog.get_logger()
 
@@ -141,6 +142,10 @@ def create_app() -> FastAPI:
 
     # --- Audit trail middleware (runs after TenantMiddleware, before Prometheus) ---
     app.add_middleware(AuditMiddleware)
+
+    # Installed outside the audit/auth middlewares so both HTTP and websocket
+    # scopes see the same authenticated client address.
+    app.add_middleware(TrustedProxyIPMiddleware, secret=settings.trusted_proxy_ip_secret)
 
     # --- Prometheus metrics ---
     Instrumentator(

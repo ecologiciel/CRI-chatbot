@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     webhook_proxy_shared_secret: str = Field(
         default="", description="Optional shared secret required from the Cloudflare webhook relay"
     )
+    trusted_proxy_ip_secret: str = Field(
+        default="", description="Optional independent proof for authenticated reverse proxy client IP"
+    )
     whatsapp_webhook_max_body_bytes: int = Field(
         default=1_048_576,
         ge=1024,
@@ -224,6 +227,15 @@ class Settings(BaseSettings):
         except ValueError:
             msg = "kms_master_key must be a valid hex string"
             raise ValueError(msg) from None
+        return v
+
+    @field_validator("trusted_proxy_ip_secret")
+    @classmethod
+    def validate_trusted_proxy_ip_secret(cls, v: str) -> str:
+        if not v:
+            return v
+        if len(v) != 64 or any(c not in "0123456789abcdef" for c in v):
+            raise ValueError("trusted_proxy_ip_secret must be 64 lowercase hex characters")
         return v
 
 

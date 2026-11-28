@@ -157,6 +157,7 @@ services:
       REDIS_HOST: redis
       QDRANT_HOST: qdrant
       MINIO_ENDPOINT: minio:9000
+      TRUSTED_PROXY_IP_SECRET: ${TRUSTED_PROXY_IP_SECRET:-}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     # Explicit resolvers keep Gemini reachable even when the VPS resolver is
     # transiently unavailable. Docker still resolves service names internally.
@@ -175,12 +176,14 @@ services:
       - traefik.http.routers.demo-ws.entrypoints=websecure
       - traefik.http.routers.demo-ws.tls.certresolver=le
       - traefik.http.routers.demo-ws.service=demo-api
-      - traefik.http.routers.demo-ws.middlewares=demo-ws-rate
+      - traefik.http.routers.demo-ws.middlewares=demo-proxy-proof,demo-ws-rate
       - traefik.http.middlewares.demo-ws-rate.ratelimit.average=5
       - traefik.http.middlewares.demo-ws-rate.ratelimit.burst=30
       - traefik.http.routers.demo-api.priority=30
       - traefik.http.routers.demo-api.entrypoints=websecure
       - traefik.http.routers.demo-api.tls.certresolver=le
+      - traefik.http.routers.demo-api.middlewares=demo-proxy-proof
+      - traefik.http.middlewares.demo-proxy-proof.headers.customrequestheaders.X-Internal-Client-IP-Proof=${TRUSTED_PROXY_IP_SECRET:-}
       - traefik.http.services.demo-api.loadbalancer.server.port=8000
     healthcheck:
       test: ["CMD", "python", "-m", "app.scripts.healthcheck"]

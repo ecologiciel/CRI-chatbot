@@ -25,7 +25,10 @@ from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
 from app.schemas.auth import AdminTokenPayload
 from app.schemas.whatsapp import IncomingMessage, StatusInfo
 from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
-from app.services.whatsapp.legacy_reconciliation import LegacyReconciliationError, reconcile_legacy_text
+from app.services.whatsapp.legacy_reconciliation import (
+    LegacyReconciliationError,
+    reconcile_legacy_text,
+)
 from app.services.whatsapp.worker_presence import HEARTBEAT_KEY
 
 router = APIRouter(prefix="/whatsapp/operations", tags=["whatsapp-operations"])

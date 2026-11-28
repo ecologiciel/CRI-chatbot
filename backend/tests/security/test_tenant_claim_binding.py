@@ -62,7 +62,7 @@ async def test_account_cannot_switch_tenant(role, matching, allowed):
 
 
 @pytest.mark.asyncio
-async def test_websocket_rejects_other_tenant_before_accept():
+async def test_websocket_rejects_other_tenant_before_subscription():
     from app.api.ws.escalation_ws import escalation_ws_endpoint
 
     admin = AdminTokenPayload(
@@ -75,17 +75,19 @@ async def test_websocket_rejects_other_tenant_before_accept():
         type="access",
     )
     websocket = AsyncMock()
+    websocket.client = SimpleNamespace(host="127.0.0.1")
+    websocket.receive_text.return_value = '{"type":"auth","token":"synthetic"}'
     tenant = SimpleNamespace(id=uuid.uuid4())
     with (
-        patch("app.api.ws.escalation_ws._authenticate_token", return_value=admin),
-        patch("app.api.ws.escalation_ws.TenantResolver.from_slug", AsyncMock(return_value=tenant)),
+        patch("app.api.ws.escalation_ws.AuthService.verify_access_token", AsyncMock(return_value=admin)),
+        patch("app.api.ws.escalation_ws.TenantResolver.from_tenant_id_header", AsyncMock(return_value=tenant)),
         patch(
             "app.api.ws.escalation_ws.ensure_admin_access",
             AsyncMock(side_effect=AuthorizationError("denied")),
         ) as check,
         patch("app.api.ws.escalation_ws.ws_manager") as manager,
     ):
-        await escalation_ws_endpoint(websocket, "other_tenant", "test")
+        await escalation_ws_endpoint(websocket, str(tenant.id))
     check.assert_awaited_once_with(admin, tenant.id)
-    websocket.close.assert_awaited_once_with(code=4003, reason="Tenant access denied")
+    websocket.close.assert_awaited_once_with(code=4003, reason="Insufficient permissions")
     manager.connect.assert_not_called()

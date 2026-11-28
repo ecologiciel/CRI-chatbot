@@ -488,6 +488,22 @@ class TestEscalationLifecycle:
         assert summary == "Resume: sujet principal..."
         svc._gemini.generate_simple.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_summary_masks_recognized_personal_data_before_provider_call(self):
+        svc = _make_escalation_service()
+        svc._gemini.generate_simple = AsyncMock(return_value="Résumé")
+        session = AsyncMock()
+        result = MagicMock()
+        result.all.return_value = [("inbound", "Contact: personne@example.org et 0522123456")]
+        session.execute.return_value = result
+
+        await svc.generate_context_summary(TEST_CONVERSATION_ID, _make_tenant_mock(session))
+
+        sent = svc._gemini.generate_simple.await_args.kwargs["prompt"]
+        assert "personne@example.org" not in sent
+        assert "0522123456" not in sent
+        assert "[EMAIL_1]" in sent and "[PHONE_1]" in sent
+
 
 # =====================================================================
 # Trilingual Messages

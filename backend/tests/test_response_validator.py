@@ -166,6 +166,15 @@ class TestFeedbackCollector:
         sender.send_buttons.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_takeover_never_sends_whatsapp_feedback(self):
+        sender = AsyncMock()
+        collector = FeedbackCollector(sender=sender)
+        state = _make_state(intent=IntentType.FAQ, phone="+212600000001")
+        state["suppress_auto_response"] = True
+        assert await collector.collect(state, TEST_TENANT) == {}
+        sender.send_buttons.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_feedback_buttons_sent_for_faq(self):
         """Intent=faq → send_buttons called with 3 localized buttons."""
         mock_sender = AsyncMock()

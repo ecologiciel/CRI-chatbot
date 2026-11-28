@@ -1,9 +1,11 @@
 """Staged channel-envelope and key-rotation checks on disposable PostgreSQL."""
 
+import asyncio
 import json
 import os
 import secrets
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,12 +15,18 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.v1.notifications import update_template
 from app.api.v1.tenant import get_tenant, update_tenant
-from app.core.exceptions import CRIDecryptionError, CRIEncryptionError
+from app.core.exceptions import (
+    CRIDecryptionError,
+    CRIEncryptionError,
+    DuplicateResourceError,
+    TenantProvisioningError,
+)
 from app.core.tenant import TenantResolver
 from app.schemas.notification import NotificationTemplateUpdate
-from app.schemas.tenant import TenantUpdate
+from app.schemas.tenant import TenantCreate, TenantUpdate
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.tenant.provisioning import TenantProvisioningService
 from app.services.whatsapp.config_envelope import open_channel_config, seal_channel_config
 
 URL = os.getenv("TEST_KMS_DB_URL")
@@ -142,4 +150,73 @@ async def test_sealed_channel_api_updates_preserve_encryption_and_hide_credentia
     finally:
         async with engine.begin() as conn:
             await conn.execute(text("DELETE FROM public.tenants WHERE id=:id"), {"id": tenant_id})
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_strict_provisioning_never_commits_plaintext_and_preserves_key_after_failure():
+    engine = create_async_engine(URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    suffix = uuid.uuid4().hex[:20]
+    slug, failed_slug, aborted_slug = "waok" + suffix, "wafail" + suffix, "waabort" + suffix
+    race_a, race_b = "waracea" + suffix, "waraceb" + suffix
+    master = secrets.token_hex(32)
+    settings = SimpleNamespace(kms_master_key=master, whatsapp_config_require_encryption=True)
+    cipher = VersionedEnvelopeService(factory, master)
+    phone_base = str(700000000000 + int(suffix[:8], 16))
+
+    def create_data(name, phone):
+        return TenantCreate(
+            name="Fixture", slug=name, region="Test",
+            whatsapp_config={"phone_number_id": phone, "access_token": "synthetic-provision-secret", "verify_token": "synthetic-verifier"},
+        )
+
+    @asynccontextmanager
+    async def unlocked(_slug):
+        yield
+
+    try:
+        async with engine.connect() as conn:
+            assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
+        service = TenantProvisioningService()
+        service._create_schema = AsyncMock()
+        service._drop_schema = AsyncMock()
+        service._create_qdrant_collection = AsyncMock()
+        service._create_redis_mapping = AsyncMock()
+        service._create_minio_bucket = AsyncMock()
+        with (
+            patch("app.services.tenant.provisioning.get_session_factory", return_value=factory),
+            patch("app.services.tenant.provisioning.get_settings", return_value=settings),
+            patch("app.services.tenant.provisioning.protect_removal", unlocked),
+        ):
+            with patch("app.services.tenant.provisioning.seal_channel_config", new=AsyncMock(side_effect=RuntimeError("fixture failure"))):
+                with pytest.raises(RuntimeError):
+                    await service._create_tenant_record(create_data(aborted_slug, phone_base + "1"))
+            async with engine.connect() as conn:
+                assert (await conn.scalar(text("SELECT count(*) FROM public.tenants WHERE slug=:slug"), {"slug": aborted_slug})) == 0
+            results = await asyncio.gather(
+                service._create_tenant_record(create_data(race_a, phone_base + "4")),
+                service._create_tenant_record(create_data(race_b, phone_base + "4")),
+                return_exceptions=True,
+            )
+            assert sum(isinstance(result, DuplicateResourceError) for result in results) == 1
+            assert sum(not isinstance(result, BaseException) for result in results) == 1
+            async with engine.connect() as conn:
+                assert (await conn.scalar(text("SELECT count(*) FROM public.tenants WHERE slug IN (:a,:b)"), {"a": race_a, "b": race_b})) == 1
+            tenant = await service.provision_tenant(create_data(slug, phone_base + "2"))
+            assert tenant.status.value == "active"
+            assert "synthetic-provision-secret" not in repr(tenant.whatsapp_config)
+            assert (await open_channel_config(tenant.id, tenant.whatsapp_config, cipher))["access_token"] == "synthetic-provision-secret"
+            service._create_qdrant_collection.side_effect = RuntimeError("fixture failure")
+            with pytest.raises(TenantProvisioningError):
+                await service.provision_tenant(create_data(failed_slug, phone_base + "3"))
+        async with engine.connect() as conn:
+            failed = (await conn.execute(text("SELECT id,status::text,whatsapp_config FROM public.tenants WHERE slug=:slug"), {"slug": failed_slug})).one()
+            assert failed.status == "inactive"
+            assert "synthetic-provision-secret" not in repr(failed.whatsapp_config)
+            assert (await conn.scalar(text("SELECT count(*) FROM public.tenant_keys WHERE tenant_id=:id"), {"id": failed.id})) == 1
+        assert (await open_channel_config(failed.id, failed.whatsapp_config, cipher))["access_token"] == "synthetic-provision-secret"
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM public.tenants WHERE slug IN (:a,:b,:c,:d,:e)"), {"a": slug, "b": failed_slug, "c": aborted_slug, "d": race_a, "e": race_b})
         await engine.dispose()

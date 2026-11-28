@@ -35,6 +35,8 @@ from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate
 from app.services.crypto.kms import KMSService
+from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.whatsapp.config_envelope import seal_channel_config
 
 logger = structlog.get_logger()
 
@@ -212,10 +214,13 @@ class TenantProvisioningService:
         tenant: Tenant | None = None
         log = self.logger.bind(slug=data.slug)
 
-        # Until provisioning can create a tenant key and seal the channel in
-        # one recoverable workflow, strict mode must not write plaintext.
-        if data.whatsapp_config is not None and get_settings().whatsapp_config_require_encryption is True:
-            raise TenantProvisioningError("Création de canal chiffré temporairement indisponible")
+        settings = get_settings()
+        sealed_provisioning = (
+            data.whatsapp_config is not None
+            and settings.whatsapp_config_require_encryption is True
+        )
+        if sealed_provisioning and not settings.kms_master_key:
+            raise TenantProvisioningError("Clé de chiffrement du canal indisponible")
 
         try:
             # Step 1: Create tenant record (status=provisioning)
@@ -249,8 +254,7 @@ class TenantProvisioningService:
             log.info("step_completed", step="minio_bucket")
 
             # Step 6: Generate KMS encryption key (if master key configured)
-            settings = get_settings()
-            if settings.kms_master_key:
+            if settings.kms_master_key and not sealed_provisioning:
                 kms = KMSService(
                     session_factory=get_session_factory(),
                     redis_client=get_redis(),
@@ -434,6 +438,13 @@ class TenantProvisioningService:
     async def _create_tenant_record(self, data: TenantCreate) -> Tenant:
         """Insert tenant row in public.tenants with status=provisioning."""
         factory = get_session_factory()
+        settings = get_settings()
+        sealed_provisioning = (
+            data.whatsapp_config is not None
+            and settings.whatsapp_config_require_encryption is True
+        )
+        if sealed_provisioning and not settings.kms_master_key:
+            raise TenantProvisioningError("Clé de chiffrement du canal indisponible")
         async with factory() as session:
             # Check for existing slug
             existing = await session.execute(select(Tenant.id).where(Tenant.slug == data.slug))
@@ -445,7 +456,7 @@ class TenantProvisioningService:
                 slug=data.slug,
                 region=data.region,
                 logo_url=data.logo_url,
-                whatsapp_config=(
+                whatsapp_config=None if sealed_provisioning else (
                     data.whatsapp_config.model_dump()
                     if data.whatsapp_config is not None
                     and hasattr(data.whatsapp_config, "model_dump")
@@ -468,6 +479,18 @@ class TenantProvisioningService:
 
             session.add(tenant)
             try:
+                if sealed_provisioning:
+                    # The new row, wrapped key and encrypted config commit as
+                    # one transaction. A crash cannot persist credentials in
+                    # plaintext or activate a channel without its key.
+                    await session.flush()
+                    kms = KMSService(factory, None, settings.kms_master_key)
+                    await kms.generate_tenant_key_in_session(tenant.id, session)
+                    cipher = VersionedEnvelopeService(factory, settings.kms_master_key)
+                    config = data.whatsapp_config.model_dump()
+                    tenant.whatsapp_config = await seal_channel_config(
+                        tenant.id, config, cipher, session=session,
+                    )
                 await session.commit()
             except IntegrityError as exc:
                 await session.rollback()

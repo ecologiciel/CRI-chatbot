@@ -125,14 +125,14 @@ async def test_updates_never_downgrade_sealed_config(cipher):
 
 
 @pytest.mark.asyncio
-async def test_strict_provisioning_fails_before_creating_plaintext_channel():
+async def test_strict_provisioning_without_key_fails_before_creating_channel():
     payload = TenantCreate(
         name="Fixture", slug="fixture", region="Fixture",
         whatsapp_config={"phone_number_id": "123", "access_token": "synthetic", "verify_token": "synthetic"},
     )
     service = TenantProvisioningService()
     service._create_tenant_record = AsyncMock()
-    with patch("app.services.tenant.provisioning.get_settings", return_value=SimpleNamespace(whatsapp_config_require_encryption=True)):
+    with patch("app.services.tenant.provisioning.get_settings", return_value=SimpleNamespace(whatsapp_config_require_encryption=True, kms_master_key="")):
         with pytest.raises(TenantProvisioningError):
             await service.provision_tenant(payload)
     service._create_tenant_record.assert_not_awaited()

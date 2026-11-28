@@ -70,6 +70,17 @@ class KMSService:
         Args:
             tenant_id: UUID of the tenant to generate a key for.
         """
+        async with self._session_factory() as session:
+            await self.generate_tenant_key_in_session(tenant_id, session)
+            await session.commit()
+
+        self._log.info(
+            "tenant_key_generated",
+            tenant_id=str(tenant_id),
+        )
+
+    async def generate_tenant_key_in_session(self, tenant_id: uuid.UUID, session: AsyncSession) -> None:
+        """Create the initial key within the caller's transaction."""
         # 1. Generate random 32-byte data key
         data_key = secrets.token_bytes(32)
 
@@ -80,21 +91,15 @@ class KMSService:
         # 3. Store: nonce (12B) + ciphertext + tag (16B)
         stored_blob = nonce + encrypted
 
-        async with self._session_factory() as session:
-            tenant_key = TenantKey(
-                tenant_id=tenant_id,
-                encrypted_key=stored_blob,
-                algorithm="AES-256-GCM",
-                key_version=1,
-                is_active=True,
-            )
-            session.add(tenant_key)
-            await session.commit()
-
-        self._log.info(
-            "tenant_key_generated",
-            tenant_id=str(tenant_id),
+        tenant_key = TenantKey(
+            tenant_id=tenant_id,
+            encrypted_key=stored_blob,
+            algorithm="AES-256-GCM",
+            key_version=1,
+            is_active=True,
         )
+        session.add(tenant_key)
+        await session.flush()
 
     async def rotate_key(self, tenant_id: uuid.UUID, tenant_slug: str) -> None:
         """Rotate the encryption key for a tenant.

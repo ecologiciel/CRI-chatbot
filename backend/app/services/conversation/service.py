@@ -28,6 +28,7 @@ logger = structlog.get_logger()
 # 30-minute inactivity timeout (configurable per CLAUDE.md §5)
 CONVERSATION_TIMEOUT = 1800  # seconds
 HUMAN_HANDOFF_STATUSES = (ConversationStatus.escalated, ConversationStatus.human_handled)
+LOW_CONFIDENCE_COUNT_KEY = "rag_low_confidence_count"
 
 
 class ConversationService:
@@ -140,6 +141,32 @@ class ConversationService:
                 raise ValueError("Conversation introuvable")
             return status
 
+    async def record_faq_outcome(
+        self, tenant: TenantContext, conversation_id: uuid.UUID, *, low_confidence: bool
+    ) -> int | None:
+        """Atomically count consecutive weak FAQ outcomes for an active conversation.
+
+        Return None if a human has taken over or the conversation has ended.
+        The count is capped at the escalation threshold; no user content is stored.
+        """
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(Conversation).where(Conversation.id == conversation_id).with_for_update()
+            )
+            conversation = result.scalar_one_or_none()
+            if conversation is None:
+                raise ValueError("Conversation introuvable")
+            if conversation.status != ConversationStatus.active:
+                return None
+            metadata = dict(conversation.metadata_ or {})
+            old = metadata.get(LOW_CONFIDENCE_COUNT_KEY, 0)
+            if type(old) is not int or not 0 <= old <= 2:
+                old = 0
+            count = min(old + 1, 2) if low_confidence else 0
+            metadata[LOW_CONFIDENCE_COUNT_KEY] = count
+            conversation.metadata_ = metadata
+            return count
+
     async def close_conversation(
         self,
         tenant: TenantContext,
@@ -153,7 +180,7 @@ class ConversationService:
         """
         async with tenant.db_session() as session:
             result = await session.execute(
-                select(Conversation).where(Conversation.id == conversation_id),
+                select(Conversation).where(Conversation.id == conversation_id).with_for_update(),
             )
             conversation = result.scalar_one_or_none()
             if conversation is not None and conversation.status == ConversationStatus.active:
@@ -296,7 +323,7 @@ class ConversationService:
         """
         async with tenant.db_session() as session:
             result = await session.execute(
-                select(Conversation).where(Conversation.id == conversation_id),
+                select(Conversation).where(Conversation.id == conversation_id).with_for_update(),
             )
             conversation = result.scalar_one_or_none()
             if conversation is not None:

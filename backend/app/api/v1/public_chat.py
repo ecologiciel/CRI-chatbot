@@ -169,11 +169,14 @@ async def send_message(
         channel="web",
     )
 
+    suppressed = result.get("suppress_auto_response", False)
     answer = (
-        result.get("response")
+        "Cette conversation n’est plus disponible. Veuillez démarrer une nouvelle session."
+        if suppressed
+        else result.get("response")
         or "Je ne dispose pas d’une information fiable pour répondre à cette question."
     )
-    raw_sources = result.get("sources", [])
+    raw_sources = [] if suppressed else result.get("sources", [])
     sources = [
         PublicSource.model_validate(source)
         for source in raw_sources[:3]
@@ -185,7 +188,7 @@ async def send_message(
         MessageDirection.outbound,
         MessageType.text,
         answer,
-        chunk_ids=result.get("chunk_ids", []),
+        chunk_ids=[] if suppressed else result.get("chunk_ids", []),
         metadata={
             "intent": result.get("intent"),
             "language": result.get("language"),

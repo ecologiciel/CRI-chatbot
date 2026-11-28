@@ -2,15 +2,16 @@
 import asyncio
 import os
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.tenant import TenantContext
-from app.models.enums import ConversationStatus
+from app.models.enums import ConversationStatus, EscalationTrigger
 from app.services.conversation.service import ConversationService
+from app.services.escalation.service import EscalationService
 
 URL = os.getenv("TEST_TENANT_POOL_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable PostgreSQL")
@@ -25,7 +26,7 @@ async def test_concurrent_creation_and_resuming_open_handoff():
         async with engine.begin() as conn:
             assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
             await conn.execute(text("CREATE SCHEMA tenant_fixturehandoff"))
-            for table in ("contacts", "conversations", "messages"):
+            for table in ("contacts", "conversations", "messages", "escalations"):
                 await conn.execute(text(f"CREATE TABLE tenant_fixturehandoff.{table} "
                                         f"(LIKE tenant_template.{table} INCLUDING ALL)"))
             await conn.execute(text("INSERT INTO tenant_fixturehandoff.contacts (id,phone) VALUES "
@@ -41,6 +42,39 @@ async def test_concurrent_creation_and_resuming_open_handoff():
         with patch("app.core.tenant.get_session_factory", return_value=factory):
             conversations = await asyncio.gather(*(service.get_or_create(tenant, first) for _ in range(8)))
             assert len({row.id for row in conversations}) == 1
+            conversation_id = conversations[0].id
+            counters = await asyncio.gather(*(
+                service.record_faq_outcome(tenant, conversation_id, low_confidence=True)
+                for _ in range(8)
+            ))
+            assert counters.count(1) == 1 and counters.count(2) == 7
+            assert await service.record_faq_outcome(tenant, conversation_id, low_confidence=False) == 0
+            assert await service.record_faq_outcome(tenant, conversation_id, low_confidence=True) == 1
+            await asyncio.gather(
+                service.record_faq_outcome(tenant, conversation_id, low_confidence=True),
+                service.update_metadata(tenant, conversation_id, {"other": "preserved"}),
+            )
+            async with tenant.db_session() as session:
+                metadata = (await session.execute(text(
+                    "SELECT metadata FROM conversations WHERE id=:id"
+                ), {"id": conversation_id})).scalar_one()
+            assert metadata["rag_low_confidence_count"] == 2
+            assert metadata["other"] == "preserved"
+
+            escalation_service = EscalationService(AsyncMock(), AsyncMock(), AsyncMock())
+            escalation_service.generate_context_summary = AsyncMock(return_value=None)
+            with patch("app.services.escalation.service.get_redis", return_value=AsyncMock()):
+                escalations = await asyncio.gather(*(
+                    escalation_service.create_escalation(
+                        conversation_id, EscalationTrigger.rag_failure, None, tenant
+                    ) for _ in range(8)
+                ))
+                assert len({item.id for item in escalations}) == 1
+                assert await service.record_faq_outcome(tenant, conversation_id, low_confidence=True) is None
+                await escalation_service.close_escalation(
+                    escalations[0].id, "fixture", uuid.uuid4(), tenant
+                )
+            assert await service.record_faq_outcome(tenant, conversation_id, low_confidence=True) == 1
             existing = await service.get_or_create(tenant, second, resume_escalated=True)
             assert existing.id == handoff
             assert existing.status == ConversationStatus.escalated

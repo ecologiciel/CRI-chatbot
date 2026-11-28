@@ -2,7 +2,7 @@
 import asyncio
 import os
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import text
@@ -12,6 +12,8 @@ from app.core.tenant import TenantContext
 from app.models.enums import ConversationStatus, EscalationTrigger
 from app.services.conversation.service import ConversationService
 from app.services.escalation.service import EscalationService
+from app.services.orchestrator.faq_agent import FAQAgent
+from app.services.orchestrator.graph import check_auto_escalation
 
 URL = os.getenv("TEST_TENANT_POOL_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable PostgreSQL")
@@ -43,6 +45,16 @@ async def test_concurrent_creation_and_resuming_open_handoff():
             conversations = await asyncio.gather(*(service.get_or_create(tenant, first) for _ in range(8)))
             assert len({row.id for row in conversations}) == 1
             conversation_id = conversations[0].id
+            retrieval = AsyncMock()
+            retrieval.retrieve.return_value = MagicMock(chunks=[])
+            faq = FAQAgent(retrieval, AsyncMock())
+            state = {"conversation_id": str(conversation_id), "query": "fixture", "language": "fr"}
+            with patch("app.services.orchestrator.faq_agent.get_conversation_service", return_value=service):
+                first_turn = await faq.handle(state, tenant)
+                second_turn = await faq.handle(state, tenant)
+            assert first_turn["consecutive_low_confidence"] == 1
+            assert check_auto_escalation(second_turn) == "escalation_handler"
+            assert await service.record_faq_outcome(tenant, conversation_id, low_confidence=False) == 0
             counters = await asyncio.gather(*(
                 service.record_faq_outcome(tenant, conversation_id, low_confidence=True)
                 for _ in range(8)

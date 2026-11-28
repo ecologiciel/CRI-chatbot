@@ -136,6 +136,20 @@ class TestFAQAgent:
         assert result["suppress_auto_response"] is True
 
     @pytest.mark.asyncio
+    async def test_counter_failure_is_not_retried_or_reported_as_success(self):
+        from app.services.orchestrator.faq_agent import FAQOutcomePersistenceError
+
+        retrieval = AsyncMock()
+        retrieval.retrieve.return_value = _make_retrieval_result(chunks=[], confidence=0.0)
+        agent, _, _ = _make_faq_agent(retrieval, AsyncMock())
+        counter = AsyncMock()
+        counter.record_faq_outcome.side_effect = RuntimeError("commit status unknown")
+        with patch("app.services.orchestrator.faq_agent.get_conversation_service", return_value=counter):
+            with pytest.raises(FAQOutcomePersistenceError):
+                await agent.handle(_make_state(conversation_id=str(uuid.uuid4())), TEST_TENANT)
+        assert counter.record_faq_outcome.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_faq_agent_success(self):
         """Full RAG pipeline: retrieval → generation → state updated."""
         retrieval_result = _make_retrieval_result()

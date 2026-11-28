@@ -48,16 +48,21 @@ rollback(){
   if (( changed )); then
     set +e
     if (( flag_written )); then
+      # Stop intake and drain the worker before checking for new events.
+      # Otherwise a registration could race the empty-state check and cause
+      # a switch back to the legacy sender with work still outstanding.
+      quiesced=1
+      "${compose[@]}" stop -t 120 backend >/dev/null 2>&1 || quiesced=0
+      "${compose[@]}" --profile agent-replies stop -t 180 agent-reply-worker >/dev/null 2>&1 || quiesced=0
       current=$(state 2>/dev/null)
-      if [[ "$current" != '0019d_reply|0|0' ]]; then
+      if [[ "$quiesced" != 1 || "$current" != '0019d_reply|0|0' ]]; then
         # Keep durable mode and try to preserve availability; never switch to
         # the legacy sender when an event or channel may have appeared.
         "${compose[@]}" up -d --no-deps --no-build --wait --wait-timeout 120 backend >/dev/null 2>&1 || true
         "${compose[@]}" --profile agent-replies up -d --no-deps --no-build agent-reply-worker >/dev/null 2>&1 || true
         printf '%s\n' manual_recovery_required > "$bundle/state"
-        echo "Rollback refused because channel or outbox state changed: $bundle" >&2; exit "$rc"
+        echo "Rollback refused because channel or outbox state changed or intake could not be stopped: $bundle" >&2; exit "$rc"
       fi
-      "${compose[@]}" --profile agent-replies stop -t 180 agent-reply-worker >/dev/null 2>&1 || true
     fi
     cp -p -- "$bundle/env.before" .env.demo && \
       "${compose[@]}" up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 backend && \

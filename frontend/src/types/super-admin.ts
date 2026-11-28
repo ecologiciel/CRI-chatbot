@@ -52,7 +52,7 @@ export interface MonitoringTenantHealth {
   collection_present: boolean | null;
   bucket_present: boolean | null;
   web_enabled: boolean;
-  whatsapp_configured: boolean;
+  whatsapp_configured: boolean | null;
 }
 
 // ---------------------------------------------------------------------------

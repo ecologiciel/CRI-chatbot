@@ -76,9 +76,9 @@ services:
   frontend-admin:
     image: $old_admin
     environment: { HOSTNAME: 0.0.0.0 }
-  ingestion-worker: { image: $old, environment: *env, entrypoint: ["sleep", "infinity"], healthcheck: {disable: true} }
-  learning-worker: { image: $old, environment: *env, entrypoint: ["sleep", "infinity"], healthcheck: {disable: true} }
-  purge-worker: { image: $old, environment: *env, entrypoint: ["sleep", "infinity"], healthcheck: {disable: true} }
+  ingestion-worker: { image: $old, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
+  learning-worker: { image: $old, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
+  purge-worker: { image: $old, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
 EOF
 printf 'services: {}\n' > "$fixture/deploy/docker-compose.hostinger.local.yml"
 printf 'REHEARSAL_FAIL=0\n' > "$fixture/deploy/.env.demo"

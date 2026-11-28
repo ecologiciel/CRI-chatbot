@@ -100,7 +100,7 @@ echo 'PostgreSQL backup restored in isolated fixture'
 printf '%s\n' migrating > "$bundle/state"
 docker tag "$new_backend" "$backend_tag"
 docker tag "$new_admin" "$admin_tag"
-"${compose[@]}" run --rm --no-deps --no-build backend alembic upgrade head
+"${compose[@]}" run --rm --no-deps --pull never backend alembic upgrade head
 revision=$("${compose[@]}" exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -Atqc "SELECT version_num FROM public.alembic_version"')
 [[ "$revision" == 0019d_reply ]] || { echo 'Unexpected migration revision' >&2; false; }
 printf '%s\n' starting_candidate > "$bundle/state"

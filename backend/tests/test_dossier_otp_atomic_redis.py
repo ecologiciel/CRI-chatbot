@@ -11,10 +11,12 @@ from urllib.parse import urlparse
 import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
+from redis.cluster import key_slot
 from redis.exceptions import ResponseError
 
 from app.core.exceptions import RateLimitExceededError
 from app.core.tenant import TenantContext
+from app.core.tracking_identity import subject_key
 from app.services.dossier import otp, otp_atomic
 from app.services.dossier.otp_atomic import AtomicDossierOTPService
 
@@ -43,6 +45,9 @@ async def environment(monkeypatch):
     try:
         yield service, redis, tenant
     finally:
+        monkeypatch.setattr(
+            otp_atomic, "get_settings", lambda: SimpleNamespace(kms_master_key="6a" * 32)
+        )
         keys = [
             service._redis_key(tenant, kind, PHONE)
             for kind in (
@@ -209,7 +214,9 @@ async def test_replaced_session_cannot_validate_and_token_is_not_stored(environm
     assert 0 < await redis.ttl(key) <= 10
     assert await service.validate_dossier_session(PHONE, second, tenant)
     assert await redis.ttl(key) > 1700
-    await service.invalidate_session(PHONE, tenant)
+    assert not await service.invalidate_session(PHONE, tenant, expected_token=first)
+    assert await service.validate_dossier_session(PHONE, second, tenant)
+    assert await service.invalidate_session(PHONE, tenant, expected_token=second)
     assert not await service.validate_dossier_session(PHONE, second, tenant)
 
 
@@ -220,3 +227,22 @@ async def test_session_with_missing_expiration_is_rejected(environment):
     key = service._redis_key(tenant, "dossier_session", PHONE)
     await redis.persist(key)
     assert not await service.validate_dossier_session(PHONE, token, tenant)
+
+
+def test_subject_keys_share_cluster_slot_without_exposing_phone():
+    tenant = TenantContext(
+        id=uuid.uuid4(), slug="fixture", name="Fixture", status="active", whatsapp_config=None
+    )
+    keys = [
+        subject_key(tenant, PHONE, kind, "6a" * 32)
+        for kind in (
+            "state",
+            "dossier_otp",
+            "dossier_otp_attempts",
+            "dossier_otp_verify_attempts",
+            "dossier_session",
+        )
+    ]
+    keys.append(keys[0] + ":guard")
+    assert all(PHONE not in key for key in keys)
+    assert len({key_slot(key.encode()) for key in keys}) == 1

@@ -157,6 +157,8 @@ class TrackingStateManager:
         self,
         phone: str,
         tenant: TenantContext,
+        *,
+        expected_state: TrackingUserState | None = None,
     ) -> None:
         """Delete tracking state from Redis (reset flow).
 

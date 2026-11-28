@@ -102,7 +102,7 @@ class InMemoryTrackingStateManager:
         key = self._key(phone, tenant)
         self._store[key] = state
 
-    async def clear_state(self, phone: str, tenant: Any) -> None:
+    async def clear_state(self, phone: str, tenant: Any, *, expected_state=None) -> None:
         key = self._key(phone, tenant)
         self._store.pop(key, None)
 
@@ -181,9 +181,10 @@ class InMemoryOTPStore:
         stored = self._sessions.get(session_key)
         return stored is not None and stored == session_token
 
-    async def invalidate_session(self, phone: str, tenant: Any) -> None:
+    async def invalidate_session(self, phone: str, tenant: Any, *, expected_token=None) -> None:
         session_key = self._key(tenant, "dossier_session", phone)
-        self._sessions.pop(session_key, None)
+        if expected_token is None or self._sessions.get(session_key) == expected_token:
+            self._sessions.pop(session_key, None)
 
 
 # ── Mock dossier data factories ─────────────────────────────────────

@@ -641,9 +641,25 @@ class TestTrackingAgentAuthenticated:
         state = _make_state(query="terminer")
         result = await agent.handle(state, TEST_TENANT)
 
-        otp.invalidate_session.assert_called_once_with(TEST_PHONE, TEST_TENANT)
+        otp.invalidate_session.assert_called_once_with(
+            TEST_PHONE, TEST_TENANT, expected_token="valid_token"
+        )
         mgr.clear_state.assert_called_once()
         assert "session" in result["response"].lower() or "\U0001f44b" in result["response"]
+
+    @pytest.mark.asyncio
+    async def test_cancel_authenticated_flow_revokes_only_current_session(self) -> None:
+        agent, otp, dossier, mgr = _make_tracking_agent()
+        tracking = TrackingUserState(step=TrackingStep.authenticated, session_token="valid_token")
+        mgr.get_state = AsyncMock(return_value=tracking)
+        mgr.clear_state = AsyncMock()
+        otp.invalidate_session = AsyncMock()
+        result = await agent.handle(_make_state(query="annuler"), TEST_TENANT)
+        mgr.clear_state.assert_awaited_once_with(TEST_PHONE, TEST_TENANT, expected_state=tracking)
+        otp.invalidate_session.assert_awaited_once_with(
+            TEST_PHONE, TEST_TENANT, expected_token="valid_token"
+        )
+        assert "annul" in result["response"].lower()
 
     @pytest.mark.asyncio
     async def test_specific_dossier_query(self) -> None:

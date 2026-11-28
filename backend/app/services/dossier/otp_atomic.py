@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.exceptions import RateLimitExceededError
 from app.core.metrics import OTP_ATTEMPTS, OTP_FAILURES, OTP_SUCCESS, RATE_LIMIT_TRIGGERED
 from app.core.redis import get_redis
+from app.core.tracking_identity import subject_key
 from app.services.dossier.otp import (
     ATTEMPT_WINDOW,
     MAX_OTP_ATTEMPTS,
@@ -79,15 +80,23 @@ redis.call('EXPIRE', KEYS[1], ARGV[2])
 return 1
 """
 
+_DELETE_SESSION = """
+local stored = redis.call('GET', KEYS[1])
+if not stored or stored ~= ARGV[1] then return 0 end
+redis.call('DEL', KEYS[1])
+return 1
+"""
+
 
 class AtomicDossierOTPService(DossierOTPService):
     """One-time codes with atomic generation and verification budgets."""
 
     @staticmethod
     def _redis_key(tenant, key_type, identifier):
-        # Slugs can be reused after removal; bind both OTPs and inherited
-        # sessions to the immutable institution identity as well.
-        return f"{tenant.slug}:{key_type}:{tenant.id.hex}:{identifier}"
+        try:
+            return subject_key(tenant, identifier, key_type, get_settings().kms_master_key)
+        except ValueError as exc:
+            raise RuntimeError("OTP key or tracking context unavailable") from exc
 
     @staticmethod
     def _digest(phone, code, tenant, *, purpose=b"dossier-otp-v1"):
@@ -181,3 +190,15 @@ class AtomicDossierOTPService(DossierOTPService):
             )
             == 1
         )
+
+    async def invalidate_session(self, phone, tenant, *, expected_token):
+        if not isinstance(expected_token, str) or not _SESSION.fullmatch(expected_token):
+            return False
+        digest = self._digest(phone, expected_token, tenant, purpose=b"dossier-session-v1")
+        removed = await get_redis().eval(
+            _DELETE_SESSION, 1, self._redis_key(tenant, "dossier_session", phone), digest
+        )
+        if removed == 1:
+            await self._audit(tenant, "dossier_session_invalidate", phone)
+            return True
+        return False

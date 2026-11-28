@@ -331,7 +331,11 @@ class TrackingAgent:
 
             # Universal cancel check (any step except idle)
             if tracking.step != TrackingStep.idle and _is_cancel(query):
-                await self._state_mgr.clear_state(phone, tenant)
+                await self._state_mgr.clear_state(phone, tenant, expected_state=tracking)
+                if tracking.session_token:
+                    await self._otp.invalidate_session(
+                        phone, tenant, expected_token=tracking.session_token
+                    )
                 self._logger.info(
                     "tracking_cancelled",
                     tenant=tenant.slug,
@@ -375,7 +379,7 @@ class TrackingAgent:
                 )
 
             # Defensive fallback: unknown step → reset
-            await self._state_mgr.clear_state(phone, tenant)
+            await self._state_mgr.clear_state(phone, tenant, expected_state=tracking)
             return {"response": _msg("ask_identifier", language)}  # type: ignore[return-value]
 
         except Exception as exc:
@@ -563,7 +567,7 @@ class TrackingAgent:
 
         if tracking.otp_attempts >= MAX_OTP_ATTEMPTS:
             # Max attempts reached — reset flow
-            await self._state_mgr.clear_state(phone, tenant)
+            await self._state_mgr.clear_state(phone, tenant, expected_state=tracking)
             self._logger.warning(
                 "tracking_otp_max_attempts",
                 tenant=tenant.slug,
@@ -606,7 +610,7 @@ class TrackingAgent:
             tenant,
         ):
             # Session expired or invalid
-            await self._state_mgr.clear_state(phone, tenant)
+            await self._state_mgr.clear_state(phone, tenant, expected_state=tracking)
             self._logger.info(
                 "tracking_session_expired",
                 tenant=tenant.slug,
@@ -616,8 +620,8 @@ class TrackingAgent:
 
         # Logout check
         if _is_logout(query):
-            await self._otp.invalidate_session(phone, tenant)
-            await self._state_mgr.clear_state(phone, tenant)
+            await self._state_mgr.clear_state(phone, tenant, expected_state=tracking)
+            await self._otp.invalidate_session(phone, tenant, expected_token=tracking.session_token)
             self._logger.info(
                 "tracking_logout",
                 tenant=tenant.slug,

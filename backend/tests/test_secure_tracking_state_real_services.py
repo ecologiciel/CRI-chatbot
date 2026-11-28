@@ -1,5 +1,6 @@
 """Encrypted tracking state against disposable Redis and PostgreSQL."""
 
+import asyncio
 import json
 import os
 import uuid
@@ -18,10 +19,11 @@ from app.core.tenant import TenantContext
 from app.services.crypto.kms import KMSService
 from app.services.orchestrator import secure_tracking_state as secure
 from app.services.orchestrator.secure_tracking_state import (
+    SecureTrackingStateConflictError,
     SecureTrackingStateError,
     SecureTrackingStateManager,
 )
-from app.services.orchestrator.tracking_state import TrackingStep, TrackingUserState
+from app.services.orchestrator.tracking_state import TrackingStep
 
 DB_URL = os.getenv("TEST_TRACKING_STATE_DB_URL")
 REDIS_URL = os.getenv("TEST_ATOMIC_OTP_REDIS_URL")
@@ -67,7 +69,11 @@ async def environment(monkeypatch):
         yield manager, redis, tenant, kms
     finally:
         await redis.delete(
-            *(manager._key_and_record(tenant, phone)[0] for phone in (PHONE, OTHER_PHONE))
+            *(
+                manager._key_and_record(tenant, phone)[0] + suffix
+                for phone in (PHONE, OTHER_PHONE)
+                for suffix in ("", ":guard")
+            )
         )
         if created:
             async with engine.begin() as conn:
@@ -79,14 +85,13 @@ async def environment(monkeypatch):
 @pytest.mark.asyncio
 async def test_state_is_encrypted_bound_to_phone_and_tamper_evident(environment):
     manager, redis, tenant, _ = environment
-    state = TrackingUserState(
-        step=TrackingStep.authenticated,
-        identifier="AB123456",
-        identifier_type="cin",
-        session_token="a" * 64,
-        dossier_ids=[str(uuid.uuid4())],
-    )
-    assert (await manager.get_state(PHONE, tenant)).step == TrackingStep.idle
+    state = await manager.get_state(PHONE, tenant)
+    assert state.step == TrackingStep.idle
+    state.step = TrackingStep.authenticated
+    state.identifier = "AB123456"
+    state.identifier_type = "cin"
+    state.session_token = "a" * 64
+    state.dossier_ids = [str(uuid.uuid4())]
     await manager.set_state(PHONE, state, tenant)
     key, _ = manager._key_and_record(tenant, PHONE)
     raw = await redis.get(key)
@@ -98,6 +103,7 @@ async def test_state_is_encrypted_bound_to_phone_and_tamper_evident(environment)
     assert (await manager.get_state(PHONE, tenant)) == state
     assert 0 < await redis.ttl(key) <= 1800
     other_key, _ = manager._key_and_record(tenant, OTHER_PHONE)
+    await manager.get_state(OTHER_PHONE, tenant)
     await redis.set(other_key, raw, ex=1800)
     with pytest.raises(SecureTrackingStateError):
         await manager.get_state(OTHER_PHONE, tenant)
@@ -109,7 +115,8 @@ async def test_state_is_encrypted_bound_to_phone_and_tamper_evident(environment)
 @pytest.mark.asyncio
 async def test_data_key_rotation_keeps_old_state_readable(environment):
     manager, redis, tenant, kms = environment
-    state = TrackingUserState(step=TrackingStep.awaiting_identifier)
+    state = await manager.get_state(PHONE, tenant)
+    state.step = TrackingStep.awaiting_identifier
     await manager.set_state(PHONE, state, tenant)
     key, _ = manager._key_and_record(tenant, PHONE)
     assert json.loads(await redis.get(key))["key_version"] == 1
@@ -117,7 +124,7 @@ async def test_data_key_rotation_keeps_old_state_readable(environment):
     assert await manager.get_state(PHONE, tenant) == state
     await manager.set_state(PHONE, state, tenant)
     assert json.loads(await redis.get(key))["key_version"] == 2
-    await manager.clear_state(PHONE, tenant)
+    await manager.clear_state(PHONE, tenant, expected_state=state)
     assert (await manager.get_state(PHONE, tenant)).step == TrackingStep.idle
 
 
@@ -144,16 +151,72 @@ async def test_ciphertext_cannot_be_transferred_between_institutions(environment
             )
             inserted = True
         await kms.generate_tenant_key(other_id)
-        await manager.set_state(PHONE, TrackingUserState(step=TrackingStep.otp_sent), tenant)
+        state = await manager.get_state(PHONE, tenant)
+        state.step = TrackingStep.otp_sent
+        await manager.set_state(PHONE, state, tenant)
         source, _ = manager._key_and_record(tenant, PHONE)
         destination, _ = manager._key_and_record(other, PHONE)
+        await manager.get_state(PHONE, other)
         await redis.set(destination, await redis.get(source), ex=1800)
         with pytest.raises(SecureTrackingStateError):
             await manager.get_state(PHONE, other)
     finally:
-        await redis.delete(manager._key_and_record(other, PHONE)[0])
+        other_key = manager._key_and_record(other, PHONE)[0]
+        await redis.delete(other_key, other_key + ":guard")
         if inserted:
             async with sessions.begin() as session:
                 await session.execute(
                     text("DELETE FROM public.tenants WHERE id=:id"), {"id": other_id}
                 )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_transitions_allow_only_one_writer(environment):
+    manager, _, tenant, _ = environment
+    first, second = await asyncio.gather(
+        manager.get_state(PHONE, tenant), manager.get_state(PHONE, tenant)
+    )
+    first.step, second.step = TrackingStep.otp_sent, TrackingStep.awaiting_identifier
+    results = await asyncio.gather(
+        manager.set_state(PHONE, first, tenant),
+        manager.set_state(PHONE, second, tenant),
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 1
+    assert sum(isinstance(result, SecureTrackingStateConflictError) for result in results) == 1
+    assert (await manager.get_state(PHONE, tenant)).step in (first.step, second.step)
+
+
+@pytest.mark.asyncio
+async def test_stale_clear_and_expired_state_cannot_replace_new_state(environment):
+    manager, redis, tenant, _ = environment
+    initial = await manager.get_state(PHONE, tenant)
+    initial.step = TrackingStep.otp_sent
+    await manager.set_state(PHONE, initial, tenant)
+    stale = await manager.get_state(PHONE, tenant)
+    latest = await manager.get_state(PHONE, tenant)
+    latest.step = TrackingStep.authenticated
+    latest.session_token = "b" * 64
+    await manager.set_state(PHONE, latest, tenant)
+    with pytest.raises(SecureTrackingStateConflictError):
+        await manager.clear_state(PHONE, tenant, expected_state=stale)
+    assert (await manager.get_state(PHONE, tenant)).session_token == "b" * 64
+    key, _ = manager._key_and_record(tenant, PHONE)
+    await redis.delete(key)  # Simulate expiration between read and write.
+    with pytest.raises(SecureTrackingStateConflictError):
+        await manager.set_state(PHONE, latest, tenant)
+    assert (await manager.get_state(PHONE, tenant)).step == TrackingStep.idle
+
+
+@pytest.mark.asyncio
+async def test_cleared_state_cannot_be_recreated_by_stale_idle_reader(environment):
+    manager, _, tenant, _ = environment
+    stale, latest = await asyncio.gather(
+        manager.get_state(PHONE, tenant), manager.get_state(PHONE, tenant)
+    )
+    latest.step = TrackingStep.otp_sent
+    await manager.set_state(PHONE, latest, tenant)
+    await manager.clear_state(PHONE, tenant, expected_state=latest)
+    stale.step = TrackingStep.otp_sent
+    with pytest.raises(SecureTrackingStateConflictError):
+        await manager.set_state(PHONE, stale, tenant)

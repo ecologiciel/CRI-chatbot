@@ -7,15 +7,16 @@ complete authentication flow have been verified.
 from __future__ import annotations
 
 import dataclasses
-import hashlib
-import hmac
 import json
 import re
+import secrets
+import time
 import uuid
 
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.redis import get_redis
+from app.core.tracking_identity import subject_key
 from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
 from app.services.orchestrator.tracking_state import (
     TRACKING_STATE_TTL,
@@ -24,13 +25,52 @@ from app.services.orchestrator.tracking_state import (
     TrackingUserState,
 )
 
-_PHONE = re.compile(r"\+[1-9][0-9]{6,14}\Z", re.ASCII)
 _MAX_PAYLOAD = 65536
+_GUARD_TTL = TRACKING_STATE_TTL + 480
+_MAX_OPERATION_SECONDS = 420
 _FIELDS = {"step", "identifier", "identifier_type", "otp_attempts", "session_token", "dossier_ids"}
+
+_READ_STATE = """
+local value = redis.call('GET', KEYS[1])
+local revision = redis.call('GET', KEYS[2])
+if not revision then
+  if value then return redis.error_reply('tracking guard missing') end
+  revision = ARGV[1]
+  redis.call('SET', KEYS[2], revision, 'EX', ARGV[2])
+else
+  if redis.call('TTL', KEYS[2]) < 0 then return redis.error_reply('invalid tracking guard') end
+  redis.call('EXPIRE', KEYS[2], ARGV[2])
+end
+return {revision, value or false}
+"""
+
+_CHANGE_STATE = """
+local revision = redis.call('GET', KEYS[2])
+if not revision or revision ~= ARGV[1] then return 0 end
+local current = redis.call('GET', KEYS[1])
+if ARGV[2] == '0' then
+  if current then return 0 end
+elseif not current or current ~= ARGV[3] then
+  return 0
+end
+if ARGV[4] == 'set' then
+  redis.call('SET', KEYS[1], ARGV[5], 'EX', ARGV[6])
+elseif ARGV[4] == 'delete' then
+  redis.call('DEL', KEYS[1])
+else
+  return redis.error_reply('invalid tracking operation')
+end
+redis.call('SET', KEYS[2], ARGV[7], 'EX', ARGV[8])
+return 1
+"""
 
 
 class SecureTrackingStateError(RuntimeError):
     """The encrypted state is unavailable or invalid; do not continue."""
+
+
+class SecureTrackingStateConflictError(SecureTrackingStateError):
+    """Another operation changed or expired the tracking state."""
 
 
 class SecureTrackingStateManager(TrackingStateManager):
@@ -38,20 +78,12 @@ class SecureTrackingStateManager(TrackingStateManager):
 
     @staticmethod
     def _key_and_record(tenant, phone):
-        if not isinstance(phone, str) or not _PHONE.fullmatch(phone):
-            raise SecureTrackingStateError("Invalid tracking context")
         try:
-            master = bytes.fromhex(get_settings().kms_master_key)
-        except (TypeError, ValueError) as exc:
-            raise SecureTrackingStateError("Tracking key unavailable") from exc
-        if len(master) != 32:
-            raise SecureTrackingStateError("Tracking key unavailable")
-        context = tenant.id.bytes + b"\0" + phone.encode("ascii")
-        fingerprint = hmac.new(
-            master, b"tracking-redis-key-v1\0" + context, hashlib.sha256
-        ).hexdigest()
+            key = subject_key(tenant, phone, "state", get_settings().kms_master_key)
+        except ValueError as exc:
+            raise SecureTrackingStateError("Invalid or unavailable tracking context") from exc
         record_id = uuid.uuid5(tenant.id, "tracking-state-v1:" + phone)
-        return f"{tenant.slug}:tracking_state_v2:{fingerprint}", record_id
+        return key, record_id
 
     @staticmethod
     def _validate(data):
@@ -101,9 +133,20 @@ class SecureTrackingStateManager(TrackingStateManager):
 
     async def get_state(self, phone, tenant):
         key, record_id = self._key_and_record(tenant, phone)
-        raw = await get_redis().get(key)
+        try:
+            revision, raw = await get_redis().eval(
+                _READ_STATE, 2, key, key + ":guard", secrets.token_hex(16), _GUARD_TTL
+            )
+            if isinstance(revision, bytes):
+                revision = revision.decode("ascii")
+            if isinstance(raw, bytes):
+                raw = raw.decode("ascii")
+        except Exception as exc:
+            raise SecureTrackingStateError("Tracking state unavailable") from exc
         if raw is None:
-            return TrackingUserState()
+            state = TrackingUserState()
+            state._secure_snapshot = (key, revision, None, time.monotonic())
+            return state
         try:
             if len(raw) > _MAX_PAYLOAD * 2:
                 raise ValueError("Tracking envelope too large")
@@ -125,7 +168,9 @@ class SecureTrackingStateManager(TrackingStateManager):
             )
             if len(plain) > _MAX_PAYLOAD:
                 raise ValueError("Tracking state too large")
-            return self._validate(json.loads(plain))
+            state = self._validate(json.loads(plain))
+            state._secure_snapshot = (key, revision, raw, time.monotonic())
+            return state
         except Exception as exc:
             raise SecureTrackingStateError("Tracking state unavailable") from exc
 
@@ -148,10 +193,50 @@ class SecureTrackingStateManager(TrackingStateManager):
                 {"format": 1, "key_version": envelope.version, "ciphertext": envelope.ciphertext},
                 separators=(",", ":"),
             )
-            await get_redis().set(key, serialized, ex=TRACKING_STATE_TTL)
+            await self._change(key, state, "set", serialized)
+        except SecureTrackingStateError:
+            raise
         except Exception as exc:
             raise SecureTrackingStateError("Tracking state unavailable") from exc
 
-    async def clear_state(self, phone, tenant):
+    @staticmethod
+    async def _change(key, state, operation, serialized=""):
+        snapshot = getattr(state, "_secure_snapshot", None)
+        if not isinstance(snapshot, tuple) or len(snapshot) != 4:
+            raise SecureTrackingStateConflictError(
+                "Tracking state must be read before modification"
+            )
+        original_key, revision, previous, read_at = snapshot
+        if (
+            original_key != key
+            or not isinstance(read_at, int | float)
+            or time.monotonic() - read_at > _MAX_OPERATION_SECONDS
+        ):
+            raise SecureTrackingStateConflictError("Tracking state context expired or changed")
+        next_revision = secrets.token_hex(16)
+        changed = await get_redis().eval(
+            _CHANGE_STATE,
+            2,
+            key,
+            key + ":guard",
+            revision,
+            "0" if previous is None else "1",
+            previous or "",
+            operation,
+            serialized,
+            TRACKING_STATE_TTL,
+            next_revision,
+            _GUARD_TTL,
+        )
+        if changed != 1:
+            raise SecureTrackingStateConflictError("Tracking state changed concurrently")
+        state._secure_snapshot = (
+            key,
+            next_revision,
+            serialized if operation == "set" else None,
+            time.monotonic(),
+        )
+
+    async def clear_state(self, phone, tenant, *, expected_state=None):
         key, _ = self._key_and_record(tenant, phone)
-        await get_redis().delete(key)
+        await self._change(key, expected_state, "delete")

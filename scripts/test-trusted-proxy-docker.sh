@@ -12,6 +12,9 @@ cleanup() {
   local rc=$?
   trap - EXIT
   if [[ "$root" =~ ^/tmp/hostinger-proxy-test\.[a-zA-Z0-9]{8}$ && "$project" =~ ^test_proxy[a-z0-9]{8}$ ]]; then
+    if (( rc != 0 )); then
+      "${c[@]}" logs --tail=30 proxy backend >&2 || true
+    fi
     "${c[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
     rm -rf -- "$root"
   else

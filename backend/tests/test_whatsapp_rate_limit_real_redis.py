@@ -9,7 +9,7 @@ import pytest
 from redis.asyncio import Redis
 
 from app.core.tenant import TenantContext
-from app.services.whatsapp.handler import MessageHandler, USER_RATE_LIMIT_WINDOW
+from app.services.whatsapp.handler import USER_RATE_LIMIT_WINDOW, MessageHandler
 
 
 @pytest.mark.asyncio

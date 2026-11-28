@@ -293,6 +293,7 @@ class TestHappyPath:
             await handler.handle_message(TEST_TENANT, _make_text_message(), None)
         assert mocks["conv_svc"].add_message.await_count == 1
         mocks["sender"].send_text.assert_not_awaited()
+        mocks["redis"].publish.assert_awaited_once()
 
     @pytest.mark.asyncio()
     async def test_new_escalation_transition_is_not_suppressed(self, handler_env):

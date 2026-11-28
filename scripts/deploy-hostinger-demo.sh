@@ -24,7 +24,7 @@ trap rollback ERR
 sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${IMAGE_TAG}/" "${ENV_FILE}"
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" pull
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d postgres redis qdrant minio traefik
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" run --rm backend alembic upgrade head
+docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile maintenance run --rm db-migrate
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d
 
 for attempt in $(seq 1 24); do

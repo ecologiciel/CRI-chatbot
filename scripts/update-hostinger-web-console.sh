@@ -33,13 +33,13 @@ backup_file="$BACKUP_DIR/pre-update-$(date +%Y%m%d-%H%M%S)-$$.dump"
 echo "PostgreSQL backup catalog verified: $backup_file"
 
 # Builds happen while the existing services remain available.
-"${COMPOSE[@]}" build backend frontend-demo frontend-admin
+"${COMPOSE[@]}" --profile maintenance build backend db-migrate frontend-demo frontend-admin
 ensure_no_durable_workers
 
 # The old ingestion worker must not publish old-format chunks during migration.
 "${COMPOSE[@]}" stop backend ingestion-worker learning-worker purge-worker
 echo "Applying database migrations..."
-"${COMPOSE[@]}" run --rm --no-deps --no-build backend alembic upgrade head
+"${COMPOSE[@]}" --profile maintenance run --rm --no-deps --no-build db-migrate
 
 # The isolated extractor runs the backend image too. Recreate it and wait for
 # its health check before restarting workers, so extraction code is not stale.

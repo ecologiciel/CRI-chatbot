@@ -20,7 +20,7 @@ case " $* " in
     elif [[ -f "$FIXTURE_BUILT_MARKER" && -n "${FIXTURE_WORKER_AFTER_BUILD:-}" ]]; then printf '%s\n' "$FIXTURE_WORKER_AFTER_BUILD"; fi ;;
   *' build '*) touch "$FIXTURE_BUILT_MARKER" ;;
   *' exec -T postgres '*) cat >/dev/null 2>&1 || true; printf 'synthetic-backup' ;;
-  *' run --rm --no-deps --no-build backend alembic upgrade head '*) exit 71 ;;
+  *' run --rm --no-deps --no-build db-migrate '*) exit 71 ;;
 esac
 SH
 chmod +x "$fixture/bin/docker"
@@ -76,7 +76,7 @@ if FIXTURE_WORKER='' bash "$root/update-hostinger-web-console.sh" >/dev/null 2>&
   echo 'Injected migration failure unexpectedly succeeded' >&2; exit 1
 fi
 grep -q ' stop backend ingestion-worker learning-worker purge-worker$' "$FIXTURE_LOG"
-grep -q ' run --rm --no-deps --no-build backend alembic upgrade head$' "$FIXTURE_LOG"
+grep -q ' run --rm --no-deps --no-build db-migrate$' "$FIXTURE_LOG"
 if grep -q ' up -d ' "$FIXTURE_LOG"; then
   echo 'Services restarted after failed migration' >&2; exit 1
 fi

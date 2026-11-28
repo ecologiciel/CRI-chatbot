@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     postgres_password: str = Field(
         ..., description="Required — generate with: openssl rand -base64 32"
     )
+    runtime_db_user_present: str = ""
+    runtime_db_password_present: str = ""
 
     # --- Redis ---
     redis_host: str = Field(default="redis")
@@ -179,6 +181,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
         """Reject unsafe or incomplete settings before serving production traffic."""
+        if bool(self.runtime_db_user_present) != bool(self.runtime_db_password_present):
+            raise ValueError("runtime database username and password must be configured together")
         if not self.is_production:
             return self
 

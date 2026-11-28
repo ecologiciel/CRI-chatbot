@@ -295,9 +295,12 @@ class TestHappyPath:
         handler, mocks = handler_env
         _setup_happy_path(mocks)
         mocks["conv_svc"].get_status.return_value = ConversationStatus.active
+        calls = 0
         @asynccontextmanager
         async def deny_reply(*_args):
-            yield False
+            nonlocal calls
+            calls += 1
+            yield calls == 1
         mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=deny_reply)
         with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()):
             await handler.handle_message(TEST_TENANT, _make_text_message(), None)
@@ -596,9 +599,12 @@ class TestFeedbackRouting:
     async def test_human_takeover_suppresses_source_reply(self, handler_env):
         handler, mocks = handler_env
         _, conversation, _ = _setup_happy_path(mocks)
+        calls = 0
         @asynccontextmanager
         async def deny_reply(*_args):
-            yield False
+            nonlocal calls
+            calls += 1
+            yield calls == 1
         mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=deny_reply)
         mocks["conv_svc"].get_latest_sources.return_value = []
         await handler.handle_message(TEST_TENANT, _make_text_message("source"), None)
@@ -693,7 +699,7 @@ class TestRateLimiting:
     @pytest.mark.asyncio()
     async def test_user_rate_limited(self, handler_env):
         handler, mocks = handler_env
-        mocks["session_mgr"].is_duplicate_message.return_value = False
+        _setup_happy_path(mocks)
         mocks["redis"].eval.return_value = 11  # Over limit
 
         msg = _make_text_message()
@@ -704,8 +710,48 @@ class TestRateLimiting:
         sent_text = mocks["sender"].send_text.await_args.args[2]
         assert "patienter" in sent_text.lower()
 
-        # No LangGraph execution
-        mocks["conv_svc"].get_or_create.assert_not_awaited()
+        # Rate-limit notices are serialized with human takeover.
+        mocks["conv_svc"].guard_bot_reply.assert_called_once()
+        mocks["conv_svc"].add_message.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_rate_limited_handoff_persists_without_automatic_message(self, handler_env):
+        handler, mocks = handler_env
+        _, conversation, _ = _setup_happy_path(mocks)
+        mocks["redis"].eval.side_effect = [11, 1]
+        mocks["conv_svc"].get_status.return_value = ConversationStatus.human_handled
+
+        @asynccontextmanager
+        async def deny_reply(*_args):
+            yield False
+
+        mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=deny_reply)
+        handler._privacy_service = AsyncMock()
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock) as run:
+            await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+        mocks["conv_svc"].add_message.assert_awaited_once()
+        assert mocks["conv_svc"].add_message.await_args.args[1] == conversation.id
+        mocks["sender"].send_text.assert_not_awaited()
+        handler._privacy_service.send_privacy_notice.assert_not_awaited()
+        mocks["redis"].publish.assert_awaited_once()
+        run.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_handoff_extra_allowance_is_bounded(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        mocks["redis"].eval.side_effect = [11, 21]
+
+        @asynccontextmanager
+        async def deny_reply(*_args):
+            yield False
+
+        mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=deny_reply)
+        from app.services.whatsapp.handler import HandlingOutcome
+
+        assert await handler.handle_message(TEST_TENANT, _make_text_message(), None) == HandlingOutcome.uncertain
+        mocks["conv_svc"].add_message.assert_not_awaited()
+        mocks["sender"].send_text.assert_not_awaited()
 
 
 class TestQuota:

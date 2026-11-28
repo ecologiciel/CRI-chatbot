@@ -46,6 +46,8 @@ services:
   proxy:
     image: traefik:v3.7.20
     command:
+      - --providers.docker=true
+      - --log.level=DEBUG
       - --providers.docker.exposedbydefault=false
       - --providers.docker.constraints=Label(\`fixture.proxy.test\`,\`$project\`)
       - --providers.docker.network=${project}_default

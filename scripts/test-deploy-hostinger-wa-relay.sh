@@ -51,6 +51,12 @@ services:
   whatsapp-relay:
     profiles: ["local-wa-relay"]
     image: $tag
+    read_only: true
+    tmpfs: ["/tmp:noexec,nosuid,nodev,size=32m"]
+    mem_limit: 256m
+    pids_limit: 32
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     environment:
       WEBHOOK_PROXY_SHARED_SECRET: \${WEBHOOK_PROXY_SHARED_SECRET:-}
     healthcheck:

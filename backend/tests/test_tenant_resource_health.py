@@ -62,6 +62,46 @@ async def test_health_reports_resource_presence_without_secrets(qdrant_down, min
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome,expected", [
+    ({"phone_number_id": "123", "access_token": "secret-value"}, True),
+    ({"phone_number_id": "123"}, False),
+    (RuntimeError("secret internal error"), None),
+])
+async def test_health_decrypts_channel_and_reports_unavailable_on_failure(outcome, expected):
+    tenant = SimpleNamespace(
+        id=uuid.uuid4(), name="Institution", slug="alpha", status=TenantStatus.active,
+        public_config={}, whatsapp_config={"phone_number_id": "123", "_envelope": {}},
+    )
+    count, rows, namespaces = MagicMock(), MagicMock(), MagicMock()
+    count.scalar_one.return_value = 1
+    rows.scalars.return_value.all.return_value = [tenant]
+    namespaces.scalars.return_value.all.return_value = []
+    db = SimpleNamespace(execute=AsyncMock(side_effect=[count, rows, namespaces]))
+
+    @asynccontextmanager
+    async def factory():
+        yield db
+
+    resolver = AsyncMock()
+    if isinstance(outcome, Exception):
+        resolver.side_effect = outcome
+    else:
+        resolver.return_value = SimpleNamespace(whatsapp_config=outcome)
+    with (
+        patch("app.api.v1.tenant.get_session_factory", return_value=factory),
+        patch("app.api.v1.tenant.TenantResolver._build_context", resolver),
+        patch("app.api.v1.tenant.get_qdrant", return_value=SimpleNamespace(
+            get_collections=AsyncMock(return_value=SimpleNamespace(collections=[])))),
+        patch("app.api.v1.tenant.get_minio", return_value=SimpleNamespace(
+            list_buckets=AsyncMock(return_value=[]))),
+    ):
+        response = await tenant_resource_health(admin=MagicMock(), page=1, page_size=20)
+    assert response["items"][0]["whatsapp_configured"] is expected
+    assert "secret" not in str(response)
+    resolver.assert_awaited_once_with(tenant)
+
+
+@pytest.mark.asyncio
 async def test_monitoring_route_requires_super_admin():
     from fastapi.routing import APIRoute
 

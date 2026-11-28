@@ -1,7 +1,7 @@
 """Staged authenticated envelope for per-tenant WhatsApp configuration.
 
 Only the provider's phone-number ID stays in clear for indexed webhook
-routing. This helper is not yet wired into reads, writes or migrations.
+routing. Rollout requires a coordinated migration and strict-mode cutover.
 """
 
 from __future__ import annotations

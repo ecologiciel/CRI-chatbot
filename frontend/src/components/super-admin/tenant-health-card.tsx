@@ -19,7 +19,7 @@ export function TenantHealthCard({ health }: { health: MonitoringTenantHealth })
         <p>Collection documentaire : {presence(health.collection_present)}</p>
         <p>Stockage des fichiers : {presence(health.bucket_present)}</p>
         <p>Chat web : {health.web_enabled ? "Activé" : "Non activé"}</p>
-        <p>WhatsApp : {health.whatsapp_configured ? "Identifiants renseignés, connexion non vérifiée" : "Identifiants incomplets ou absents"}</p>
+        <p>WhatsApp : {health.whatsapp_configured === null ? "Vérification indisponible" : health.whatsapp_configured ? "Identifiants renseignés, connexion non vérifiée" : "Identifiants incomplets ou absents"}</p>
       </CardContent>
     </Card>
   );

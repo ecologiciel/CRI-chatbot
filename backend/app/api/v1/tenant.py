@@ -162,7 +162,14 @@ async def tenant_resource_health(
     collection_names, bucket_names = await asyncio.gather(collections(), buckets())
     items = []
     for tenant in tenants:
-        config = tenant.whatsapp_config or {}
+        try:
+            context = await TenantResolver._build_context(tenant)
+            config = context.whatsapp_config or {}
+            whatsapp_configured = bool(config.get("phone_number_id") and config.get("access_token"))
+        except Exception as exc:
+            # A key or database outage is not evidence that the channel is unconfigured.
+            logger.warning("tenant_health_whatsapp_unavailable", tenant_id=str(tenant.id), error_type=type(exc).__name__)
+            whatsapp_configured = None
         items.append(
             {
                 "id": str(tenant.id),
@@ -177,9 +184,7 @@ async def tenant_resource_health(
                 if bucket_names is None
                 else f"cri-{tenant.slug}" in bucket_names,
                 "web_enabled": bool((tenant.public_config or {}).get("web_enabled")),
-                "whatsapp_configured": bool(
-                    config.get("phone_number_id") and config.get("access_token")
-                ),
+                "whatsapp_configured": whatsapp_configured,
             }
         )
     return {"items": items, "total": total, "page": page, "page_size": page_size}

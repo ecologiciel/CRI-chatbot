@@ -12,7 +12,7 @@ from app.core.database import get_session_factory
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.whatsapp.handler import HandlingOutcome, get_message_handler
 from app.services.whatsapp.inbox_channel import protect_claim_channel
-from app.services.whatsapp.inbox_leases import InboxClaim, finish_claim, renew_claim
+from app.services.whatsapp.inbox_leases import InboxClaim, defer_claim, finish_claim, renew_claim
 from app.services.whatsapp.inbox_payload import decrypt_claim
 from app.services.whatsapp.outbound_fence import outbound_scope
 
@@ -50,12 +50,15 @@ async def execute_claim(
     job = asyncio.create_task(_process(claim))
     heartbeat = asyncio.create_task(_heartbeat(claim, lease_seconds))
     uncertain = True
+    deferred = False
     try:
         done, _ = await asyncio.wait(
             {job, heartbeat}, timeout=timeout_seconds, return_when=asyncio.FIRST_COMPLETED
         )
         if job in done and heartbeat not in done:
-            uncertain = job.result() not in {HandlingOutcome.accepted, HandlingOutcome.suppressed}
+            result = job.result()
+            deferred = result == HandlingOutcome.deferred
+            uncertain = result not in {HandlingOutcome.accepted, HandlingOutcome.suppressed}
         else:
             logger.warning("inbox_execution_interrupted", event_id=str(claim.id))
     except asyncio.CancelledError:
@@ -73,4 +76,6 @@ async def execute_claim(
             if not task.done():
                 task.cancel()
         await asyncio.gather(job, heartbeat, return_exceptions=True)
+    if deferred:
+        return await defer_claim(claim.id, claim.lease_token)
     return await finish_claim(claim.id, claim.lease_token, uncertain=uncertain)

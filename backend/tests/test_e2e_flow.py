@@ -812,6 +812,21 @@ class TestRateLimiting:
     """Per-user rate limiting (10 msg/min)."""
 
     @pytest.mark.asyncio()
+    async def test_durable_rate_limit_defers_before_external_side_effects(self, handler_env):
+        from app.services.whatsapp.handler import HandlingOutcome
+
+        handler, mocks = handler_env
+        mocks["redis"].eval.return_value = 11
+        handler._privacy_service = AsyncMock()
+        outcome = await handler.handle_message(TEST_TENANT, _make_text_message(), None, durable=True)
+        assert outcome == HandlingOutcome.deferred
+        mocks["session_mgr"].is_duplicate_message.assert_not_awaited()
+        mocks["contact_svc"].get_or_create.assert_not_awaited()
+        mocks["conv_svc"].add_message.assert_not_awaited()
+        mocks["sender"].send_text.assert_not_awaited()
+        handler._privacy_service.send_privacy_notice.assert_not_awaited()
+
+    @pytest.mark.asyncio()
     async def test_user_rate_limited(self, handler_env):
         handler, mocks = handler_env
         _setup_happy_path(mocks)

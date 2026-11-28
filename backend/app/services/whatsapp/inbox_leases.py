@@ -51,6 +51,7 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
         .where(
             candidate.state == "pending",
             candidate.sender_fingerprint.is_not(None),
+            or_(candidate.not_before.is_(None), candidate.not_before <= func.clock_timestamp()),
             or_(candidate.is_opt_out.is_(True), ~exists(select(1).where(
                     earlier.tenant_id == candidate.tenant_id,
                     earlier.sender_fingerprint == candidate.sender_fingerprint,
@@ -109,7 +110,10 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
             # Do not skip to a later event if an unrelated transaction has
             # locked the first row for review or retention.
             locked = (await session.execute(
-                select(candidate.id).where(candidate.id == event_id, candidate.state == "pending")
+                select(candidate.id).where(
+                    candidate.id == event_id, candidate.state == "pending",
+                    or_(candidate.not_before.is_(None), candidate.not_before <= func.clock_timestamp()),
+                )
                 .with_for_update(skip_locked=True)
             )).scalar_one_or_none()
             if locked is None:
@@ -118,7 +122,7 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
                 update(candidate)
                 .execution_options(synchronize_session=False)
                 .where(candidate.id == event_id, candidate.state == "pending")
-                .values(state="processing", attempts=candidate.attempts + 1,
+                .values(state="processing", attempts=candidate.attempts + 1, not_before=None,
                         lease_token=token, lease_until=func.clock_timestamp() + duration,
                         updated_at=func.clock_timestamp())
                 .returning(candidate.id, candidate.tenant_id, candidate.phone_number_id,
@@ -182,6 +186,32 @@ async def finish_claim(event_id: uuid.UUID, token: uuid.UUID, *, uncertain: bool
             state="uncertain" if uncertain else "completed",
             lease_token=None,
             lease_until=None,
+            updated_at=func.clock_timestamp(),
+        )
+        .returning(WhatsAppInboxEvent.id)
+    )
+    async with get_session_factory()() as session:
+        updated = (await session.execute(statement)).scalar_one_or_none() is not None
+        await session.commit()
+    return updated
+
+
+async def defer_claim(event_id: uuid.UUID, token: uuid.UUID, *, delay_seconds: int = 60) -> bool:
+    """Return a side-effect-free claim to its ordered queue after a bounded delay."""
+    if not 1 <= delay_seconds <= 900:
+        raise ValueError("Invalid inbox defer duration")
+    statement = (
+        update(WhatsAppInboxEvent)
+        .execution_options(synchronize_session=False)
+        .where(
+            WhatsAppInboxEvent.id == event_id,
+            WhatsAppInboxEvent.state == "processing",
+            WhatsAppInboxEvent.lease_token == token,
+            WhatsAppInboxEvent.lease_until > func.clock_timestamp(),
+        )
+        .values(
+            state="pending", lease_token=None, lease_until=None,
+            not_before=func.clock_timestamp() + timedelta(seconds=delay_seconds),
             updated_at=func.clock_timestamp(),
         )
         .returning(WhatsAppInboxEvent.id)

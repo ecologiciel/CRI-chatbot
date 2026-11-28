@@ -67,6 +67,7 @@ class HandlingOutcome(str, Enum):
     accepted = "accepted"
     uncertain = "uncertain"
     suppressed = "suppressed"
+    deferred = "deferred"
 
 
 class MessageHandler:
@@ -144,6 +145,11 @@ class MessageHandler:
                     tenant=tenant.slug,
                     phone_last4=_mask_phone(phone),
                 )
+                # The durable worker has not sent or persisted anything in
+                # this attempt. Keep the encrypted event for a later window;
+                # never acknowledge a dropped citizen message as completed.
+                if durable:
+                    return HandlingOutcome.deferred
 
             # 4. Get or create contact
             sender_name = _extract_sender_name(contacts, phone)

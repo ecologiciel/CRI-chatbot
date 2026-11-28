@@ -46,9 +46,9 @@ services:
     networks: { default: { aliases: [codex-ws-traefik] } }
   runner:
     image: $TEST_BACKEND_IMAGE
-    working_dir: /source/backend
-    volumes: ["$source_dir:/source:ro"]
-    entrypoint: ["python", "-u", "tests/integration/escalation_ws_real_services.py"]
+    working_dir: /app
+    volumes: ["$source_dir/backend/tests/integration/escalation_ws_real_services.py:/fixture-test.py:ro"]
+    entrypoint: ["python", "-u", "/fixture-test.py"]
     healthcheck: { disable: true }
     environment:
       ENVIRONMENT: development
@@ -62,7 +62,7 @@ services:
       JWT_SECRET_KEY: fixture-jwt-secret
       WS_FIXTURE_PROXY: '1'
       WS_FIXTURE_PROXY_PROOF: '1'
-      PYTHONPATH: /source/backend
+      PYTHONPATH: /app
     labels:
       - fixture.wsproof=$project
       - traefik.enable=true

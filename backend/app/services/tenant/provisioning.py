@@ -31,6 +31,7 @@ from app.core.qdrant import get_qdrant
 from app.core.redis import get_redis
 from app.core.tenant_lifecycle import protect_removal
 from app.models.admin import Admin
+from app.models.audit import AuditLog
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate
@@ -314,7 +315,7 @@ class TenantProvisioningService:
                 details={"cleanup_failures": failures, "tenant_id": str(tenant.id)},
             ) from exc
 
-    async def deprovision_tenant(self, slug: str, *, tenant_id: uuid.UUID) -> None:
+    async def deprovision_tenant(self, slug: str, *, tenant_id: uuid.UUID, actor_id: uuid.UUID) -> None:
         """Remove all resources for a tenant.
 
         Continues on partial failure so as many resources as possible
@@ -326,9 +327,9 @@ class TenantProvisioningService:
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", slug):
             raise TenantProvisioningError("Invalid tenant slug; no resources removed")
         async with protect_removal(slug):
-            await self._deprovision_locked(slug, tenant_id)
+            await self._deprovision_locked(slug, tenant_id, actor_id)
 
-    async def _deprovision_locked(self, slug: str, tenant_id: uuid.UUID) -> None:
+    async def _deprovision_locked(self, slug: str, tenant_id: uuid.UUID, actor_id: uuid.UUID) -> None:
         """Remove tenant resources while holding its lifecycle lock."""
         log = self.logger.bind(slug=slug, action="deprovision")
         failures: list[str] = []
@@ -352,6 +353,11 @@ class TenantProvisioningService:
                 await session.execute(
                     update(Admin).where(Admin.tenant_id == tenant.id).values(is_active=False)
                 )
+                session.add(AuditLog(
+                    tenant_slug=slug, user_id=actor_id, user_type="admin",
+                    action="tenant_delete_start", resource_type="tenant",
+                    resource_id=str(tenant_id),
+                ))
                 await session.commit()
                 log.info("step_completed", step="deactivated")
         except Exception as exc:

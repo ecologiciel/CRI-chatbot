@@ -3,6 +3,7 @@ import os
 import uuid
 from pathlib import Path
 
+import asyncpg
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -31,6 +32,16 @@ async def test_shared_rows_follow_authenticated_login_not_caller_setting():
             await conn.execute(text("INSERT INTO public.whatsapp_status_events (id,tenant_id,phone_number_id,fingerprint,ciphertext,key_version) VALUES (:id,:tenant,'123',repeat('b',64),'fixture',1)"), params)
             await conn.execute(text("INSERT INTO public.notification_outbox_events (id,tenant_id,history_id,dossier_id) VALUES (:id,:tenant,gen_random_uuid(),gen_random_uuid())"), params)
             await conn.execute(text("INSERT INTO public.dossier_import_requests (id,tenant_id,object_key,content_sha256,mapping_sha256) VALUES (:id,:tenant,'fixture',repeat('c',64),repeat('d',64))"), params)
+    async with elevated.begin() as conn:
+        await conn.execute(text("ALTER TABLE public.whatsapp_status_events ENABLE ROW LEVEL SECURITY"))
+    async with elevated.connect() as conn:
+        raw = await conn.get_raw_connection()
+        with pytest.raises(asyncpg.PostgresError, match="existing row policy requires review"):
+            await raw.driver_connection.execute(script)
+        await raw.driver_connection.execute("ROLLBACK")
+    async with elevated.begin() as conn:
+        assert not await conn.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='cri_rls_fixture')"))
+        await conn.execute(text("ALTER TABLE public.whatsapp_status_events DISABLE ROW LEVEL SECURITY"))
     async with elevated.connect() as conn:
         raw = await conn.get_raw_connection()
         await raw.driver_connection.execute(script)
@@ -57,6 +68,11 @@ async def test_shared_rows_follow_authenticated_login_not_caller_setting():
                     assert result.rowcount == 0
                 await conn.execute(text("SET LOCAL ROLE cri_rls_fixture"))
                 assert (await conn.scalar(text("SELECT count(*) FROM public.whatsapp_status_events"))) == 1
+            for table in TABLES:
+                with pytest.raises(DBAPIError) as denied:
+                    async with engine.begin() as conn:
+                        await conn.execute(text(f"UPDATE public.{table} SET tenant_id=:other WHERE tenant_id=:own"), {"other": other, "own": own})
+                assert denied.value.orig.sqlstate == "42501"
             with pytest.raises(DBAPIError):
                 async with engine.begin() as conn:
                     await conn.execute(text("INSERT INTO public.whatsapp_status_events (tenant_id,phone_number_id,fingerprint,ciphertext,key_version) VALUES (:other,'123',repeat('e',64),'fixture',1)"), {"other": other})

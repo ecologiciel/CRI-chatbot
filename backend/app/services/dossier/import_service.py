@@ -675,7 +675,7 @@ class DossierImportService:
             ImportReport with detailed statistics.
         """
         start = time.monotonic()
-        self._pending_notifications: list[dict[str, Any]] = []
+        pending_notifications: list[dict[str, Any]] = []
         report = ImportReport(sync_log_id=sync_log_id, rows_total=len(rows))
 
         async with tenant.db_session() as session:
@@ -693,7 +693,9 @@ class DossierImportService:
             # Process in batches
             for batch_start in range(0, len(rows), BATCH_SIZE):
                 batch = rows[batch_start : batch_start + BATCH_SIZE]
-                await self._process_batch(batch, sync_log_id, session, report)
+                await self._process_batch(
+                    batch, sync_log_id, session, report, pending_notifications
+                )
 
             # Finalise SyncLog
             if sync_log:
@@ -706,8 +708,8 @@ class DossierImportService:
                     sync_log.error_details = {"errors": report.errors}
 
         # Publish status-change events to Redis for notification worker
-        if self._pending_notifications:
-            await self._publish_notifications(tenant)
+        if pending_notifications:
+            await self._publish_notifications(tenant, pending_notifications)
 
         report.duration_seconds = round(time.monotonic() - start, 3)
 
@@ -731,7 +733,9 @@ class DossierImportService:
 
     # ── Notification publishing ─────────────────────────────────
 
-    async def _publish_notifications(self, tenant: TenantContext) -> None:
+    async def _publish_notifications(
+        self, tenant: TenantContext, pending_notifications: list[dict[str, Any]]
+    ) -> None:
         """Publish collected status changes to Redis for the notification worker.
 
         Fire-and-forget: errors are logged but never block the import.
@@ -743,23 +747,20 @@ class DossierImportService:
             redis = get_redis()
             queue_key = f"{tenant.slug}:notification:dossier_changes"
             pipe = redis.pipeline()
-            for event in self._pending_notifications:
+            for event in pending_notifications:
                 pipe.rpush(queue_key, json.dumps(event))
             await pipe.execute()
             self._logger.info(
                 "notifications_published",
                 tenant=tenant.slug,
-                count=len(self._pending_notifications),
+                count=len(pending_notifications),
             )
         except Exception as exc:
             self._logger.error(
                 "notification_publish_failed",
                 tenant=tenant.slug,
-                error=str(exc),
-                exc_info=True,
+                error_type=type(exc).__name__,
             )
-        finally:
-            self._pending_notifications.clear()
 
     # ── Internal helpers ──────────────────────────────────────────
 
@@ -769,6 +770,7 @@ class DossierImportService:
         sync_log_id: uuid.UUID,
         session: Any,
         report: ImportReport,
+        pending_notifications: list[dict[str, Any]],
     ) -> None:
         """Process a batch of import rows within an open session."""
         # Batch-lookup existing dossiers by numero
@@ -787,7 +789,9 @@ class DossierImportService:
         if phones:
             result = await session.execute(
                 select(Contact.id, Contact.phone).where(
-                    Contact.phone.in_([variant for phone in phones for variant in phone_variants(phone)]),
+                    Contact.phone.in_(
+                        [variant for phone in phones for variant in phone_variants(phone)]
+                    ),
                 ),
             )
             for contact_id, phone in result.all():
@@ -819,6 +823,7 @@ class DossierImportService:
                         phone_to_contact,
                         session,
                         report,
+                        pending_notifications,
                     )
                 else:
                     self._create_dossier(
@@ -892,6 +897,7 @@ class DossierImportService:
         phone_to_contact: dict[str, uuid.UUID],
         session: Any,
         report: ImportReport,
+        pending_notifications: list[dict[str, Any]],
     ) -> None:
         """Update an existing Dossier and create history entries."""
         changes = self.detect_changes(existing, row)
@@ -917,7 +923,7 @@ class DossierImportService:
                     existing.statut,
                 )
                 # Collect status change for notification worker
-                self._pending_notifications.append(
+                pending_notifications.append(
                     {
                         "dossier_id": str(existing.id),
                         "numero": existing.numero,

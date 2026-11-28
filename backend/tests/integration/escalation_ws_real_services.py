@@ -19,10 +19,12 @@ from app.api.ws.escalation_ws import escalation_ws_endpoint
 from app.core.config import get_settings
 from app.core.database import close_engine, get_engine, get_session_factory
 from app.core.redis import close_redis, init_redis
+from app.core.trusted_proxy import TrustedProxyIPMiddleware
 from app.models.admin import Admin
 from app.models.enums import AdminRole, TenantStatus
 from app.models.tenant import Tenant
 from app.services.auth.jwt import JWTManager
+from app.services.auth.service import AuthService
 from app.services.auth.session_manager import SessionManager
 
 
@@ -67,7 +69,7 @@ async def main():
                 id=admin_id,
                 email="test@example.invalid",
                 full_name="Fixture",
-                password_hash="fixture",
+                password_hash=AuthService.hash_password("fixture-password"),
                 role=AdminRole.supervisor,
                 tenant_id=tenant_id,
                 is_active=True,
@@ -85,6 +87,16 @@ async def main():
         return {"ip": request.client.host}
 
     proxy = os.environ.get("WS_FIXTURE_PROXY") == "1"
+    proof_mode = os.environ.get("WS_FIXTURE_PROXY_PROOF") == "1"
+    if proof_mode and not proxy:
+        raise RuntimeError("Proxy proof fixture requires the proxy")
+    if proof_mode:
+        app.add_middleware(TrustedProxyIPMiddleware, secret="a" * 64)
+
+        @app.post("/api/fixture-login")
+        async def fixture_login(request: Request):
+            tokens = await AuthService().login("test@example.invalid", "fixture-password", request.client.host)
+            return {"access_token": tokens.access_token}
     if proxy:
         port = 8000
     else:
@@ -113,7 +125,7 @@ async def main():
                 last_failure = "no response"
                 for _ in range(100):
                     try:
-                        response = await client.get("http://codex-ws-traefik:8080/api/fixture-peer")
+                        response = await client.get("http://codex-ws-traefik:8080/api/fixture-peer", headers={"X-Forwarded-For": "203.0.113.99", "X-Internal-Client-IP-Proof": "attacker"} if proof_mode else {})
                         response.raise_for_status()
                         ip_address = response.json()["ip"]
                         break
@@ -126,8 +138,18 @@ async def main():
         else:
             ip_address = "127.0.0.1"
             url = f"ws://127.0.0.1:{port}/ws/escalations"
-        await sessions.register_session(str(admin_id), jti, ip_address)
-        async with connect(f"{url}/{tenant_id}") as one, connect(f"{url}/{tenant_id}") as two:
+        if proof_mode:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as peer:
+                peer.connect(("codex-ws-traefik", 8080))
+                assert ip_address == peer.getsockname()[0] and ip_address != "203.0.113.99"
+            async with httpx.AsyncClient(trust_env=False) as client:
+                login = await client.post("http://codex-ws-traefik:8080/api/fixture-login", headers={"X-Forwarded-For": "203.0.113.99", "X-Internal-Client-IP-Proof": "attacker"})
+                login.raise_for_status()
+                token = login.json()["access_token"]
+        else:
+            await sessions.register_session(str(admin_id), jti, ip_address)
+        headers = {"X-Forwarded-For": "203.0.113.99", "X-Internal-Client-IP-Proof": "attacker"} if proof_mode else None
+        async with connect(f"{url}/{tenant_id}", additional_headers=headers) as one, connect(f"{url}/{tenant_id}", additional_headers=headers) as two:
             for ws in (one, two):
                 await ws.send(json.dumps({"type": "auth", "token": token}))
                 assert json.loads(await asyncio.wait_for(ws.recv(), 3))["event"] == "authenticated"
@@ -164,7 +186,7 @@ async def main():
                 ]
                 assert 429 in responses, "Proxy did not limit repeated connection attempts"
         print(
-            "REAL_WS_POSTGRES_REDIS_PROXY_OK" if proxy else "REAL_WS_POSTGRES_REDIS_ISOLATION_OK",
+            "REAL_WS_PROXY_PROOF_LOGIN_OK" if proof_mode else "REAL_WS_POSTGRES_REDIS_PROXY_OK" if proxy else "REAL_WS_POSTGRES_REDIS_ISOLATION_OK",
             flush=True,
         )
     finally:

@@ -482,6 +482,23 @@ class TestEscalationLifecycle:
         assert call_args[0][2] == CLOSURE_MESSAGES["fr"]
 
     @pytest.mark.asyncio
+    async def test_durable_mode_does_not_send_untracked_closure_message(self):
+        svc = _make_escalation_service()
+        escalation = MagicMock(id=TEST_ESCALATION_ID, conversation_id=TEST_CONVERSATION_ID,
+                               status=EscalationStatus.in_progress)
+        session = AsyncMock()
+        result = MagicMock()
+        result.scalar_one.return_value = escalation
+        session.execute = AsyncMock(return_value=result)
+        tenant = _make_tenant_mock(session)
+        with (patch("app.services.escalation.service.get_redis", return_value=AsyncMock()),
+              patch("app.services.escalation.service.get_settings") as settings):
+            settings.return_value.agent_reply_outbox_enabled = True
+            await svc.close_escalation(TEST_ESCALATION_ID, "Resolu", TEST_ADMIN_ID, tenant)
+        svc._sender.send_text.assert_not_awaited()
+        assert escalation.status == EscalationStatus.resolved
+
+    @pytest.mark.asyncio
     async def test_generate_context_summary_calls_gemini(self):
         """Resume contextuel -> appel Gemini avec les derniers messages."""
         svc = _make_escalation_service()

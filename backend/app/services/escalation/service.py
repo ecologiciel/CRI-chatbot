@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 import structlog
 from sqlalchemy import case, func, select, text, update
 
+from app.core.config import get_settings
 from app.core.exceptions import EscalationConflictError, ResourceNotFoundError
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
@@ -673,24 +674,26 @@ class EscalationService:
             tenant=tenant.slug,
         )
 
-        # Send closure message
-        try:
-            closure_msg = CLOSURE_MESSAGES.get(language, CLOSURE_MESSAGES["fr"])
-            async with tenant.db_session() as session:
-                contact = (await session.execute(
-                    select(Contact)
-                    .join(Conversation, Conversation.contact_id == Contact.id)
-                    .where(Conversation.id == escalation.conversation_id)
-                    .with_for_update(of=Contact)
-                )).scalar_one()
-                if contact.opt_in_status != OptInStatus.opted_out:
-                    await self._sender.send_text(tenant, contact.phone, closure_msg)
-        except Exception as exc:
-            self._logger.warning(
-                "closure_message_failed",
-                error_type=type(exc).__name__,
-                tenant=tenant.slug,
-            )
+        # A direct provider call has no durable attempt record. In durable
+        # mode the agent must send and verify the reply before closing.
+        if not get_settings().agent_reply_outbox_enabled:
+            try:
+                closure_msg = CLOSURE_MESSAGES.get(language, CLOSURE_MESSAGES["fr"])
+                async with tenant.db_session() as session:
+                    contact = (await session.execute(
+                        select(Contact)
+                        .join(Conversation, Conversation.contact_id == Contact.id)
+                        .where(Conversation.id == escalation.conversation_id)
+                        .with_for_update(of=Contact)
+                    )).scalar_one()
+                    if contact.opt_in_status != OptInStatus.opted_out:
+                        await self._sender.send_text(tenant, contact.phone, closure_msg)
+            except Exception as exc:
+                self._logger.warning(
+                    "closure_message_failed",
+                    error_type=type(exc).__name__,
+                    tenant=tenant.slug,
+                )
 
         # Redis notification
         try:

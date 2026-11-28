@@ -60,7 +60,9 @@ export function CloseDialog({
             Clôturer l&apos;escalade
           </DialogTitle>
           <DialogDescription>
-            La conversation reviendra en mode automatique.
+            La conversation reviendra en mode automatique. En mode de réponses
+            sécurisées, aucun message automatique n’est envoyé à la clôture :
+            envoyez votre réponse au citoyen et vérifiez son statut avant de clôturer.
           </DialogDescription>
         </DialogHeader>
 

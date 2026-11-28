@@ -5,10 +5,11 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.tenant import TenantContext
+from app.models.conversation import Conversation
 from app.models.enums import ConversationStatus, EscalationTrigger
 from app.services.conversation.service import ConversationService
 from app.services.escalation.service import EscalationService
@@ -45,6 +46,35 @@ async def test_concurrent_creation_and_resuming_open_handoff():
             conversations = await asyncio.gather(*(service.get_or_create(tenant, first) for _ in range(8)))
             assert len({row.id for row in conversations}) == 1
             conversation_id = conversations[0].id
+            entered, release = asyncio.Event(), asyncio.Event()
+
+            async def send_with_lock():
+                async with service.guard_bot_reply(tenant, conversation_id) as allowed:
+                    assert allowed is True
+                    entered.set()
+                    await release.wait()
+
+            async def take_over():
+                async with tenant.db_session() as session:
+                    await session.execute(update(Conversation).where(
+                        Conversation.id == conversation_id
+                    ).values(status=ConversationStatus.human_handled))
+
+            sending = asyncio.create_task(send_with_lock())
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            takeover = asyncio.create_task(take_over())
+            try:
+                done, _ = await asyncio.wait({takeover}, timeout=0.2)
+                assert not done  # takeover cannot commit during the provider call
+            finally:
+                release.set()
+                await asyncio.gather(sending, takeover)
+            async with service.guard_bot_reply(tenant, conversation_id) as allowed:
+                assert allowed is False
+            async with tenant.db_session() as session:
+                await session.execute(update(Conversation).where(
+                    Conversation.id == conversation_id
+                ).values(status=ConversationStatus.active))
             retrieval = AsyncMock()
             retrieval.retrieve.return_value = MagicMock(chunks=[])
             faq = FAQAgent(retrieval, AsyncMock())
@@ -83,6 +113,10 @@ async def test_concurrent_creation_and_resuming_open_handoff():
                 ))
                 assert len({item.id for item in escalations}) == 1
                 assert await service.record_faq_outcome(tenant, conversation_id, low_confidence=True) is None
+                async with service.guard_bot_reply(tenant, conversation_id, escalations[0].id) as allowed:
+                    assert allowed is True
+                async with service.guard_bot_reply(tenant, conversation_id, uuid.uuid4()) as allowed:
+                    assert allowed is False
                 await escalation_service.close_escalation(
                     escalations[0].id, "fixture", uuid.uuid4(), tenant
                 )

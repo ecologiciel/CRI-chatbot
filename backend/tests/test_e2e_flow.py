@@ -8,6 +8,7 @@ LangGraph execution, message persistence, and error handling.
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -250,6 +251,10 @@ def _setup_happy_path(mocks, contact=None, conversation=None, run_result=None):
     mocks["conv_svc"].get_or_create.return_value = conversation
     mocks["conv_svc"].add_message.return_value = _make_mock_message()
     mocks["conv_svc"].get_history.return_value = []
+    @asynccontextmanager
+    async def allow_reply(*_args):
+        yield True
+    mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=allow_reply)
     mocks["sender"].send_text.return_value = "wamid.out123"
     mocks["sender"].mark_as_read.return_value = None
 
@@ -286,14 +291,34 @@ class TestHappyPath:
     async def test_takeover_during_generation_suppresses_bot_response(self, handler_env):
         handler, mocks = handler_env
         _setup_happy_path(mocks)
-        mocks["conv_svc"].get_status.side_effect = [
-            ConversationStatus.active, ConversationStatus.human_handled,
-        ]
+        mocks["conv_svc"].get_status.return_value = ConversationStatus.active
+        @asynccontextmanager
+        async def deny_reply(*_args):
+            yield False
+        mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=deny_reply)
         with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()):
             await handler.handle_message(TEST_TENANT, _make_text_message(), None)
         assert mocks["conv_svc"].add_message.await_count == 1
         mocks["sender"].send_text.assert_not_awaited()
         mocks["redis"].publish.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    async def test_feedback_is_sent_only_after_the_answer(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        observed = []
+        async def send_text(*_args):
+            observed.append("answer")
+            return "wamid.reply"
+        async def send_buttons(*_args):
+            observed.append("feedback")
+            return "wamid.feedback"
+        mocks["sender"].send_text.side_effect = send_text
+        mocks["sender"].send_buttons.side_effect = send_buttons
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()) as run:
+            await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+        assert run.await_args.kwargs["defer_feedback"] is True
+        assert observed == ["answer", "feedback"]
 
     @pytest.mark.asyncio()
     async def test_new_escalation_transition_is_not_suppressed(self, handler_env):

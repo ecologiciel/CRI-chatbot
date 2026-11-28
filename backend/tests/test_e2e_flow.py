@@ -344,6 +344,21 @@ class TestHappyPath:
         assert observed == ["answer", "feedback"]
 
     @pytest.mark.asyncio()
+    async def test_unavailable_send_guard_never_sends_an_unfenced_reply(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        @asynccontextmanager
+        async def fail_guard(*_args):
+            raise TimeoutError("fixture lock unavailable")
+            yield  # pragma: no cover
+        mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=fail_guard)
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()):
+            outcome = await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+        assert outcome.value == "uncertain"
+        mocks["sender"].send_text.assert_not_awaited()
+        assert mocks["conv_svc"].add_message.await_args_list[-1].kwargs["metadata"]["delivery_state"] == "unconfirmed"
+
+    @pytest.mark.asyncio()
     async def test_new_escalation_transition_is_not_suppressed(self, handler_env):
         handler, mocks = handler_env
         _setup_happy_path(mocks)

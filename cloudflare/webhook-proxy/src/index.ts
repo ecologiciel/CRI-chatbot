@@ -9,14 +9,19 @@ export interface Env {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const incoming = new URL(request.url);
-    if (incoming.pathname !== "/whatsapp") return new Response("Not found", { status: 404 });
+    const tenantPath = /^\/whatsapp\/tenant\/([a-z][a-z0-9]{1,49})$/.exec(incoming.pathname);
+    if (incoming.pathname !== "/whatsapp" && !tenantPath) {
+      return new Response("Not found", { status: 404 });
+    }
     if (request.method !== "GET" && request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
 
     const upstream = new URL(env.ORIGIN);
     if (upstream.protocol !== "https:") return new Response("Invalid relay origin", { status: 500 });
-    upstream.pathname = "/api/v1/webhook/whatsapp";
+    upstream.pathname = tenantPath
+      ? `/api/v1/webhook/whatsapp/tenant/${tenantPath[1]}`
+      : "/api/v1/webhook/whatsapp";
     upstream.search = incoming.search;
 
     const headers = new Headers(request.headers);

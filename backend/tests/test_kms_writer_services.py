@@ -15,6 +15,7 @@ def test_optional_writer_subsets_are_ordered_unique_and_known():
         spec.loader.exec_module(module)
     required = list(module.REQUIRED_WRITERS)
     optional = list(module.OPTIONAL_WRITERS)
+    assert "agent-reply-worker" in optional
     for length in range(len(optional) + 1):
         for subset in itertools.combinations(optional, length):
             assert module.valid_writer_services(required + list(subset))

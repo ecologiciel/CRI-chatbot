@@ -18,7 +18,7 @@ cleanup() {
     # Refuse to delete anything outside the freshly created fixture namespace.
     if [[ "$project" =~ ^test_codexkmsoperator[a-z0-9]+$ && "$fixture" == "$test_root"/codex-kms-operator.* ]]; then
         docker rm -f "${project}-unmanaged-writer" >/dev/null 2>&1 || true
-        "${compose[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox down --volumes --remove-orphans >/dev/null 2>&1 || result=1
+        "${compose[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies down --volumes --remove-orphans >/dev/null 2>&1 || result=1
         rm -rf -- "$fixture"
     else
         echo 'Invalid test namespace; refusing cleanup.' >&2
@@ -86,6 +86,9 @@ services:
   dossier-outbox-worker:
     <<: *writer
     profiles: ["dossier-outbox"]
+  agent-reply-worker:
+    <<: *writer
+    profiles: ["agent-replies"]
 networks:
   data:
     name: ${TEST_NETWORK}
@@ -165,7 +168,7 @@ echo 'Unmanaged KMS writer correctly blocked the rotation.'
 
 # The optional durable worker is an additional KMS writer and must remain
 # stopped during an interrupted rotation and be restored after recovery.
-"${compose[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox up -d whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker >/dev/null
+"${compose[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies up -d whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker agent-reply-worker >/dev/null
 
 # Proxy only this test's Docker CLI, and kill the operator after a successful
 # database/configuration switch but before it can restart the writers.
@@ -194,7 +197,7 @@ set -e
 [[ "$status" -ne 0 && -f "$fixture/.kms-maintenance/journal/READY" ]]
 interrupted_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
 [[ "$interrupted_hash" != "$original_hash" ]]
-for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker; do
+for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker agent-reply-worker; do
     id=$("${compose[@]}" ps -aq "$service")
     [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == false/no ]]
 done
@@ -223,7 +226,7 @@ set -e
 grep -q 'Maintenance recovered; writers restarted' "$fixture/recovery.log"
 recovered_hash=$(sed -n 's/^KMS_MASTER_KEY=//p' "$fixture/.env.demo" | tr -d '\n' | sha256sum | cut -d' ' -f1)
 [[ "$recovered_hash" == "$original_hash" ]]
-for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker; do
+for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker agent-reply-worker; do
     id=$("${compose[@]}" ps -aq "$service")
     [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == true/unless-stopped ]]
 done
@@ -251,7 +254,7 @@ async def run():
     await close_engine()
 asyncio.run(run())
 PY
-for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker; do
+for service in backend ingestion-worker learning-worker purge-worker whatsapp-inbox-worker dossier-import-worker dossier-outbox-worker agent-reply-worker; do
     id=$("${compose[@]}" ps -aq "$service")
     [[ $(docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "$id") == true/unless-stopped ]]
 done

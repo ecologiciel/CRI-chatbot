@@ -38,4 +38,4 @@ async def protect_claim_channel(claim: InboxClaim) -> AsyncIterator[TenantContex
             or (current.whatsapp_config or {}).get("phone_number_id") != claim.phone_number_id
         ):
             raise TenantInactiveError("WhatsApp channel is inactive or has changed")
-        yield TenantResolver._build_context(current)
+        yield await TenantResolver._build_context(current, session=session)

@@ -15,6 +15,7 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select, text
 
+from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.rbac import require_role
@@ -38,11 +39,17 @@ from app.schemas.notification import (
     audit_action_to_status,
 )
 from app.services.audit.service import get_audit_service
+from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.notification.service import (
     _EVENT_TEMPLATE_MAP,
     NotificationEventType,
     NotificationPriority,
     get_notification_service,
+)
+from app.services.whatsapp.config_envelope import (
+    is_sealed_or_malformed,
+    load_channel_config,
+    prepare_channel_config_write,
 )
 from app.services.whatsapp.sender import WhatsAppSenderService
 
@@ -437,14 +444,29 @@ async def update_template(
     factory = get_session_factory()
     async with factory() as session:
         await session.execute(text("SET LOCAL search_path TO public"))
-        result = await session.execute(select(Tenant).where(Tenant.id == tenant.id))
+        result = await session.execute(select(Tenant).where(Tenant.id == tenant.id).with_for_update())
         tenant_row = result.scalar_one()
 
-        config = dict(tenant_row.whatsapp_config or {})
+        previous = tenant_row.whatsapp_config
+        settings = get_settings()
+        needs_cipher = (
+            settings.whatsapp_config_require_encryption is True
+            or (isinstance(previous, dict) and is_sealed_or_malformed(previous))
+        )
+        cipher = VersionedEnvelopeService(factory, settings.kms_master_key) if needs_cipher and settings.kms_master_key else None
+        config = dict(await load_channel_config(
+            tenant.id, previous, cipher,
+            require_encryption=settings.whatsapp_config_require_encryption is True,
+            session=session,
+        ) or {})
         notif_templates = dict(config.get("notification_templates", {}))
         notif_templates[event_type] = data.template_name
         config["notification_templates"] = notif_templates
-        tenant_row.whatsapp_config = config
+        tenant_row.whatsapp_config = await prepare_channel_config_write(
+            tenant.id, config, previous, cipher,
+            require_encryption=settings.whatsapp_config_require_encryption is True,
+            session=session,
+        )
         await session.commit()
 
     # Invalidate Redis tenant cache

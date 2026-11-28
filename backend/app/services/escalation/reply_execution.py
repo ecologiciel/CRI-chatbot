@@ -143,9 +143,12 @@ async def execute_agent_reply(
             )
             if not live:
                 raise AgentReplyLeaseLostError("Agent reply lease expired")
+            # Resolve credentials before entering the provider-call ambiguity
+            # block: a corrupt envelope is not an attempted outbound message.
+            context = await TenantResolver._build_context(tenant, session=session)
             provider_id = None
             try:
-                observed = await sender.send_text(TenantResolver._build_context(tenant), contact.phone, message)
+                observed = await sender.send_text(context, contact.phone, message)
                 if isinstance(observed, str) and 0 < len(observed) <= 100:
                     provider_id = observed
             except Exception:

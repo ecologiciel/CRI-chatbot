@@ -106,6 +106,15 @@ echo AGENT_MODE_SUCCESS_OK
 docker tag "$TEST_OLD_BACKEND" "$old"
 printf 'REHEARSAL_FAIL=1\n' > .env.demo
 initialise
+cat > docker-compose.hostinger.local.yml <<'EOF'
+services:
+  agent-reply-worker:
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exit 42"]
+EOF
+git add docker-compose.hostinger.local.yml
+git commit -qm failure-fixture
+export EXPECTED_HEAD="$(git rev-parse HEAD)"
 if bash "$root/enable-hostinger-agent-outbox.sh" > "$fixture/failure.log" 2>&1; then echo 'Expected worker failure' >&2; exit 1; fi
 grep -q 'Previous agent mode restored' "$fixture/failure.log"
 if grep -q '^AGENT_REPLY_OUTBOX_ENABLED=' .env.demo; then echo 'Flag not restored' >&2; exit 1; fi

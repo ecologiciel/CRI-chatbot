@@ -498,6 +498,34 @@ async def test_pending_reply_blocks_legacy_send_and_closure_until_resolved():
         async with engine.begin() as conn:
             assert await conn.scalar(text("SELECT status::text FROM tenant_fixtureguard.escalations WHERE id=:id"), {"id": escalation_id}) == "assigned"
             await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='canceled' WHERE id=:id"), {"id": event_id})
+        # Model a concurrent registration holding the same conversation lock.
+        # The close must wait, then observe the newly committed pending reply.
+        second_id = uuid.uuid4()
+        async with engine.connect() as writer:
+            tx = await writer.begin()
+            writer_pid = await writer.scalar(text("SELECT pg_backend_pid()"))
+            await writer.execute(text("SELECT id FROM tenant_fixtureguard.conversations WHERE id=:id FOR UPDATE"), {"id": conversation_id})
+            await writer.execute(text("""
+                INSERT INTO public.agent_reply_outbox_events
+                  (id,tenant_id,request_key,actor_id,escalation_id,conversation_id,contact_id,phone_number_id,recipient_fingerprint,ciphertext,key_version)
+                VALUES (:id,:tenant,gen_random_uuid(),:actor,:escalation,:conversation,:contact,'123',repeat('b',64),'fixture',1)
+            """), {"id": second_id, "tenant": tenant_id, "actor": actor_id, "escalation": escalation_id, "conversation": conversation_id, "contact": contact_id})
+            closing = asyncio.create_task(service.close_escalation(escalation_id, "fixture", actor_id, tenant))
+            blocked = False
+            for _ in range(50):
+                async with engine.connect() as monitor:
+                    blocked = bool(await monitor.scalar(text("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE :pid = ANY(pg_blocking_pids(pid)))"), {"pid": writer_pid}))
+                if blocked or closing.done():
+                    break
+                await asyncio.sleep(0.1)
+            try:
+                assert blocked and not closing.done()
+            finally:
+                await tx.commit()
+            with pytest.raises(EscalationConflictError, match="réponse"):
+                await asyncio.wait_for(closing, timeout=10)
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='canceled' WHERE id=:id"), {"id": second_id})
         await service.close_escalation(escalation_id, "fixture", actor_id, tenant)
         sender.send_text.assert_not_awaited()
     await engine.dispose()

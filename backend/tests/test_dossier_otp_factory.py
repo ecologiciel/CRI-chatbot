@@ -1,4 +1,5 @@
 """The staged tracking implementation must use the atomic OTP primitive."""
+
 from app.services.dossier import otp
 from app.services.dossier.otp_atomic import AtomicDossierOTPService
 

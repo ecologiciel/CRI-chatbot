@@ -4,6 +4,7 @@ This primitive does not send codes or establish a delivery guarantee. It must
 not be connected to the conversation flow until delivery and session handling
 have separately been reviewed and tested.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,7 +17,11 @@ from app.core.exceptions import RateLimitExceededError
 from app.core.metrics import OTP_ATTEMPTS, OTP_FAILURES, OTP_SUCCESS, RATE_LIMIT_TRIGGERED
 from app.core.redis import get_redis
 from app.services.dossier.otp import (
-    ATTEMPT_WINDOW, MAX_OTP_ATTEMPTS, OTP_TTL, SESSION_TOKEN_BYTES, SESSION_TTL,
+    ATTEMPT_WINDOW,
+    MAX_OTP_ATTEMPTS,
+    OTP_TTL,
+    SESSION_TOKEN_BYTES,
+    SESSION_TTL,
     DossierOTPService,
 )
 
@@ -94,7 +99,15 @@ class AtomicDossierOTPService(DossierOTPService):
             raise RuntimeError("OTP key unavailable") from exc
         if len(key) != 32:
             raise RuntimeError("OTP key unavailable")
-        message = purpose + b"\0" + tenant.id.bytes + b"\0" + phone.encode("ascii") + b"\0" + code.encode("ascii")
+        message = (
+            purpose
+            + b"\0"
+            + tenant.id.bytes
+            + b"\0"
+            + phone.encode("ascii")
+            + b"\0"
+            + code.encode("ascii")
+        )
         return "v1:" + hmac.new(key, message, hashlib.sha256).hexdigest()
 
     async def generate_otp(self, phone, tenant):
@@ -102,11 +115,15 @@ class AtomicDossierOTPService(DossierOTPService):
         digest = self._digest(phone, code, tenant)
         redis = get_redis()
         result = await redis.eval(
-            _GENERATE, 3,
+            _GENERATE,
+            3,
             self._redis_key(tenant, "dossier_otp", phone),
             self._redis_key(tenant, "dossier_otp_attempts", phone),
             self._redis_key(tenant, "dossier_otp_verify_attempts", phone),
-            digest, MAX_OTP_ATTEMPTS, ATTEMPT_WINDOW, OTP_TTL,
+            digest,
+            MAX_OTP_ATTEMPTS,
+            ATTEMPT_WINDOW,
+            OTP_TTL,
         )
         OTP_ATTEMPTS.labels(tenant=tenant.slug).inc()
         if result != 1:
@@ -123,10 +140,12 @@ class AtomicDossierOTPService(DossierOTPService):
         digest = self._digest(phone, otp_code if valid_format else "invalid", tenant)
         redis = get_redis()
         result = await redis.eval(
-            _VERIFY, 2,
+            _VERIFY,
+            2,
             self._redis_key(tenant, "dossier_otp", phone),
             self._redis_key(tenant, "dossier_otp_verify_attempts", phone),
-            digest, MAX_OTP_ATTEMPTS,
+            digest,
+            MAX_OTP_ATTEMPTS,
         )
         OTP_ATTEMPTS.labels(tenant=tenant.slug).inc()
         if result == 1:
@@ -134,13 +153,17 @@ class AtomicDossierOTPService(DossierOTPService):
             await self._audit(tenant, "otp_verify_success", phone)
             return True
         OTP_FAILURES.labels(tenant=tenant.slug).inc()
-        await self._audit(tenant, "otp_verify_fail", phone, details={"reason": "invalid_or_expired"})
+        await self._audit(
+            tenant, "otp_verify_fail", phone, details={"reason": "invalid_or_expired"}
+        )
         return False
 
     async def create_dossier_session(self, phone, tenant):
         token = secrets.token_hex(SESSION_TOKEN_BYTES)
         digest = self._digest(phone, token, tenant, purpose=b"dossier-session-v1")
-        await get_redis().set(self._redis_key(tenant, "dossier_session", phone), digest, ex=SESSION_TTL)
+        await get_redis().set(
+            self._redis_key(tenant, "dossier_session", phone), digest, ex=SESSION_TTL
+        )
         await self._audit(tenant, "dossier_session_create", phone)
         return token
 
@@ -148,6 +171,13 @@ class AtomicDossierOTPService(DossierOTPService):
         if not isinstance(session_token, str) or not _SESSION.fullmatch(session_token):
             return False
         digest = self._digest(phone, session_token, tenant, purpose=b"dossier-session-v1")
-        return await get_redis().eval(
-            _CHECK_SESSION, 1, self._redis_key(tenant, "dossier_session", phone), digest, SESSION_TTL
-        ) == 1
+        return (
+            await get_redis().eval(
+                _CHECK_SESSION,
+                1,
+                self._redis_key(tenant, "dossier_session", phone),
+                digest,
+                SESSION_TTL,
+            )
+            == 1
+        )

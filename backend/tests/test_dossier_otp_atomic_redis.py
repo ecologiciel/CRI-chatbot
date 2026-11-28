@@ -1,4 +1,5 @@
 """Concurrency and isolation tests on a disposable Redis, without FLUSHDB."""
+
 import asyncio
 import hashlib
 import os
@@ -14,8 +15,7 @@ from redis.exceptions import ResponseError
 
 from app.core.exceptions import RateLimitExceededError
 from app.core.tenant import TenantContext
-from app.services.dossier import otp_atomic
-from app.services.dossier import otp
+from app.services.dossier import otp, otp_atomic
 from app.services.dossier.otp_atomic import AtomicDossierOTPService
 
 URL = os.getenv("TEST_ATOMIC_OTP_REDIS_URL")
@@ -30,16 +30,28 @@ async def environment(monkeypatch):
         raise RuntimeError("Refusing Redis endpoint outside the isolated OTP fixture")
     redis = Redis.from_url(URL)
     slug = "otpfixture" + uuid.uuid4().hex
-    tenant = TenantContext(id=uuid.uuid4(), slug=slug, name="Fixture", status="active", whatsapp_config=None)
+    tenant = TenantContext(
+        id=uuid.uuid4(), slug=slug, name="Fixture", status="active", whatsapp_config=None
+    )
     service = AtomicDossierOTPService()
     service._audit = AsyncMock()
     monkeypatch.setattr(otp_atomic, "get_redis", lambda: redis)
     monkeypatch.setattr(otp, "get_redis", lambda: redis)
-    monkeypatch.setattr(otp_atomic, "get_settings", lambda: SimpleNamespace(kms_master_key="6a" * 32))
+    monkeypatch.setattr(
+        otp_atomic, "get_settings", lambda: SimpleNamespace(kms_master_key="6a" * 32)
+    )
     try:
         yield service, redis, tenant
     finally:
-        keys = [service._redis_key(tenant, kind, PHONE) for kind in ("dossier_otp", "dossier_otp_attempts", "dossier_otp_verify_attempts", "dossier_session")]
+        keys = [
+            service._redis_key(tenant, kind, PHONE)
+            for kind in (
+                "dossier_otp",
+                "dossier_otp_attempts",
+                "dossier_otp_verify_attempts",
+                "dossier_session",
+            )
+        ]
         await redis.delete(*keys)
         await redis.aclose()
 
@@ -60,14 +72,18 @@ async def test_concurrent_wrong_attempts_cannot_bruteforce_or_reuse(environment)
     service, _, tenant = environment
     code = await service.generate_otp(PHONE, tenant)
     invalid = "000000" if code != "000000" else "999999"
-    assert not any(await asyncio.gather(*(service.verify_otp(PHONE, invalid, tenant) for _ in range(20))))
+    assert not any(
+        await asyncio.gather(*(service.verify_otp(PHONE, invalid, tenant) for _ in range(20)))
+    )
     assert await service.verify_otp(PHONE, code, tenant) is False
 
 
 @pytest.mark.asyncio
 async def test_generation_budget_is_atomic_and_not_bypassed_by_new_code(environment):
     service, _, tenant = environment
-    outcomes = await asyncio.gather(*(service.generate_otp(PHONE, tenant) for _ in range(15)), return_exceptions=True)
+    outcomes = await asyncio.gather(
+        *(service.generate_otp(PHONE, tenant) for _ in range(15)), return_exceptions=True
+    )
     assert sum(isinstance(value, str) for value in outcomes) == 3
     assert sum(isinstance(value, RateLimitExceededError) for value in outcomes) == 12
     with pytest.raises(RateLimitExceededError):
@@ -100,13 +116,22 @@ async def test_corrupt_or_persistent_budget_fails_closed(environment):
 async def test_code_is_bound_to_institution_id_even_if_slug_is_reused(environment):
     service, redis, tenant = environment
     code = await service.generate_otp(PHONE, tenant)
-    replacement = TenantContext(id=uuid.uuid4(), slug=tenant.slug, name="Replacement", status="active", whatsapp_config=None)
+    replacement = TenantContext(
+        id=uuid.uuid4(), slug=tenant.slug, name="Replacement", status="active", whatsapp_config=None
+    )
     try:
         assert await service.verify_otp(PHONE, code, replacement) is False
         assert await service.verify_otp(PHONE, code, tenant) is True
-        assert await service.verify_otp(PHONE, await service.generate_otp(PHONE, replacement), replacement)
+        assert await service.verify_otp(
+            PHONE, await service.generate_otp(PHONE, replacement), replacement
+        )
     finally:
-        await redis.delete(*(service._redis_key(replacement, kind, PHONE) for kind in ("dossier_otp", "dossier_otp_attempts", "dossier_otp_verify_attempts")))
+        await redis.delete(
+            *(
+                service._redis_key(replacement, kind, PHONE)
+                for kind in ("dossier_otp", "dossier_otp_attempts", "dossier_otp_verify_attempts")
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -142,7 +167,13 @@ async def test_factory_service_runs_atomic_protocol_on_real_redis(environment, m
 @pytest.mark.asyncio
 async def test_tenant_and_phone_budgets_are_independent(environment):
     service, redis, tenant = environment
-    other = TenantContext(id=uuid.uuid4(), slug="otpfixture" + uuid.uuid4().hex, name="Other", status="active", whatsapp_config=None)
+    other = TenantContext(
+        id=uuid.uuid4(),
+        slug="otpfixture" + uuid.uuid4().hex,
+        name="Other",
+        status="active",
+        whatsapp_config=None,
+    )
     phone_b = "+212600000002"
     try:
         for _ in range(3):

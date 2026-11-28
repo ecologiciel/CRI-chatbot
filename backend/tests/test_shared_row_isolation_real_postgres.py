@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from app.core.exceptions import CRIDecryptionError
 from app.services.crypto.kms import KMSService
 

@@ -152,7 +152,10 @@ def create_app() -> FastAPI:
     # --- Exception handlers ---
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        if request.url.path == "/api/v1/auth/change-password":
+        if request.url.path == "/api/v1/auth/change-password" or (
+            request.url.path.startswith("/api/v1/tenants/")
+            and request.method in {"POST", "PUT", "PATCH"}
+        ):
             # FastAPI's default validation response can echo submitted input.
             return JSONResponse(
                 status_code=422,

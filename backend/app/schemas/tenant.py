@@ -77,6 +77,34 @@ class TenantCreate(BaseModel):
         return v.lower()
 
 
+class WhatsAppChannelUpdate(BaseModel):
+    """Replace provider credentials while retaining other channel settings."""
+
+    phone_number_id: str = Field(min_length=1, max_length=32)
+    business_account_id: str = Field(default="", max_length=32)
+    access_token: str = Field(min_length=1, max_length=4096, repr=False)
+    verify_token: str = Field(min_length=1, max_length=4096, repr=False)
+    app_secret: str = Field(min_length=1, max_length=4096, repr=False)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("phone_number_id", "business_account_id")
+    @classmethod
+    def validate_identifier(cls, value: str, info) -> str:
+        if info.field_name == "business_account_id" and value == "":
+            return value
+        if not value.isascii() or not value.isdecimal():
+            raise ValueError("Identifiant Meta invalide")
+        return value
+
+    @field_validator("access_token", "verify_token", "app_secret")
+    @classmethod
+    def validate_credential(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Identifiant requis")
+        return value
+
+
 class TenantUpdate(BaseModel):
     """Schema for updating a tenant. All fields optional."""
 

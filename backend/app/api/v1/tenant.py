@@ -18,11 +18,17 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.core.database import get_session_factory
-from app.core.exceptions import AuthorizationError, DuplicateResourceError, ResourceNotFoundError
+from app.core.exceptions import (
+    AuthorizationError,
+    CRIEncryptionError,
+    DuplicateResourceError,
+    ResourceNotFoundError,
+)
 from app.core.minio import get_minio
 from app.core.qdrant import get_qdrant
 from app.core.rbac import get_current_admin, require_role
 from app.core.tenant import TenantResolver
+from app.models.audit import AuditLog
 from app.models.enums import AdminRole, TenantStatus
 from app.models.tenant import Tenant
 from app.schemas.auth import AdminTokenPayload
@@ -32,12 +38,14 @@ from app.schemas.tenant import (
     TenantList,
     TenantResponse,
     TenantUpdate,
+    WhatsAppChannelUpdate,
     WhatsAppConfigView,
 )
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.tenant.provisioning import TenantProvisioningService
 from app.services.whatsapp.config_envelope import (
     is_sealed_or_malformed,
+    load_channel_config,
     prepare_channel_config_write,
 )
 
@@ -229,6 +237,48 @@ async def get_tenant(
     if is_super_admin:
         return await _admin_view(tenant)
     return TenantResponse.model_validate(tenant)
+
+
+@router.put("/{tenant_id}/whatsapp-channel", response_model=WhatsAppConfigView)
+async def update_whatsapp_channel(
+    tenant_id: uuid.UUID,
+    data: WhatsAppChannelUpdate,
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin)),
+) -> WhatsAppConfigView:
+    """Encrypt credentials and audit their replacement in one transaction."""
+    factory = get_session_factory()
+    settings = get_settings()
+    if not settings.kms_master_key:
+        raise CRIEncryptionError("Channel encryption unavailable")
+    cipher = VersionedEnvelopeService(factory, settings.kms_master_key)
+    async with factory() as session:
+        tenant = (await session.execute(
+            select(Tenant).where(Tenant.id == tenant_id).with_for_update()
+        )).scalar_one_or_none()
+        if tenant is None:
+            raise ResourceNotFoundError("Institution introuvable")
+        existing = await load_channel_config(
+            tenant_id, tenant.whatsapp_config, cipher, session=session,
+            require_encryption=settings.whatsapp_config_require_encryption is True,
+        )
+        merged = {**(existing or {}), **data.model_dump()}
+        tenant.whatsapp_config = await prepare_channel_config_write(
+            tenant_id, merged, tenant.whatsapp_config, cipher,
+            require_encryption=True, session=session,
+        )
+        session.add(AuditLog(
+            tenant_slug=tenant.slug, user_id=uuid.UUID(admin.sub), user_type="admin",
+            action="wa_channel_update", resource_type="tenant", resource_id=str(tenant_id),
+            details={"channel": "whatsapp"},
+        ))
+        try:
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            if "uq_tenants_whatsapp_phone" in str(exc.orig):
+                raise DuplicateResourceError("Cet identifiant WhatsApp est déjà attribué à une institution.") from exc
+            raise
+    return WhatsAppConfigView(phone_number_id=data.phone_number_id, business_account_id=data.business_account_id)
 
 
 @router.patch("/{tenant_id}", response_model=TenantAdminResponse)

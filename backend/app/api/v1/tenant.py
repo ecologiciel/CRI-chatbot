@@ -16,11 +16,13 @@ from fastapi.responses import Response
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.exceptions import AuthorizationError, DuplicateResourceError, ResourceNotFoundError
 from app.core.minio import get_minio
 from app.core.qdrant import get_qdrant
 from app.core.rbac import get_current_admin, require_role
+from app.core.tenant import TenantResolver
 from app.models.enums import AdminRole, TenantStatus
 from app.models.tenant import Tenant
 from app.schemas.auth import AdminTokenPayload
@@ -30,12 +32,28 @@ from app.schemas.tenant import (
     TenantList,
     TenantResponse,
     TenantUpdate,
+    WhatsAppConfigView,
 )
+from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.tenant.provisioning import TenantProvisioningService
+from app.services.whatsapp.config_envelope import (
+    is_sealed_or_malformed,
+    prepare_channel_config_write,
+)
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
+
+
+async def _admin_view(tenant: Tenant) -> TenantAdminResponse:
+    """Expose only allowlisted channel identifiers for either storage format."""
+    response = TenantAdminResponse.model_validate(tenant)
+    stored = tenant.whatsapp_config
+    if isinstance(stored, dict) and is_sealed_or_malformed(stored):
+        context = await TenantResolver._build_context(tenant)
+        response.whatsapp_config = WhatsAppConfigView.model_validate(context.whatsapp_config)
+    return response
 
 
 @router.post("/", response_model=TenantAdminResponse, status_code=201)
@@ -62,7 +80,7 @@ async def create_tenant(
         admin_id=admin.sub,
     )
 
-    return TenantAdminResponse.model_validate(tenant)
+    return await _admin_view(tenant)
 
 
 @router.get("/", response_model=TenantList)
@@ -204,7 +222,7 @@ async def get_tenant(
 
     # Response type depends on role
     if is_super_admin:
-        return TenantAdminResponse.model_validate(tenant)
+        return await _admin_view(tenant)
     return TenantResponse.model_validate(tenant)
 
 
@@ -225,7 +243,7 @@ async def update_tenant(
     """
     factory = get_session_factory()
     async with factory() as session:
-        result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
+        result = await session.execute(select(Tenant).where(Tenant.id == tenant_id).with_for_update())
         tenant = result.scalar_one_or_none()
 
         if not tenant:
@@ -240,6 +258,19 @@ async def update_tenant(
             # Convert WhatsAppConfig Pydantic model to dict for JSONB column
             if field == "whatsapp_config" and value is not None and hasattr(value, "model_dump"):
                 value = value.model_dump()
+            if field == "whatsapp_config":
+                settings = get_settings()
+                previous = tenant.whatsapp_config
+                needs_cipher = value is not None and (
+                    settings.whatsapp_config_require_encryption is True
+                    or (isinstance(previous, dict) and is_sealed_or_malformed(previous))
+                )
+                cipher = VersionedEnvelopeService(factory, settings.kms_master_key) if needs_cipher and settings.kms_master_key else None
+                value = await prepare_channel_config_write(
+                    tenant_id, value, previous, cipher,
+                    require_encryption=settings.whatsapp_config_require_encryption is True,
+                    session=session,
+                )
             setattr(tenant, field, value)
 
         try:
@@ -260,7 +291,7 @@ async def update_tenant(
         admin_id=admin.sub,
     )
 
-    return TenantAdminResponse.model_validate(tenant)
+    return await _admin_view(tenant)
 
 
 @router.delete("/{tenant_id}", status_code=204, response_class=Response)

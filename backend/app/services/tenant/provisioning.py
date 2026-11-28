@@ -212,6 +212,11 @@ class TenantProvisioningService:
         tenant: Tenant | None = None
         log = self.logger.bind(slug=data.slug)
 
+        # Until provisioning can create a tenant key and seal the channel in
+        # one recoverable workflow, strict mode must not write plaintext.
+        if data.whatsapp_config is not None and get_settings().whatsapp_config_require_encryption is True:
+            raise TenantProvisioningError("Création de canal chiffré temporairement indisponible")
+
         try:
             # Step 1: Create tenant record (status=provisioning)
             tenant = await self._create_tenant_record(data)

@@ -132,7 +132,7 @@ class TenantResolver:
                 f"Tenant is not active: {tenant.slug}",
                 details={"slug": tenant.slug, "status": tenant.status.value},
             )
-        return TenantResolver._build_context(tenant)
+        return await TenantResolver._build_context(tenant)
 
     @staticmethod
     async def from_phone_number_id(phone_number_id: str) -> TenantContext:
@@ -152,7 +152,7 @@ class TenantResolver:
                 f"No active tenant for phone_number_id: {phone_number_id}",
                 details={"phone_number_id": phone_number_id},
             )
-        return TenantResolver._build_context(tenant)
+        return await TenantResolver._build_context(tenant)
 
     @staticmethod
     async def from_slug(slug: str) -> TenantContext:
@@ -169,19 +169,36 @@ class TenantResolver:
                 f"Tenant is not active: {slug}",
                 details={"slug": slug, "status": tenant.status.value},
             )
-        return TenantResolver._build_context(tenant)
+        return await TenantResolver._build_context(tenant)
 
     # --- Internal helpers ---
 
     @staticmethod
-    def _build_context(tenant: Tenant) -> TenantContext:  # noqa: F821
-        """Convert a Tenant ORM object to TenantContext."""
+    async def _build_context(tenant: Tenant, *, session: AsyncSession | None = None) -> TenantContext:  # noqa: F821
+        """Resolve credentials from the authoritative, tenant-bound envelope."""
+        from app.core.config import get_settings
+        from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+        from app.services.whatsapp.config_envelope import (
+            is_sealed_or_malformed,
+            load_channel_config,
+        )
+
+        settings = get_settings()
+        stored = tenant.whatsapp_config
+        cipher = None
+        if isinstance(stored, dict) and is_sealed_or_malformed(stored) and settings.kms_master_key:
+            cipher = VersionedEnvelopeService(get_session_factory(), settings.kms_master_key)
+        config = await load_channel_config(
+            tenant.id, stored, cipher,
+            require_encryption=settings.whatsapp_config_require_encryption is True,
+            session=session,
+        )
         return TenantContext(
             id=tenant.id,
             slug=tenant.slug,
             name=tenant.name,
             status=tenant.status.value,
-            whatsapp_config=tenant.whatsapp_config,
+            whatsapp_config=config,
         )
 
     @staticmethod

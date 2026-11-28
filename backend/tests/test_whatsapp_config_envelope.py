@@ -6,14 +6,21 @@ import secrets
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from app.core.exceptions import CRIDecryptionError, CRIEncryptionError
+from app.core.exceptions import CRIDecryptionError, CRIEncryptionError, TenantProvisioningError
+from app.schemas.tenant import TenantCreate
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
-from app.services.whatsapp.config_envelope import open_channel_config, seal_channel_config
+from app.services.tenant.provisioning import TenantProvisioningService
+from app.services.whatsapp.config_envelope import (
+    load_channel_config,
+    open_channel_config,
+    prepare_channel_config_write,
+    seal_channel_config,
+)
 
 
 @pytest.fixture
@@ -82,3 +89,50 @@ async def test_refuses_plaintext_invalid_and_oversized_configs(cipher):
     ):
         with pytest.raises(CRIEncryptionError):
             await seal_channel_config(tenant, config, cipher)
+
+
+@pytest.mark.asyncio
+async def test_transition_accepts_plaintext_only_when_explicitly_permitted(cipher):
+    tenant = uuid.uuid4()
+    legacy = {"phone_number_id": "123", "access_token": "synthetic"}
+    assert await load_channel_config(tenant, legacy, cipher) == legacy
+    with pytest.raises(CRIDecryptionError):
+        await load_channel_config(tenant, legacy, cipher, require_encryption=True)
+    sealed = await seal_channel_config(tenant, legacy, cipher)
+    assert await load_channel_config(tenant, sealed, cipher, require_encryption=True) == legacy
+    with pytest.raises(CRIDecryptionError):
+        await load_channel_config(tenant, sealed, None)
+    with pytest.raises(CRIDecryptionError):
+        await load_channel_config(tenant, {"phone_number_id": "123", "_format": "damaged"}, cipher)
+    assert await load_channel_config(tenant, None, cipher, require_encryption=True) is None
+
+
+@pytest.mark.asyncio
+async def test_updates_never_downgrade_sealed_config(cipher):
+    tenant = uuid.uuid4()
+    original = {"phone_number_id": "123", "access_token": "old"}
+    replacement = {"phone_number_id": "123", "access_token": "synthetic-replacement-secret"}
+    sealed = await seal_channel_config(tenant, original, cipher)
+    updated = await prepare_channel_config_write(tenant, replacement, sealed, cipher)
+    assert updated and "synthetic-replacement-secret" not in repr(updated)
+    assert await open_channel_config(tenant, updated, cipher) == replacement
+    with pytest.raises(CRIEncryptionError):
+        await prepare_channel_config_write(tenant, replacement, sealed, None)
+    with pytest.raises(CRIEncryptionError):
+        await prepare_channel_config_write(tenant, replacement, original, None, require_encryption=True)
+    assert await prepare_channel_config_write(tenant, replacement, original, cipher) == replacement
+    assert await prepare_channel_config_write(tenant, None, sealed, None) is None
+
+
+@pytest.mark.asyncio
+async def test_strict_provisioning_fails_before_creating_plaintext_channel():
+    payload = TenantCreate(
+        name="Fixture", slug="fixture", region="Fixture",
+        whatsapp_config={"phone_number_id": "123", "access_token": "synthetic", "verify_token": "synthetic"},
+    )
+    service = TenantProvisioningService()
+    service._create_tenant_record = AsyncMock()
+    with patch("app.services.tenant.provisioning.get_settings", return_value=SimpleNamespace(whatsapp_config_require_encryption=True)):
+        with pytest.raises(TenantProvisioningError):
+            await service.provision_tenant(payload)
+    service._create_tenant_record.assert_not_awaited()

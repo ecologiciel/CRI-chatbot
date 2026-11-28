@@ -21,6 +21,55 @@ _MAX_BYTES = 131_072
 _RESERVED = frozenset({"_envelope", "_format"})
 
 
+def is_sealed_or_malformed(config: dict[str, Any]) -> bool:
+    """Do not interpret a damaged envelope as a legacy plaintext config."""
+    return bool(_RESERVED.intersection(config))
+
+
+async def load_channel_config(
+    tenant_id: uuid.UUID,
+    stored: dict[str, Any] | None,
+    cipher: VersionedEnvelopeService | None,
+    *,
+    require_encryption: bool = False,
+    session: AsyncSession | None = None,
+) -> dict[str, Any] | None:
+    """Read an envelope or, during a controlled transition, legacy plaintext."""
+    if stored is None:
+        return None
+    if not isinstance(stored, dict):
+        raise CRIDecryptionError("Invalid channel configuration")
+    if is_sealed_or_malformed(stored):
+        if cipher is None:
+            raise CRIDecryptionError("Channel encryption key unavailable")
+        return await open_channel_config(tenant_id, stored, cipher, session=session)
+    if require_encryption:
+        raise CRIDecryptionError("Plaintext channel configuration is disabled")
+    return dict(stored)
+
+
+async def prepare_channel_config_write(
+    tenant_id: uuid.UUID,
+    config: dict[str, Any] | None,
+    previous: dict[str, Any] | None,
+    cipher: VersionedEnvelopeService | None,
+    *,
+    require_encryption: bool = False,
+    session: AsyncSession | None = None,
+) -> dict[str, Any] | None:
+    """Never downgrade a sealed channel to plaintext during an update."""
+    if config is None:
+        return None
+    if not isinstance(config, dict) or is_sealed_or_malformed(config):
+        raise CRIEncryptionError("Invalid channel configuration")
+    previous_sealed = isinstance(previous, dict) and is_sealed_or_malformed(previous)
+    if previous_sealed or require_encryption:
+        if cipher is None:
+            raise CRIEncryptionError("Channel encryption key unavailable")
+        return await seal_channel_config(tenant_id, config, cipher, session=session)
+    return dict(config)
+
+
 def _valid_channel_id(value: object) -> bool:
     return isinstance(value, str) and value.isascii() and value.isdecimal() and 0 < len(value) <= 32
 

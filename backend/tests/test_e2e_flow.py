@@ -209,6 +209,7 @@ def handler_env():
     mock_conv_svc.guard_bot_reply = MagicMock(side_effect=_allow_reply)
     mock_feedback_svc = AsyncMock()
     mock_redis = AsyncMock()
+    mock_redis.eval.return_value = 1
 
     patches = (
         patch(
@@ -252,7 +253,7 @@ def _setup_happy_path(mocks, contact=None, conversation=None, run_result=None):
     run_result = run_result or _make_run_result()
 
     mocks["session_mgr"].is_duplicate_message.return_value = False
-    mocks["redis"].incr.return_value = 1
+    mocks["redis"].eval.return_value = 1
     mocks["session_mgr"].check_quota.return_value = _make_quota(is_exhausted=False)
     mocks["contact_svc"].get_or_create.return_value = contact
     mocks["conv_svc"].get_or_create.return_value = conversation
@@ -723,7 +724,7 @@ class TestFeedbackRouting:
         last_outbound = _make_mock_message(direction=MessageDirection.outbound)
 
         mocks["session_mgr"].is_duplicate_message.return_value = False
-        mocks["redis"].incr.return_value = 1
+        mocks["redis"].eval.return_value = 1
         mocks["session_mgr"].check_quota.return_value = _make_quota()
         mocks["contact_svc"].get_or_create.return_value = contact
         mocks["conv_svc"].get_or_create.return_value = conversation
@@ -751,7 +752,7 @@ class TestFeedbackRouting:
         last_outbound = _make_mock_message()
 
         mocks["session_mgr"].is_duplicate_message.return_value = False
-        mocks["redis"].incr.return_value = 1
+        mocks["redis"].eval.return_value = 1
         mocks["session_mgr"].check_quota.return_value = _make_quota()
         mocks["contact_svc"].get_or_create.return_value = contact
         mocks["conv_svc"].get_or_create.return_value = conversation
@@ -789,7 +790,7 @@ class TestRateLimiting:
     async def test_user_rate_limited(self, handler_env):
         handler, mocks = handler_env
         mocks["session_mgr"].is_duplicate_message.return_value = False
-        mocks["redis"].incr.return_value = 11  # Over limit
+        mocks["redis"].eval.return_value = 11  # Over limit
 
         msg = _make_text_message()
         await handler.handle_message(TEST_TENANT, msg, None)

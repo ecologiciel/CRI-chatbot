@@ -43,6 +43,8 @@ export function useEscalations(params?: EscalationsParams) {
         status: params?.status || undefined,
         priority: params?.priority || undefined,
       }),
+    // Redis/WebSocket notifications are best-effort; refresh even if one is lost.
+    refetchInterval: 30_000,
   });
 }
 
@@ -52,6 +54,8 @@ export function useEscalation(escalationId: string | null) {
     queryKey: ["escalations", "detail", escalationId] as const,
     queryFn: () => api.get<Escalation>(`/escalations/${escalationId}`),
     enabled: !!escalationId,
+    // Keep the case status current after a missed event.
+    refetchInterval: 15_000,
   });
 }
 
@@ -71,6 +75,8 @@ export function useEscalationConversation(escalationId: string | null) {
     queryFn: () =>
       api.get<EscalationMessage[]>(`/escalations/${escalationId}/conversation`),
     enabled: !!escalationId,
+    // Redis/WebSocket delivery is not durable; poll while the conversation is open.
+    refetchInterval: 15_000,
   });
 }
 

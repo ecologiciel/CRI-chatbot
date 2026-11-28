@@ -22,6 +22,8 @@ from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.whatsapp import local_relay
 from app.services.whatsapp.config_envelope import seal_channel_config
 from app.services.whatsapp.inbox_intake import persist_tenant_authenticated_webhook
+from app.services.whatsapp.inbox_leases import claim_next, finish_claim
+from app.services.whatsapp.inbox_payload import decrypt_claim
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated PostgreSQL")
@@ -107,6 +109,17 @@ async def test_encrypted_tenant_intake_commits_deduplicates_and_rejects_rotated_
                 status_count = await conn.scalar(text("SELECT count(*) FROM public.whatsapp_status_events WHERE tenant_id=:id"), {"id": tenant_id})
             assert len(row) == 2 and all("synthetic-private-message" not in item.ciphertext for item in row)
             assert status_count == 1
+            with patch("app.services.whatsapp.inbox_leases.get_session_factory", return_value=factory):
+                first = await claim_next()
+                assert first and first.provider_message_id == "fixture-1"
+                assert (await decrypt_claim(first, cipher)).message.text.body == "synthetic-private-message"
+                # A later message from the same citizen cannot overtake it.
+                assert await claim_next() is None
+                assert await finish_claim(first.id, first.lease_token, uncertain=False)
+                second = await claim_next()
+                assert second and second.provider_message_id == "fixture-relay-1"
+                assert (await decrypt_claim(second, cipher)).message.text.body == "synthetic-private-message"
+                assert await finish_claim(second.id, second.lease_token, uncertain=False)
             rotated = await seal_channel_config(tenant_id, dict(config, app_secret="fixture-rotated-key"), cipher)
             async with engine.begin() as conn:
                 await conn.execute(text("UPDATE public.tenants SET whatsapp_config=CAST(:cfg AS jsonb) WHERE id=:id"), {"id": tenant_id, "cfg": json.dumps(rotated)})

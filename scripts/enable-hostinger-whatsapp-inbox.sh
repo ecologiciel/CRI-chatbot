@@ -83,10 +83,14 @@ worker_id=$("${c[@]}" ps -q whatsapp-inbox-worker)
 sleep 46
 ready=0
 for attempt in $(seq 1 30); do
-  if "${c[@]}" exec -T backend python -c 'import asyncio; from app.core.redis import init_redis,close_redis,get_redis; from app.services.whatsapp.worker_presence import HEARTBEAT_KEY as inbox; from app.services.escalation.reply_presence import HEARTBEAT_KEY as agent
+  if [[ "$(docker inspect -f '{{.State.Running}}' "$worker_id" 2>/dev/null)" != true || "$(docker inspect -f '{{.State.Running}}' "$agent_id" 2>/dev/null)" != true ]]; then
+    echo 'Worker stopped while waiting for heartbeat' >&2
+    break
+  fi
+  if "${c[@]}" exec -T backend python -c 'import asyncio; from app.core.redis import init_redis,close_redis,get_redis
 async def check():
  await init_redis()
- try: return bool(await get_redis().exists(inbox)) and bool(await get_redis().exists(agent))
+ try: return bool(await get_redis().exists("system:whatsapp_inbox:worker_heartbeat")) and bool(await get_redis().exists("system:agent_reply_outbox:worker_heartbeat"))
  finally: await close_redis()
 assert asyncio.run(check())' >/dev/null 2>&1; then ready=1; break; fi
   sleep 2

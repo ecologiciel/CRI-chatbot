@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 URL = os.getenv("TEST_WA_FENCE_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable migrated PostgreSQL")
 TABLES = ("agent_reply_outbox_events", "whatsapp_inbox_events", "whatsapp_status_events",
-          "notification_outbox_events", "dossier_import_requests")
+          "notification_outbox_events", "dossier_import_requests", "tenant_keys")
 
 
 @pytest.mark.asyncio
@@ -32,6 +32,7 @@ async def test_shared_rows_follow_authenticated_login_not_caller_setting():
             await conn.execute(text("INSERT INTO public.whatsapp_status_events (id,tenant_id,phone_number_id,fingerprint,ciphertext,key_version) VALUES (:id,:tenant,'123',repeat('b',64),'fixture',1)"), params)
             await conn.execute(text("INSERT INTO public.notification_outbox_events (id,tenant_id,history_id,dossier_id) VALUES (:id,:tenant,gen_random_uuid(),gen_random_uuid())"), params)
             await conn.execute(text("INSERT INTO public.dossier_import_requests (id,tenant_id,object_key,content_sha256,mapping_sha256) VALUES (:id,:tenant,'fixture',repeat('c',64),repeat('d',64))"), params)
+            await conn.execute(text("INSERT INTO public.tenant_keys (id,tenant_id,encrypted_key,key_version) VALUES (:id,:tenant,decode('010203','hex'),1)"), params)
     async with elevated.begin() as conn:
         await conn.execute(text("ALTER TABLE public.whatsapp_status_events ENABLE ROW LEVEL SECURITY"))
     async with elevated.connect() as conn:

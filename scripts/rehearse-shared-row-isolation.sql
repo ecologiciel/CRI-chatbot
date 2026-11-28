@@ -14,7 +14,7 @@ BEGIN
   END IF;
   FOREACH rel IN ARRAY ARRAY[
     'agent_reply_outbox_events', 'whatsapp_inbox_events', 'whatsapp_status_events',
-    'notification_outbox_events', 'dossier_import_requests'
+    'notification_outbox_events', 'dossier_import_requests', 'tenant_keys'
   ] LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -50,7 +50,7 @@ DECLARE rel text;
 BEGIN
   FOREACH rel IN ARRAY ARRAY[
     'agent_reply_outbox_events', 'whatsapp_inbox_events', 'whatsapp_status_events',
-    'notification_outbox_events', 'dossier_import_requests'
+    'notification_outbox_events', 'dossier_import_requests', 'tenant_keys'
   ] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', rel);
     EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', rel);

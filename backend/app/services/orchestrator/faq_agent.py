@@ -6,10 +6,13 @@ Pre-retrieved chunks are passed to GenerationService to avoid double retrieval.
 
 from __future__ import annotations
 
+import uuid
+
 import structlog
 
 from app.core.tenant import TenantContext
 from app.schemas.rag import GenerationRequest
+from app.services.conversation.service import get_conversation_service
 from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.orchestrator.state import ConversationState
 from app.services.rag.generation import GenerationService, get_generation_service
@@ -21,6 +24,10 @@ logger = structlog.get_logger()
 # Matches EscalationService.LOW_CONFIDENCE_THRESHOLD — kept local to avoid
 # circular imports (graph → escalation → … → graph).
 _LOW_CONFIDENCE_THRESHOLD = 0.5
+
+
+class FAQOutcomePersistenceError(RuntimeError):
+    """The response outcome could not be durably recorded."""
 
 
 class FAQAgent:
@@ -42,6 +49,31 @@ class FAQAgent:
         self._generation = generation
         self._logger = logger.bind(service="faq_agent")
 
+    async def _record_outcome(
+        self, state: ConversationState, tenant: TenantContext, updates: dict, *, low: bool
+    ) -> None:
+        conversation_id = state.get("conversation_id")
+        if not conversation_id:
+            # Offline graph evaluation without a persisted conversation.
+            updates["consecutive_low_confidence"] = (
+                state.get("consecutive_low_confidence", 0) + 1 if low else 0
+            )
+            return
+        try:
+            count = await get_conversation_service().record_faq_outcome(
+                tenant, uuid.UUID(str(conversation_id)), low_confidence=low
+            )
+        except Exception as exc:
+            # A commit may have succeeded even if the connection failed. Never
+            # retry this counter update in the provider error handler.
+            raise FAQOutcomePersistenceError("Unable to persist FAQ outcome") from exc
+        if count is None:
+            # An agent took over or the conversation closed during generation.
+            updates["suppress_auto_response"] = True
+            updates["consecutive_low_confidence"] = 0
+            return
+        updates["consecutive_low_confidence"] = count
+
     async def handle(
         self,
         state: ConversationState,
@@ -60,6 +92,7 @@ class FAQAgent:
         query = state.get("query", "")
         language = state.get("language", "fr")
         updates: dict = {}
+        low_confidence = True
 
         try:
             # Step 1: Retrieve chunks from Qdrant
@@ -80,14 +113,13 @@ class FAQAgent:
                 updates["confidence"] = 0.0
                 updates["chunk_ids"] = []
                 updates["retrieved_chunks"] = []
-                updates["consecutive_low_confidence"] = (
-                    state.get("consecutive_low_confidence", 0) + 1
-                )
                 self._logger.info(
                     "faq_no_chunks",
                     tenant=tenant.slug,
                     query_length=len(query),
                 )
+                # Record exactly once outside the provider-error handler.
+                await self._record_outcome(state, tenant, updates, low=True)
                 return updates  # type: ignore[return-value]
 
             # Step 3: Build conversation history (last 5 messages)
@@ -114,12 +146,7 @@ class FAQAgent:
             updates["chunk_ids"] = gen_response.chunk_ids
             updates["sources"] = gen_response.sources
             updates["confidence"] = gen_response.confidence
-            if gen_response.confidence < _LOW_CONFIDENCE_THRESHOLD:
-                updates["consecutive_low_confidence"] = (
-                    state.get("consecutive_low_confidence", 0) + 1
-                )
-            else:
-                updates["consecutive_low_confidence"] = 0
+            low_confidence = gen_response.confidence < _LOW_CONFIDENCE_THRESHOLD
             updates["retrieved_chunks"] = [
                 {
                     "chunk_id": c.chunk_id,
@@ -137,6 +164,8 @@ class FAQAgent:
                 latency_ms=gen_response.latency_ms,
             )
 
+        except FAQOutcomePersistenceError:
+            raise
         except Exception as exc:
             self._logger.error(
                 "faq_agent_error",
@@ -150,8 +179,9 @@ class FAQAgent:
             )
             updates["confidence"] = 0.0
             updates["chunk_ids"] = []
-            updates["consecutive_low_confidence"] = state.get("consecutive_low_confidence", 0) + 1
+            low_confidence = True
 
+        await self._record_outcome(state, tenant, updates, low=low_confidence)
         return updates  # type: ignore[return-value]
 
 

@@ -306,6 +306,28 @@ class TestHappyPath:
         assert str(conversation.id) in mocks["redis"].publish.await_args.args[1]
 
     @pytest.mark.asyncio()
+    async def test_takeover_during_generation_suppresses_bot_response(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        mocks["conv_svc"].get_status.side_effect = [
+            ConversationStatus.active, ConversationStatus.human_handled,
+        ]
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()):
+            await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+        assert mocks["conv_svc"].add_message.await_count == 1
+        mocks["sender"].send_text.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_new_escalation_transition_is_not_suppressed(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        mocks["conv_svc"].get_status.return_value = ConversationStatus.active
+        result = _make_run_result(escalation_id=str(uuid.uuid4()), response="Demande enregistrée")
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=result):
+            await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+        mocks["sender"].send_text.assert_awaited_once()
+
+    @pytest.mark.asyncio()
     async def test_happy_path_text_faq(self, handler_env):
         handler, mocks = handler_env
         contact, conversation, run_result = _setup_happy_path(mocks)

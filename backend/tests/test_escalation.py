@@ -23,6 +23,7 @@ os.environ.setdefault("MINIO_ROOT_PASSWORD", "test-password")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key")
 
 from app.models.enums import (
+    ConversationStatus,
     EscalationPriority,
     EscalationStatus,
     EscalationTrigger,
@@ -194,6 +195,12 @@ class TestEscalationLifecycle:
         session.execute = AsyncMock(return_value=result_mock)
         session.add = MagicMock()
         session.flush = AsyncMock()
+        svc.generate_context_summary = AsyncMock(return_value=None)
+        locked = MagicMock()
+        locked.scalar_one_or_none.return_value = MagicMock(status=ConversationStatus.active)
+        absent = MagicMock()
+        absent.scalar_one_or_none.return_value = None
+        session.execute.side_effect = [locked, absent]
 
         tenant = _make_tenant_mock(session)
 
@@ -221,6 +228,12 @@ class TestEscalationLifecycle:
         session.execute = AsyncMock(return_value=result_mock)
         session.add = MagicMock()
         session.flush = AsyncMock()
+        svc.generate_context_summary = AsyncMock(return_value=None)
+        locked = MagicMock()
+        locked.scalar_one_or_none.return_value = MagicMock(status=ConversationStatus.active)
+        absent = MagicMock()
+        absent.scalar_one_or_none.return_value = None
+        session.execute.side_effect = [locked, absent]
 
         tenant = _make_tenant_mock(session)
 
@@ -251,6 +264,12 @@ class TestEscalationLifecycle:
         session.execute = AsyncMock(return_value=result_mock)
         session.add = MagicMock()
         session.flush = AsyncMock()
+        svc.generate_context_summary = AsyncMock(return_value=None)
+        locked = MagicMock()
+        locked.scalar_one_or_none.return_value = MagicMock(status=ConversationStatus.active)
+        absent = MagicMock()
+        absent.scalar_one_or_none.return_value = None
+        session.execute.side_effect = [locked, absent]
 
         tenant = _make_tenant_mock(session)
 

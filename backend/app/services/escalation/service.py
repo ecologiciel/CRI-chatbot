@@ -23,9 +23,9 @@ import uuid
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, func, select, text, update
 
-from app.core.exceptions import EscalationConflictError
+from app.core.exceptions import EscalationConflictError, ResourceNotFoundError
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
@@ -280,6 +280,28 @@ class EscalationService:
 
         # 2. Create escalation + 3. Update conversation status
         async with tenant.db_session() as session:
+            # All creation paths serialize on the conversation row. Concurrent
+            # requests therefore reuse a pending/assigned case instead of
+            # creating competing human handoffs.
+            conversation = (await session.execute(
+                select(Conversation).where(Conversation.id == conversation_id).with_for_update()
+            )).scalar_one_or_none()
+            if conversation is None:
+                raise ResourceNotFoundError("Conversation introuvable")
+            existing = (await session.execute(
+                select(Escalation).where(
+                    Escalation.conversation_id == conversation_id,
+                    Escalation.status.in_((
+                        EscalationStatus.pending,
+                        EscalationStatus.assigned,
+                        EscalationStatus.in_progress,
+                    )),
+                ).order_by(Escalation.created_at.desc()).limit(1)
+            )).scalar_one_or_none()
+            if existing is not None:
+                return existing
+            if conversation.status != ConversationStatus.active:
+                raise EscalationConflictError("Conversation indisponible pour une escalade")
             escalation = Escalation(
                 conversation_id=conversation_id,
                 trigger_type=trigger,
@@ -290,11 +312,7 @@ class EscalationService:
             )
             session.add(escalation)
 
-            await session.execute(
-                update(Conversation)
-                .where(Conversation.id == conversation_id)
-                .values(status=ConversationStatus.escalated),
-            )
+            conversation.status = ConversationStatus.escalated
 
             await session.flush()
             esc_id = escalation.id
@@ -634,7 +652,10 @@ class EscalationService:
             await session.execute(
                 update(Conversation)
                 .where(Conversation.id == escalation.conversation_id)
-                .values(status=ConversationStatus.active),
+                .values(
+                    status=ConversationStatus.active,
+                    metadata_=text("coalesce(metadata, '{}'::jsonb) - 'rag_low_confidence_count'"),
+                ),
             )
 
         self._logger.info(

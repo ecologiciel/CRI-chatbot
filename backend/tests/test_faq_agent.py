@@ -1,7 +1,7 @@
 """Tests for FAQAgent — LangGraph FAQ node."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -105,6 +105,35 @@ def _make_faq_agent(mock_retrieval=None, mock_generation=None):
 
 class TestFAQAgent:
     """FAQAgent test suite."""
+
+    @pytest.mark.asyncio
+    async def test_persisted_counter_drives_escalation_across_turns(self):
+        retrieval = AsyncMock()
+        retrieval.retrieve.return_value = _make_retrieval_result(chunks=[], confidence=0.0)
+        agent, _, _ = _make_faq_agent(retrieval, AsyncMock())
+        conversation_id = uuid.uuid4()
+        counter = AsyncMock()
+        counter.record_faq_outcome.side_effect = [1, 2]
+        state = _make_state(conversation_id=str(conversation_id))
+        with patch("app.services.orchestrator.faq_agent.get_conversation_service", return_value=counter):
+            first = await agent.handle(state, TEST_TENANT)
+            second = await agent.handle(state, TEST_TENANT)
+        assert first["consecutive_low_confidence"] == 1
+        assert second["consecutive_low_confidence"] == 2
+        assert counter.record_faq_outcome.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_agent_takeover_during_generation_suppresses_response(self):
+        retrieval = AsyncMock()
+        retrieval.retrieve.return_value = _make_retrieval_result()
+        generation = AsyncMock()
+        generation.generate.return_value = _make_generation_response()
+        agent, _, _ = _make_faq_agent(retrieval, generation)
+        counter = AsyncMock()
+        counter.record_faq_outcome.return_value = None
+        with patch("app.services.orchestrator.faq_agent.get_conversation_service", return_value=counter):
+            result = await agent.handle(_make_state(conversation_id=str(uuid.uuid4())), TEST_TENANT)
+        assert result["suppress_auto_response"] is True
 
     @pytest.mark.asyncio
     async def test_faq_agent_success(self):

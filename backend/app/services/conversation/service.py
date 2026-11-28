@@ -27,6 +27,7 @@ logger = structlog.get_logger()
 
 # 30-minute inactivity timeout (configurable per CLAUDE.md §5)
 CONVERSATION_TIMEOUT = 1800  # seconds
+HUMAN_HANDOFF_STATUSES = (ConversationStatus.escalated, ConversationStatus.human_handled)
 
 
 class ConversationService:
@@ -72,7 +73,7 @@ class ConversationService:
 
             statuses = [ConversationStatus.active]
             if resume_escalated:
-                statuses.append(ConversationStatus.escalated)
+                statuses.extend(HUMAN_HANDOFF_STATUSES)
             result = await session.execute(
                 select(Conversation)
                 .where(
@@ -80,7 +81,7 @@ class ConversationService:
                     Conversation.status.in_(statuses),
                 )
                 .order_by(
-                    case((Conversation.status == ConversationStatus.escalated, 0), else_=1),
+                    case((Conversation.status.in_(HUMAN_HANDOFF_STATUSES), 0), else_=1),
                     Conversation.started_at.desc(),
                 )
                 .limit(1),
@@ -90,7 +91,7 @@ class ConversationService:
             if existing is not None:
                 # An open human handoff is not an idle bot conversation and
                 # must not be closed by the normal 30-minute timeout.
-                if existing.status == ConversationStatus.escalated:
+                if existing.status in HUMAN_HANDOFF_STATUSES:
                     return existing
                 # Check last message timestamp for timeout
                 last_ts = await self._get_last_message_time(session, existing.id)

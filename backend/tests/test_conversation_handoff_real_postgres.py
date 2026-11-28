@@ -46,6 +46,13 @@ async def test_concurrent_creation_and_resuming_open_handoff():
             assert existing.status == ConversationStatus.escalated
             assert await service.get_status(tenant, handoff) == ConversationStatus.escalated
             assert (await service.get_or_create(tenant, second)).id == newer
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE tenant_fixturehandoff.conversations "
+                                        "SET status='human_handled' WHERE id=:id"), {"id": handoff})
+            assigned = await service.get_or_create(tenant, second, resume_escalated=True)
+            assert assigned.id == handoff
+            assert assigned.status == ConversationStatus.human_handled
+            assert await service.get_status(tenant, handoff) == ConversationStatus.human_handled
         async with engine.begin() as conn:
             count = await conn.scalar(text("SELECT count(*) FROM tenant_fixturehandoff.conversations "
                                            "WHERE contact_id=:contact"), {"contact": first})

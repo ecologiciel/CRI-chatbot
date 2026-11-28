@@ -288,10 +288,11 @@ class TestHappyPath:
         mocks["session_mgr"].increment_quota.assert_not_awaited()
 
     @pytest.mark.asyncio()
-    async def test_open_handoff_persists_inbound_without_bot_reply(self, handler_env):
+    @pytest.mark.parametrize("status", [ConversationStatus.escalated, ConversationStatus.human_handled])
+    async def test_open_handoff_persists_inbound_without_bot_reply(self, handler_env, status):
         handler, mocks = handler_env
         _, conversation, _ = _setup_happy_path(mocks)
-        mocks["conv_svc"].get_status.return_value = ConversationStatus.escalated
+        mocks["conv_svc"].get_status.return_value = status
 
         with patch(RUN_CONV_PATH, new_callable=AsyncMock) as run:
             await handler.handle_message(TEST_TENANT, _make_text_message(), None)

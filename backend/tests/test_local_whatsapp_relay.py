@@ -53,11 +53,19 @@ async def test_post_preserves_exact_bytes_and_signature_but_discards_untrusted_h
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("path", ["/wa/whatsapp/tenant/ONSSA", "/wa/whatsapp/tenant/a", "/wa/whatsapp/tenant/onssa/extra", "/wa/whatsapp"])
+@pytest.mark.parametrize("path", ["/wa/whatsapp/tenant/ONSSA", "/wa/whatsapp/tenant/_bad", "/wa/whatsapp/tenant/onssa/extra", "/wa/whatsapp"])
 async def test_invalid_paths_never_reach_backend(relay_client, path):
     client, seen = relay_client
     assert (await client.get(path)).status_code == 404
     assert not seen
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slug", ["a", "1", "institution_1"])
+async def test_valid_tenant_slugs_are_forwarded(relay_client, slug):
+    client, seen = relay_client
+    assert (await client.get(f"/wa/whatsapp/tenant/{slug}")).status_code == 200
+    assert seen[0].url.path.endswith(f"/{slug}")
 
 
 @pytest.mark.asyncio

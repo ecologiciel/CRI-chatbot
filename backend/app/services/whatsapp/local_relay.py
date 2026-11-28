@@ -62,7 +62,7 @@ async def health() -> dict[str, str]:
 
 @app.api_route("/wa/whatsapp/tenant/{slug}", methods=["GET", "POST"])
 async def relay(slug: str, request: Request) -> Response:
-    if not re.fullmatch(r"[a-z][a-z0-9]{1,49}", slug):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_]{0,49}", slug):
         raise HTTPException(status_code=404, detail="Not found")
     query = request.scope.get("query_string", b"")
     if len(query) > MAX_QUERY_BYTES or any(byte < 32 or byte > 126 for byte in query):

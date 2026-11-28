@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useTenants, useToggleTenant } from "@/hooks/use-super-admin";
 import { selectTenant } from "@/lib/api-client";
+import { WhatsAppChannelDialog } from "@/components/super-admin/whatsapp-channel-dialog";
 
 const statusLabels: Record<string, string> = {
   active: "Actif", inactive: "Inactif", suspended: "Suspendu", provisioning: "En cours",
@@ -29,6 +30,7 @@ export function TenantsTable() {
           <TableCell>{tenant.region}</TableCell>
           <TableCell>{statusLabels[tenant.status] ?? tenant.status}</TableCell>
           <TableCell><div className="flex flex-wrap gap-2">
+            <WhatsAppChannelDialog tenant={tenant} />
             <Button variant="outline" size="sm" disabled={tenant.status !== "active"} onClick={() => {
               selectTenant(tenant.id, tenant.name);
               // A full reload clears cached data belonging to the previous institution.

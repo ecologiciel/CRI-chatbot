@@ -11,10 +11,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.v1.notifications import update_template
-from app.api.v1.tenant import get_tenant, update_tenant
+from app.api.v1.tenant import get_tenant, update_tenant, update_whatsapp_channel
 from app.core.exceptions import (
     CRIDecryptionError,
     CRIEncryptionError,
@@ -23,7 +24,7 @@ from app.core.exceptions import (
 )
 from app.core.tenant import TenantResolver
 from app.schemas.notification import NotificationTemplateUpdate
-from app.schemas.tenant import TenantCreate, TenantUpdate
+from app.schemas.tenant import TenantCreate, TenantUpdate, WhatsAppChannelUpdate
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.tenant.provisioning import TenantProvisioningService
@@ -31,6 +32,61 @@ from app.services.whatsapp.config_envelope import open_channel_config, seal_chan
 
 URL = os.getenv("TEST_KMS_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable PostgreSQL")
+
+
+@pytest.mark.asyncio
+async def test_channel_update_preserves_settings_and_audits_atomically():
+    engine = create_async_engine(URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id = uuid.uuid4()
+    slug = "waupdate" + tenant_id.hex
+    master = secrets.token_hex(32)
+    settings = SimpleNamespace(kms_master_key=master, whatsapp_config_require_encryption=True)
+    cipher = VersionedEnvelopeService(factory, master)
+    original = {"phone_number_id": "873456789", "access_token": "old-access", "verify_token": "old-verify", "notification_templates": {"status": "keep"}, "annual_message_limit": 1234}
+    change = WhatsAppChannelUpdate(phone_number_id="873456789", business_account_id="87654", access_token="new-access-secret", verify_token="new-verify-secret", app_secret="new-app-secret")
+    admin = MagicMock(sub=str(uuid.uuid4()))
+    constraint = False
+    try:
+        async with engine.begin() as conn:
+            assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
+            await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status) VALUES (:id,'Fixture',:slug,'Test','active')"), {"id": tenant_id, "slug": slug})
+        await KMSService(factory, AsyncMock(), master).generate_tenant_key(tenant_id)
+        sealed = await seal_channel_config(tenant_id, original, cipher)
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE public.tenants SET whatsapp_config=CAST(:value AS jsonb) WHERE id=:id"), {"id": tenant_id, "value": json.dumps(sealed)})
+        with (
+            patch("app.api.v1.tenant.get_settings", return_value=settings),
+            patch("app.api.v1.tenant.get_session_factory", return_value=factory),
+        ):
+            async with engine.begin() as conn:
+                await conn.execute(text("ALTER TABLE public.audit_logs ADD CONSTRAINT fixture_reject_wa_channel_update CHECK (action <> 'wa_channel_update') NOT VALID"))
+                constraint = True
+            with pytest.raises(IntegrityError):
+                await update_whatsapp_channel(tenant_id, change, admin)
+            async with engine.begin() as conn:
+                stored = await conn.scalar(text("SELECT whatsapp_config FROM public.tenants WHERE id=:id"), {"id": tenant_id})
+                assert stored == sealed
+                await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_wa_channel_update"))
+                constraint = False
+            result = await update_whatsapp_channel(tenant_id, change, admin)
+        assert result.phone_number_id == change.phone_number_id
+        assert "secret" not in repr(result.model_dump())
+        async with engine.connect() as conn:
+            stored = await conn.scalar(text("SELECT whatsapp_config FROM public.tenants WHERE id=:id"), {"id": tenant_id})
+            audit = await conn.scalar(text("SELECT count(*) FROM public.audit_logs WHERE tenant_slug=:slug AND action='wa_channel_update'"), {"slug": slug})
+        assert "new-access-secret" not in json.dumps(stored) and "new-app-secret" not in json.dumps(stored)
+        decoded = await open_channel_config(tenant_id, stored, cipher)
+        assert decoded["notification_templates"] == {"status": "keep"}
+        assert decoded["annual_message_limit"] == 1234 and decoded["app_secret"] == "new-app-secret"
+        assert audit == 1
+    finally:
+        async with engine.begin() as conn:
+            if constraint:
+                await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_wa_channel_update"))
+            await conn.execute(text("DELETE FROM public.audit_logs WHERE tenant_slug=:slug AND action='wa_channel_update'"), {"slug": slug})
+            await conn.execute(text("DELETE FROM public.tenants WHERE id=:id"), {"id": tenant_id})
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

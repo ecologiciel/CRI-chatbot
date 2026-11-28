@@ -580,7 +580,7 @@ class TestDeleteTenantEndpoint:
             app.dependency_overrides.pop(get_current_admin, None)
 
         assert response.status_code == 204
-        MockService.return_value.deprovision_tenant.assert_awaited_once_with("rabat", tenant_id=tenant_id)
+        MockService.return_value.deprovision_tenant.assert_awaited_once_with("rabat", tenant_id=tenant_id, actor_id=uuid.UUID(payload.sub))
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_tenant(self):

@@ -383,5 +383,5 @@ async def delete_tenant(
     )
 
     service = TenantProvisioningService()
-    await service.deprovision_tenant(slug, tenant_id=tenant_id)
+    await service.deprovision_tenant(slug, tenant_id=tenant_id, actor_id=uuid.UUID(admin.sub))
     return Response(status_code=204)

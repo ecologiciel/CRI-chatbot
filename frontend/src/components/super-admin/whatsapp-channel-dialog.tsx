@@ -23,6 +23,7 @@ export function WhatsAppChannelDialog({ tenant }: { tenant: TenantRecord }) {
   const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [callbackUrl, setCallbackUrl] = useState("");
 
   function clear() {
     setPhone(""); setAccount(""); setAccess(""); setVerification(""); setSecret(""); setError("");
@@ -31,6 +32,9 @@ export function WhatsAppChannelDialog({ tenant }: { tenant: TenantRecord }) {
   function changeOpen(value: boolean) {
     if (submitting) return;
     if (!value) clear();
+    if (value) {
+      setCallbackUrl(`${window.location.origin}/wa/whatsapp/tenant/${encodeURIComponent(tenant.slug)}`);
+    }
     setOpen(value);
   }
 
@@ -68,7 +72,7 @@ export function WhatsAppChannelDialog({ tenant }: { tenant: TenantRecord }) {
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>Configurer WhatsApp</Button>
+      <Button variant="outline" size="sm" onClick={() => changeOpen(true)}>Configurer WhatsApp</Button>
       <Dialog open={open} onOpenChange={changeOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -76,6 +80,7 @@ export function WhatsAppChannelDialog({ tenant }: { tenant: TenantRecord }) {
             <DialogDescription>Renseignez les identifiants propres à cette institution. Les secrets existants ne sont jamais affichés ; une modification exige leur nouvelle saisie.</DialogDescription>
           </DialogHeader>
           <form onSubmit={submit} className="space-y-4" autoComplete="off">
+            {callbackUrl && <div className="space-y-2"><Label htmlFor={`${id}-callback`}>URL de rappel pour cette institution</Label><Input id={`${id}-callback`} readOnly value={callbackUrl} /><p className="text-sm text-muted-foreground">Adresse calculée à partir du domaine actuel. Elle nécessite le relais WhatsApp actif ; configurez-la dans Meta avec le même jeton de vérification.</p></div>}
             <div className="space-y-2"><Label htmlFor={`${id}-phone`}>Identifiant du numéro Meta</Label><Input id={`${id}-phone`} inputMode="numeric" pattern="[0-9]{1,32}" required maxLength={32} value={phone} onChange={(event) => setPhone(event.target.value)} /></div>
             <div className="space-y-2"><Label htmlFor={`${id}-account`}>Identifiant du compte professionnel Meta (facultatif)</Label><Input id={`${id}-account`} inputMode="numeric" pattern="[0-9]{1,32}" maxLength={32} value={account} onChange={(event) => setAccount(event.target.value)} /></div>
             <div className="space-y-2"><Label htmlFor={`${id}-access`}>Jeton d’accès</Label><Input id={`${id}-access`} type="password" autoComplete="new-password" required maxLength={4096} value={access} onChange={(event) => setAccess(event.target.value)} /></div>

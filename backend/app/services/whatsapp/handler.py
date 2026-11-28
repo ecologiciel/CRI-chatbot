@@ -342,6 +342,7 @@ class MessageHandler:
                 incentive_state=incentive_state,
                 conversation_id=str(conversation.id),
                 tracking_state=tracking_state_str,
+                tracking_available=False,
                 defer_feedback=True,
             )
             if result.get("error"):

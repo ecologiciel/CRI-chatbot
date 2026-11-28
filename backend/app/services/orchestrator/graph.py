@@ -372,7 +372,7 @@ async def run_conversation(
     incentive_state: dict | None = None,
     conversation_id: str | None = None,
     tracking_state: str | None = None,
-    tracking_available: bool = True,
+    tracking_available: bool = False,
     channel: str = "whatsapp",
     defer_feedback: bool = False,
 ) -> dict:

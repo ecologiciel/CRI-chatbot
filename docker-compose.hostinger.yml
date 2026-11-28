@@ -258,7 +258,7 @@ services:
     <<: *app-hardening
     profiles: ["whatsapp-durable"]
     stop_grace_period: 420s
-    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    image: chatbot-wa-inbox:hostinger-v1
     environment:
       <<: *backend-environment
       POSTGRES_HOST: postgres

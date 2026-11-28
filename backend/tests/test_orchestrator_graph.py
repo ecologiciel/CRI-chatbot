@@ -409,16 +409,17 @@ class TestConversationGraph:
         assert result["response"] == "Message bloqué."
 
     @pytest.mark.asyncio
-    async def test_graph_tracking_agent(self):
-        """Tracking intent: intent_detector → tracking_agent → validator → feedback → END."""
+    @pytest.mark.parametrize("available", [False, True])
+    async def test_graph_tracking_fails_closed(self, available):
+        """Tracking remains unavailable even if an unreviewed caller opts in."""
         graph, _mocks = _build_graph_with_mocks(intent=IntentType.SUIVI_DOSSIER)
-        state = _make_state(query="Suivi de mon dossier")
+        state = _make_state(query="Suivi de mon dossier", tracking_available=available)
 
         result = await graph.ainvoke(state)
 
         assert result["intent"] == IntentType.SUIVI_DOSSIER
-        # Mock tracking agent response passes through mock validator unchanged
-        assert result["response"] == "Veuillez saisir votre numéro de dossier..."
+        assert "pas disponible" in result["response"]
+        assert "Ne communiquez pas" in result["response"]
 
     @pytest.mark.asyncio
     async def test_graph_escalation_handler(self):

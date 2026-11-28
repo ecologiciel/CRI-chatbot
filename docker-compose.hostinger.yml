@@ -146,7 +146,8 @@ services:
 
   backend:
     <<: *app-hardening
-    image: chatbot-demo-backend:ed3192b5b1d5ff4e94522eb9de9a5ce1972c04af
+    # The API can be replaced independently while durable workers drain.
+    image: chatbot-demo-api:proxyip-v1
     build:
       context: *source-repository
       dockerfile: backend/Dockerfile

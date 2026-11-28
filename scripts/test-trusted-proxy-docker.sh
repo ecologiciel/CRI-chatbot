@@ -58,6 +58,7 @@ services:
     working_dir: /fixture
     volumes: ["$root/app:/fixture:ro"]
     entrypoint: ["uvicorn", "probe:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    healthcheck: { disable: true }
     labels:
       - fixture.proxy.test=$project
       - traefik.enable=true

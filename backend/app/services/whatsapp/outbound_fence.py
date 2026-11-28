@@ -16,7 +16,7 @@ from app.core.database import get_session_factory
 from app.core.tenant import TenantContext
 from app.models.audit import AuditLog
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
-from app.services.whatsapp.conversation_lock import lock_for_acceptance
+from app.services.whatsapp.conversation_lock import try_lock_for_claim
 from app.services.whatsapp.inbox_leases import InboxClaim
 
 
@@ -77,7 +77,11 @@ async def guarded_provider_send(tenant: TenantContext, recipient: str) -> AsyncI
     # Covers lock wait, database checks and the complete outbound request.
     async with asyncio.timeout(40):
         async with get_session_factory()() as session:
-            await lock_for_acceptance(session, claim.tenant_id, claim.sender_fingerprint)
+            # A bot may already hold a contact lock while a concurrent STOP
+            # holds this stream lock and waits for that contact. Do not wait
+            # here and form a lock cycle; quarantine without provider I/O.
+            if not await try_lock_for_claim(session, claim.tenant_id, claim.sender_fingerprint):
+                raise OutboundFenceError("Durable outbound stream is busy")
             sequence = (
                 await session.execute(
                     select(WhatsAppInboxEvent.arrival_sequence)

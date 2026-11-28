@@ -17,6 +17,7 @@ from app.schemas.whatsapp import IncomingMessage
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.tenant.provisioning import TenantProvisioningService
+from app.services.whatsapp.conversation_lock import lock_for_acceptance
 from app.services.whatsapp.inbox import persist_incoming_message
 from app.services.whatsapp.inbox_leases import claim_next, finish_claim
 from app.services.whatsapp.outbound_fence import (
@@ -70,6 +71,15 @@ async def test_stop_serializes_with_provider_request_and_suppresses_later_sends(
         claim = await claim_next()
         assert claim is not None
         sender = WhatsAppSenderService()
+        # A competing STOP may hold the stream while waiting for a contact
+        # lock already held by the bot; fail before provider I/O, not deadlock.
+        async with factory() as blocked_session:
+            await lock_for_acceptance(blocked_session, tenant.id, claim.sender_fingerprint)
+            with outbound_scope(claim, phone) as blocked_scope:
+                with pytest.raises(OutboundFenceError):
+                    await asyncio.wait_for(sender.send_text(tenant, phone, "blocked"), timeout=2)
+                assert not blocked_scope.attempted and not blocked_scope.uncertain
+            client.post.assert_not_awaited()
         with outbound_scope(claim, phone) as scope:
             with pytest.raises(OutboundFenceError):
                 await sender.send_text(tenant, "different-recipient", "fixture")

@@ -190,6 +190,7 @@ def _build_graph_with_mocks(
     faq_response: str = "Pour créer une SARL...",
     faq_confidence: float = 0.85,
     incentives_response: str = "Voici les aides...",
+    escalation_handler=None,
 ):
     """Build a conversation graph with fully mocked singletons.
 
@@ -201,7 +202,7 @@ def _build_graph_with_mocks(
     mock_validator = _mock_response_validator()
     mock_collector = _mock_feedback_collector()
     mock_internal = _mock_internal_agent()
-    mock_escalation = _mock_escalation_handler()
+    mock_escalation = escalation_handler or _mock_escalation_handler()
     mock_tracking = _mock_tracking_agent()
 
     with (
@@ -241,6 +242,20 @@ def _build_graph_with_mocks(
 
 class TestConversationGraph:
     """Test the assembled LangGraph conversation graph."""
+
+    @pytest.mark.asyncio
+    async def test_web_escalation_routes_to_unavailable_without_creating_case(self):
+        from app.services.orchestrator.escalation_handler import EscalationHandler
+
+        service = AsyncMock()
+        graph, _ = _build_graph_with_mocks(
+            intent=IntentType.ESCALADE, escalation_handler=EscalationHandler(service),
+        )
+        result = await graph.ainvoke(_make_state(query="Parler à un conseiller", channel="web"))
+
+        assert result["response"] == PromptTemplates.get_message("web_escalation_unavailable", "fr")
+        assert not result.get("escalation_id")
+        service.create_escalation.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_graph_faq_flow(self):

@@ -85,7 +85,7 @@ rollback(){
 trap rollback ERR INT TERM
 stopped=1
 printf '%s\n' stopping_services > "$bundle/state"
-"${compose[@]}" stop -t 180 ingestion-worker learning-worker purge-worker frontend-admin backend
+"${compose[@]}" stop -t 780 ingestion-worker learning-worker purge-worker frontend-admin backend
 state=$("${compose[@]}" exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -Atqc "SELECT (SELECT version_num FROM public.alembic_version) || '\''|'\'' || (SELECT count(*) FROM public.whatsapp_inbox_events) || '\''|'\'' || (SELECT count(*) FROM public.whatsapp_status_events) || '\''|'\'' || (SELECT count(*) FROM public.tenants WHERE COALESCE(jsonb_typeof(whatsapp_config::jsonb), '\''null'\'') <> '\''null'\'')"')
 [[ "$state" == '0019a_phone|0|0|0' ]] || { echo 'Database state changed; migration refused' >&2; false; }
 "${compose[@]}" exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-acl -Fc' > "$bundle/pre-migration.dump"

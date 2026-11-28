@@ -18,6 +18,7 @@ from app.schemas.whatsapp import (
     SendTemplateMessage,
     SendTextMessage,
 )
+from app.services.whatsapp.outbound_fence import guarded_provider_send, mark_outbound_uncertain
 
 logger = structlog.get_logger()
 
@@ -209,7 +210,10 @@ class WhatsAppSenderService:
         url = f"{BASE_URL}/{phone_number_id}/messages"
 
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            async with (
+                guarded_provider_send(tenant, payload.get("to", "")),
+                httpx.AsyncClient(timeout=TIMEOUT) as client,
+            ):
                 response = await client.post(
                     url,
                     json=payload,
@@ -278,11 +282,15 @@ class WhatsAppSenderService:
     def _extract_wamid(response: dict[str, Any]) -> str:
         """Extract the wamid from Meta's send response."""
         try:
-            return response["messages"][0]["id"]
-        except (KeyError, IndexError) as exc:
+            message_id = response["messages"][0]["id"]
+            if not isinstance(message_id, str) or not message_id:
+                raise ValueError("Invalid provider message identifier")
+            return message_id
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            mark_outbound_uncertain()
             raise WhatsAppSendError(
                 "Unexpected Meta API response format",
-                details={"response": response},
+                details={"response_invalid": True},
             ) from exc
 
     @staticmethod

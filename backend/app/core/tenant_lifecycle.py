@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session_factory
 from app.core.exceptions import TenantInactiveError, TenantLifecycleBusyError
@@ -31,18 +32,21 @@ async def protect_ingestion(tenant: TenantContext) -> AsyncIterator[None]:
     """Hold a shared lock and recheck identity/status after acquiring it."""
     factory = get_session_factory()
     async with factory() as session:
-        await session.execute(
-            text("SELECT pg_advisory_xact_lock_shared(hashtextextended(:key, 0))"),
-            {"key": _lock_key(tenant.slug)},
-        )
-        current = (
-            await session.execute(
-                select(Tenant.id, Tenant.status).where(Tenant.slug == tenant.slug)
-            )
-        ).one_or_none()
-        if current is None or current.id != tenant.id or current.status != TenantStatus.active:
-            raise TenantInactiveError("Institution inactive ou modifiée ; ingestion interrompue.")
+        await lock_active_tenant(session, tenant)
         yield
+
+
+async def lock_active_tenant(session: AsyncSession, tenant: TenantContext) -> None:
+    """Hold the lifecycle lock in the caller's existing transaction."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock_shared(hashtextextended(:key, 0))"),
+        {"key": _lock_key(tenant.slug)},
+    )
+    current = (
+        await session.execute(select(Tenant.id, Tenant.status).where(Tenant.slug == tenant.slug))
+    ).one_or_none()
+    if current is None or current.id != tenant.id or current.status != TenantStatus.active:
+        raise TenantInactiveError("Institution inactive ou modifiée ; ingestion interrompue.")
 
 
 @asynccontextmanager

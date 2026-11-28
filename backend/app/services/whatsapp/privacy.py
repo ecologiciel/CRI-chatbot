@@ -20,6 +20,7 @@ from app.core.redis import get_redis
 from app.core.tenant import TenantContext
 from app.schemas.audit import AuditLogCreate
 from app.services.audit.service import get_audit_service
+from app.services.whatsapp.outbound_fence import OutboundSupersededError
 from app.services.whatsapp.sender import WhatsAppSenderService
 
 logger = structlog.get_logger()
@@ -36,6 +37,12 @@ _CAS_STATE = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
   redis.call('SET', KEYS[1], ARGV[2])
   return 1
+end
+return 0
+"""
+_CAS_DELETE = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
 end
 return 0
 """
@@ -121,6 +128,12 @@ class PrivacyNoticeService:
                 changed = await redis.eval(_CAS_STATE, 1, key, token, "accepted")
                 if not changed:
                     raise RuntimeError("Notice state changed before confirmation")
+            except OutboundSupersededError:
+                # No provider request started; allow a future interaction to
+                # attempt the notice again, without deleting another claim.
+                with contextlib.suppress(Exception):
+                    await redis.eval(_CAS_DELETE, 1, key, token)
+                raise
             except Exception as exc:
                 # If Redis is unavailable, the pending marker also means unknown.
                 with contextlib.suppress(Exception):
@@ -144,6 +157,8 @@ class PrivacyNoticeService:
             )
             self._logger.info("privacy_notice_provider_accepted", tenant=tenant.slug)
             return NoticeResult.accepted
+        except OutboundSupersededError:
+            raise
         except Exception as exc:
             NOTICE_RESULTS.labels(tenant=tenant.slug, result=NoticeResult.uncertain.value).inc()
             self._logger.warning(

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from time import monotonic
 
 import structlog
 from arq import cron
@@ -43,11 +44,35 @@ async def shutdown(ctx: dict) -> None:
 
 async def poll_incoming(ctx: dict) -> str:
     """Claim at most one message; an ambiguous send is never retried here."""
+    if not get_settings().whatsapp_durable_inbox_enabled:
+        return "disabled"
     claim = await claim_next(lease_seconds=120)
     if claim is None:
         return "empty"
     finalized = await execute_claim(claim, lease_seconds=120, timeout_seconds=300)
     return "finalized" if finalized else "lease_lost"
+
+
+async def drain_incoming(ctx: dict) -> dict[str, int]:
+    """Process a bounded sequential batch, without retrying ambiguous sends.
+
+    A single slow item may exceed the soft budget; execute_claim still has
+    its own timeout and quarantines uncertain results.
+    """
+    started = monotonic()
+    counts = {"claimed": 0, "lease_lost": 0}
+    for index in range(10):
+        if index and monotonic() - started >= 30:
+            break
+        result = await poll_incoming(ctx)
+        if result == "disabled":
+            counts["disabled"] = 1
+            break
+        if result == "empty":
+            break
+        counts["claimed"] += 1
+        counts["lease_lost"] += int(result == "lease_lost")
+    return counts
 
 
 async def recover_expired(ctx: dict) -> int:
@@ -59,6 +84,8 @@ async def recover_expired(ctx: dict) -> int:
 
 
 async def poll_statuses(ctx: dict) -> dict[str, int]:
+    if not get_settings().whatsapp_durable_inbox_enabled:
+        return {"disabled": 1}
     cipher = VersionedEnvelopeService(get_session_factory(), get_settings().kms_master_key)
     return await run_status_batch(cipher=cipher, limit=50)
 
@@ -68,7 +95,7 @@ class WorkerSettings:
 
     functions: list = []
     cron_jobs = [
-        cron(poll_incoming, second={0, 10, 20, 30, 40, 50}),
+        cron(drain_incoming, second={0, 10, 20, 30, 40, 50}),
         cron(poll_statuses, second={5, 25, 45}),
         cron(recover_expired, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
     ]

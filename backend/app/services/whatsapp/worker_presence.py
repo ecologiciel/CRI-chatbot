@@ -5,6 +5,7 @@ import asyncio
 import structlog
 from sqlalchemy import text
 
+from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.redis import get_redis
 
@@ -16,8 +17,15 @@ logger = structlog.get_logger()
 
 async def publish_presence() -> None:
     """Publish only after both the database and Redis are reachable."""
+    if not get_settings().whatsapp_durable_inbox_enabled:
+        return
     async with get_session_factory()() as session:
-        await session.execute(text("SELECT 1"))
+        ready = await session.scalar(text(
+            "SELECT to_regclass('public.whatsapp_inbox_events') IS NOT NULL "
+            "AND to_regclass('public.whatsapp_status_events') IS NOT NULL"
+        ))
+        if not ready:
+            raise RuntimeError("WhatsApp inbox tables unavailable")
     await get_redis().set(HEARTBEAT_KEY, "1", ex=HEARTBEAT_TTL_SECONDS)
 
 

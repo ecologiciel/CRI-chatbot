@@ -11,10 +11,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, exists, func, or_, select, update
+from sqlalchemy.orm import aliased
 
 from app.core.database import get_session_factory
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
+from app.services.whatsapp.conversation_lock import try_lock_for_claim
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +29,8 @@ class InboxClaim:
     ciphertext: str
     lease_token: uuid.UUID
     lease_until: datetime
+    sender_fingerprint: str = ""
+    is_opt_out: bool = False
 
 
 def _lease_duration(seconds: int) -> timedelta:
@@ -38,37 +42,97 @@ def _lease_duration(seconds: int) -> timedelta:
 async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
     duration = _lease_duration(lease_seconds)
     token = uuid.uuid4()
-    candidate = (
-        select(WhatsAppInboxEvent.id)
-        .where(WhatsAppInboxEvent.state == "pending")
-        .order_by(WhatsAppInboxEvent.created_at, WhatsAppInboxEvent.id)
-        .with_for_update(skip_locked=True)
-        .limit(1)
-        .scalar_subquery()
-    )
-    statement = (
-        update(WhatsAppInboxEvent)
-        .execution_options(synchronize_session=False)
-        .where(WhatsAppInboxEvent.id == candidate, WhatsAppInboxEvent.state == "pending")
-        .values(
-            state="processing",
-            attempts=WhatsAppInboxEvent.attempts + 1,
-            lease_token=token,
-            lease_until=func.clock_timestamp() + duration,
-            updated_at=func.clock_timestamp(),
+    earlier, running, legacy = (aliased(WhatsAppInboxEvent) for _ in range(3))
+    unresolved = ("pending", "processing", "uncertain", "follow_up")
+    candidate = WhatsAppInboxEvent
+    # Legacy ungrouped events block only their own tenant until reconciled.
+    candidates = (
+        select(candidate.id, candidate.tenant_id, candidate.sender_fingerprint)
+        .where(
+            candidate.state == "pending",
+            candidate.sender_fingerprint.is_not(None),
+            or_(candidate.not_before.is_(None), candidate.not_before <= func.clock_timestamp()),
+            or_(candidate.is_opt_out.is_(True), ~exists(select(1).where(
+                    earlier.tenant_id == candidate.tenant_id,
+                    earlier.sender_fingerprint == candidate.sender_fingerprint,
+                    earlier.arrival_sequence < candidate.arrival_sequence,
+                    earlier.state.in_(unresolved),
+            ))),
+            ~exists(select(1).where(
+                running.tenant_id == candidate.tenant_id,
+                running.sender_fingerprint == candidate.sender_fingerprint,
+                running.state == "processing",
+            )),
+            ~exists(select(1).where(
+                legacy.tenant_id == candidate.tenant_id,
+                legacy.sender_fingerprint.is_(None),
+                or_(legacy.state == "processing",
+                    and_(candidate.is_opt_out.is_(False), legacy.state.in_(unresolved))),
+            )),
         )
-        .returning(
-            WhatsAppInboxEvent.id,
-            WhatsAppInboxEvent.tenant_id,
-            WhatsAppInboxEvent.phone_number_id,
-            WhatsAppInboxEvent.provider_message_id,
-            WhatsAppInboxEvent.key_version,
-            WhatsAppInboxEvent.ciphertext,
-            WhatsAppInboxEvent.lease_until,
-        )
+        .order_by(candidate.arrival_sequence)
+        .limit(100)
     )
+    row = None
     async with get_session_factory()() as session:
-        row = (await session.execute(statement)).one_or_none()
+        for event_id, tenant_id, fingerprint, is_opt_out in (await session.execute(
+            candidates.add_columns(candidate.is_opt_out)
+        )).all():
+            if not await try_lock_for_claim(session, tenant_id, fingerprint):
+                continue
+            # Re-read after acquiring the stream lock: the candidate query may
+            # have used a snapshot from before another claim or acceptance.
+            ungrouped = await session.scalar(select(exists().where(
+                candidate.tenant_id == tenant_id,
+                candidate.sender_fingerprint.is_(None),
+                candidate.state.in_(("processing",) if is_opt_out else unresolved),
+            )))
+            if ungrouped:
+                continue
+            active = await session.scalar(select(exists().where(
+                candidate.tenant_id == tenant_id,
+                candidate.sender_fingerprint == fingerprint,
+                candidate.state == "processing",
+            )))
+            if active:
+                continue
+            first_query = (
+                select(candidate.id, candidate.state)
+                .where(candidate.tenant_id == tenant_id,
+                       candidate.sender_fingerprint == fingerprint,
+                       candidate.state.in_(unresolved))
+            )
+            if is_opt_out:
+                first_query = first_query.where(candidate.state == "pending", candidate.is_opt_out.is_(True))
+            first = (await session.execute(first_query.order_by(candidate.arrival_sequence).limit(1))).one_or_none()
+            if first is None or first.id != event_id or first.state != "pending":
+                continue
+            # Do not skip to a later event if an unrelated transaction has
+            # locked the first row for review or retention.
+            locked = (await session.execute(
+                select(candidate.id).where(
+                    candidate.id == event_id, candidate.state == "pending",
+                    or_(candidate.not_before.is_(None), candidate.not_before <= func.clock_timestamp()),
+                )
+                .with_for_update(skip_locked=True)
+            )).scalar_one_or_none()
+            if locked is None:
+                continue
+            statement = (
+                update(candidate)
+                .execution_options(synchronize_session=False)
+                .where(candidate.id == event_id, candidate.state == "pending")
+                .values(state="processing", attempts=candidate.attempts + 1, not_before=None,
+                        lease_token=token, lease_until=func.clock_timestamp() + duration,
+                        updated_at=func.clock_timestamp())
+                .returning(candidate.id, candidate.tenant_id, candidate.phone_number_id,
+                           candidate.provider_message_id, candidate.key_version,
+                           candidate.ciphertext, candidate.lease_until, candidate.sender_fingerprint,
+                           candidate.is_opt_out)
+            )
+            row = (await session.execute(statement)).one_or_none()
+            if row is not None:
+                break
         await session.commit()
     if row is None:
         return None
@@ -81,6 +145,8 @@ async def claim_next(*, lease_seconds: int = 120) -> InboxClaim | None:
         ciphertext=row.ciphertext,
         lease_token=token,
         lease_until=row.lease_until,
+        sender_fingerprint=row.sender_fingerprint,
+        is_opt_out=row.is_opt_out,
     )
 
 
@@ -120,6 +186,33 @@ async def finish_claim(event_id: uuid.UUID, token: uuid.UUID, *, uncertain: bool
             state="uncertain" if uncertain else "completed",
             lease_token=None,
             lease_until=None,
+            updated_at=func.clock_timestamp(),
+        )
+        .returning(WhatsAppInboxEvent.id)
+    )
+    async with get_session_factory()() as session:
+        updated = (await session.execute(statement)).scalar_one_or_none() is not None
+        await session.commit()
+    return updated
+
+
+async def defer_claim(event_id: uuid.UUID, token: uuid.UUID, *, delay_seconds: int = 60) -> bool:
+    """Return a side-effect-free claim to its ordered queue after a bounded delay."""
+    if not 1 <= delay_seconds <= 900:
+        raise ValueError("Invalid inbox defer duration")
+    statement = (
+        update(WhatsAppInboxEvent)
+        .execution_options(synchronize_session=False)
+        .where(
+            WhatsAppInboxEvent.id == event_id,
+            WhatsAppInboxEvent.state == "processing",
+            WhatsAppInboxEvent.lease_token == token,
+            WhatsAppInboxEvent.lease_until > func.clock_timestamp(),
+            WhatsAppInboxEvent.is_opt_out.is_(False),
+        )
+        .values(
+            state="pending", lease_token=None, lease_until=None,
+            not_before=func.clock_timestamp() + timedelta(seconds=delay_seconds),
             updated_at=func.clock_timestamp(),
         )
         .returning(WhatsAppInboxEvent.id)

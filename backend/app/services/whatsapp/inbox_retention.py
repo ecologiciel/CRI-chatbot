@@ -59,6 +59,16 @@ async def _redact_tenant(
             if model is WhatsAppInboxEvent:
                 values = {
                     "ciphertext": "",
+                    # Keep the opaque grouping only while an unresolved event
+                    # must block later messages in the same conversation.
+                    "sender_fingerprint": case(
+                        (model.state.in_(["completed", "resolved"]), None),
+                        else_=model.sender_fingerprint,
+                    ),
+                    "is_opt_out": case(
+                        (model.state.in_(["completed", "resolved"]), False),
+                        else_=model.is_opt_out,
+                    ),
                     "redacted_at": now,
                     "updated_at": func.clock_timestamp(),
                     "state": case(

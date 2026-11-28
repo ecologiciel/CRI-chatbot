@@ -34,6 +34,7 @@ async def persist_delivery_status(
     *,
     cipher: VersionedEnvelopeService,
     fingerprint_key: bytes,
+    require_current_signing_secret: bool = False,
 ) -> bool:
     """Persist one authenticated notification or report an exact duplicate."""
     if len(fingerprint_key) != 32:
@@ -76,6 +77,12 @@ async def persist_delivery_status(
                 or (current.whatsapp_config or {}).get("phone_number_id") != phone_number_id
             ):
                 raise TenantInactiveError("WhatsApp channel is inactive or has changed")
+            if require_current_signing_secret:
+                from app.services.whatsapp.tenant_webhook_auth import (
+                    require_current_signing_secret as check_secret,
+                )
+
+                await check_secret(tenant, current, session)
             statement = (
                 insert(WhatsAppStatusEvent)
                 .values(

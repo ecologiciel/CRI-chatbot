@@ -14,11 +14,23 @@ import pytest
 
 from app.core.exceptions import WhatsAppSendError
 from app.core.tenant import TenantContext
+from app.services.whatsapp.inbox_leases import InboxClaim
+from app.services.whatsapp.outbound_fence import outbound_scope
 from app.services.whatsapp.sender import WhatsAppSenderService
 
 # --- Fixtures ---
 
 TEST_TENANT_ID = uuid.uuid4()
+
+
+@pytest.mark.parametrize("response", [{}, {"messages": []}, {"messages": [{"id": ""}]}, {"messages": None}])
+def test_malformed_acceptance_marks_durable_send_uncertain_without_leaking_response(response):
+    claim = InboxClaim(id=uuid.uuid4(), tenant_id=TEST_TENANT_ID, phone_number_id="123", provider_message_id="id", key_version=1, ciphertext="fixture", lease_token=uuid.uuid4(), lease_until=MagicMock())
+    response["private"] = "sensitive-fixture"
+    with outbound_scope(claim, "fixture") as scope, pytest.raises(WhatsAppSendError) as exc:
+        WhatsAppSenderService._extract_wamid(response)
+    assert scope.uncertain
+    assert "sensitive-fixture" not in str(exc.value.details)
 
 
 def _make_tenant_context(**overrides) -> TenantContext:

@@ -21,6 +21,7 @@ from app.models.enums import (
     FeedbackRating,
     Language,
     MessageDirection,
+    OptInStatus,
 )
 from app.schemas.whatsapp import (
     ContactInfo,
@@ -273,6 +274,27 @@ class TestHappyPath:
     """Full pipeline: text message → LangGraph → response."""
 
     @pytest.mark.asyncio()
+    @pytest.mark.parametrize("notice,expected", [("accepted", "suppressed"), ("uncertain", "uncertain")])
+    async def test_suppressed_response_never_records_a_fake_outbound(self, handler_env, notice, expected):
+        from app.services.whatsapp.outbound_fence import OutboundSupersededError
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult(notice)
+        mocks["sender"].send_text.side_effect = OutboundSupersededError("stopped")
+        tracking = AsyncMock()
+        tracking.get_state.return_value = MagicMock(step=MagicMock(value="idle"))
+        with (
+            patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()),
+            patch("app.services.orchestrator.tracking_state.TrackingStateManager", return_value=tracking),
+        ):
+            outcome = await handler.handle_message(TEST_TENANT, _make_text_message(), None, durable=True)
+        assert outcome.value == expected
+        assert all(call.args[2] != MessageDirection.outbound for call in mocks["conv_svc"].add_message.await_args_list)
+        mocks["session_mgr"].increment_quota.assert_not_awaited()
+    @pytest.mark.asyncio()
     async def test_takeover_before_privacy_notice_keeps_inbound_and_suppresses_bot(self, handler_env):
         handler, mocks = handler_env
         _setup_happy_path(mocks)
@@ -517,6 +539,20 @@ class TestHappyPath:
 
 class TestStopPriority:
     @pytest.mark.asyncio()
+    async def test_stop_already_recorded_at_intake_can_be_acknowledged(self, handler_env):
+        from app.services.whatsapp.handler import HandlingOutcome
+
+        handler, mocks = handler_env
+        contact, _, _ = _setup_happy_path(mocks)
+        contact.opt_in_status = OptInStatus.opted_out
+        segmentation = AsyncMock()
+        segmentation.process_stop_command.return_value = False
+        with patch("app.services.whatsapp.handler.get_segmentation_service", return_value=segmentation):
+            outcome = await handler.handle_message(TEST_TENANT, _make_text_message(body="STOP"), None, durable=True)
+        assert outcome == HandlingOutcome.accepted
+        mocks["sender"].send_text.assert_awaited_once()
+
+    @pytest.mark.asyncio()
     async def test_stop_bypasses_dedup_rate_quota_and_privacy_notice(self, handler_env):
         handler, mocks = handler_env
         _setup_happy_path(mocks)
@@ -614,6 +650,65 @@ class TestMediaMessages:
 
 class TestFeedbackRouting:
     """Feedback button clicks routed to FeedbackService."""
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize(
+        ("record_fails", "ack", "expected"),
+        [(False, "wamid.ack", "accepted"), (True, "wamid.ack", "uncertain"),
+         (False, None, "uncertain")],
+    )
+    async def test_durable_feedback_requires_record_and_provider_acceptance(
+        self, handler_env, record_fails, ack, expected
+    ):
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.accepted
+        mocks["sender"].send_text.return_value = ack
+        if record_fails:
+            mocks["feedback_svc"].create_feedback.side_effect = RuntimeError("db failed")
+        session = _make_mock_db_session(query_result=_make_mock_message())
+        with patch.object(TenantContext, "db_session", return_value=session):
+            outcome = await handler.handle_message(
+                TEST_TENANT, _make_feedback_message(), None, durable=True
+            )
+        assert outcome.value == expected
+        mocks["sender"].send_text.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize("ack,expected", [("wamid.source", "accepted"), (None, "uncertain")])
+    async def test_durable_source_requires_provider_acceptance(self, handler_env, ack, expected):
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.accepted
+        mocks["sender"].send_text.return_value = ack
+        mocks["conv_svc"].get_latest_sources.return_value = []
+        outcome = await handler.handle_message(
+            TEST_TENANT, _make_text_message(body="source"), None, durable=True
+        )
+        assert outcome.value == expected
+        assert mocks["conv_svc"].add_message.await_count == 2
+        mocks["sender"].send_text.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    async def test_durable_feedback_with_pending_privacy_notice_requires_review(self, handler_env):
+        from app.services.whatsapp.privacy import NoticeResult
+
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        handler._privacy_service = AsyncMock()
+        handler._privacy_service.send_privacy_notice.return_value = NoticeResult.pending
+        session = _make_mock_db_session(query_result=_make_mock_message())
+        with patch.object(TenantContext, "db_session", return_value=session):
+            outcome = await handler.handle_message(
+                TEST_TENANT, _make_feedback_message(), None, durable=True
+            )
+        assert outcome.value == "uncertain"
 
     @pytest.mark.asyncio()
     async def test_human_takeover_suppresses_source_reply(self, handler_env):
@@ -715,6 +810,21 @@ class TestDedup:
 
 class TestRateLimiting:
     """Per-user rate limiting (10 msg/min)."""
+
+    @pytest.mark.asyncio()
+    async def test_durable_rate_limit_defers_before_external_side_effects(self, handler_env):
+        from app.services.whatsapp.handler import HandlingOutcome
+
+        handler, mocks = handler_env
+        mocks["redis"].eval.return_value = 11
+        handler._privacy_service = AsyncMock()
+        outcome = await handler.handle_message(TEST_TENANT, _make_text_message(), None, durable=True)
+        assert outcome == HandlingOutcome.deferred
+        mocks["session_mgr"].is_duplicate_message.assert_not_awaited()
+        mocks["contact_svc"].get_or_create.assert_not_awaited()
+        mocks["conv_svc"].add_message.assert_not_awaited()
+        mocks["sender"].send_text.assert_not_awaited()
+        handler._privacy_service.send_privacy_notice.assert_not_awaited()
 
     @pytest.mark.asyncio()
     async def test_user_rate_limited(self, handler_env):

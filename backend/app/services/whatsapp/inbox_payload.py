@@ -5,10 +5,12 @@ This module is not yet connected to the production webhook or a worker.
 
 from __future__ import annotations
 
+import hmac
 import json
 from dataclasses import dataclass
 
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
+from app.services.contact.segmentation import SegmentationService
 from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
 from app.services.whatsapp.inbox import PURPOSE
 from app.services.whatsapp.inbox_leases import InboxClaim
@@ -34,6 +36,16 @@ async def decrypt_claim(claim: InboxClaim, cipher: VersionedEnvelopeService) -> 
     message = IncomingMessage.model_validate(payload.get("message"))
     if message.id != claim.provider_message_id:
         raise ValueError("Inbox message identifier mismatch")
+    expected = await cipher.whatsapp_sender_fingerprint(
+        tenant_id=claim.tenant_id, channel_id=claim.phone_number_id, sender_id=message.from_
+    )
+    if not claim.sender_fingerprint or not hmac.compare_digest(expected, claim.sender_fingerprint):
+        raise ValueError("Inbox conversation identifier mismatch")
+    is_opt_out = bool(
+        message.type == "text" and message.text and SegmentationService.is_stop_command(message.text.body)
+    )
+    if claim.is_opt_out != is_opt_out:
+        raise ValueError("Inbox opt-out flag mismatch")
     raw_contacts = payload.get("contacts")
     if not isinstance(raw_contacts, list):
         raise ValueError("Invalid inbox contacts")

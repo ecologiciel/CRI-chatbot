@@ -10,9 +10,12 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     String,
@@ -36,12 +39,22 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
         ),
         CheckConstraint("key_version > 0 AND attempts >= 0", name="ck_wa_inbox_counters"),
         CheckConstraint(
+            "sender_fingerprint IS NULL OR sender_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_wa_inbox_sender_fingerprint",
+        ),
+        CheckConstraint(
             "(state = 'processing' AND lease_until IS NOT NULL AND lease_token IS NOT NULL) "
             "OR (state <> 'processing' AND lease_until IS NULL AND lease_token IS NULL)",
             name="ck_wa_inbox_lease",
         ),
         Index("uq_wa_inbox_tenant_message", "tenant_id", "provider_message_id", unique=True),
         Index("ix_wa_inbox_pending", "state", "created_at"),
+        Index("uq_wa_inbox_arrival_sequence", "arrival_sequence", unique=True),
+        Index(
+            "ix_wa_inbox_conversation_order",
+            "tenant_id", "sender_fingerprint", "arrival_sequence",
+            postgresql_where=text("state IN ('pending', 'processing', 'uncertain', 'follow_up')"),
+        ),
         Index(
             "ix_wa_inbox_retention",
             "tenant_id",
@@ -56,6 +69,10 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
     )
     provider_message_id: Mapped[str] = mapped_column(String(255), nullable=False)
     phone_number_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Nullable only for pre-migration events; they must be reconciled before use.
+    sender_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    arrival_sequence: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+    is_opt_out: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -63,6 +80,7 @@ class WhatsAppInboxEvent(UUIDMixin, Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

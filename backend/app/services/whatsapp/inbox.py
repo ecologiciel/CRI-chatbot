@@ -11,15 +11,19 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from app.core.database import get_session_factory
+from app.core.database import get_session_factory, set_tenant_search_path
 from app.core.exceptions import TenantInactiveError
 from app.core.tenant import TenantContext
 from app.core.tenant_lifecycle import protect_ingestion
+from app.models.audit import AuditLog
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
 from app.models.whatsapp_inbox import WhatsAppInboxEvent
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
+from app.services.contact.consent import lock_and_opt_out
+from app.services.contact.segmentation import SegmentationService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
+from app.services.whatsapp.conversation_lock import lock_for_acceptance
 
 PURPOSE = "wa_inbox"
 
@@ -31,6 +35,7 @@ async def persist_incoming_message(
     contacts: list[ContactInfo] | None,
     *,
     cipher: VersionedEnvelopeService,
+    require_current_signing_secret: bool = False,
 ) -> bool:
     """Commit an event or report an already stored event for this tenant.
 
@@ -56,8 +61,14 @@ async def persist_incoming_message(
         ],
     }
     plaintext = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    is_opt_out = bool(
+        message.type == "text" and message.text and SegmentationService.is_stop_command(message.text.body)
+    )
 
     async with protect_ingestion(tenant):
+        sender_fingerprint = await cipher.whatsapp_sender_fingerprint(
+            tenant_id=tenant.id, channel_id=phone_number_id, sender_id=message.from_
+        )
         envelope = await cipher.encrypt(
             plaintext, tenant_id=tenant.id, purpose=PURPOSE, record_id=event_id
         )
@@ -73,12 +84,24 @@ async def persist_incoming_message(
                 or (current.whatsapp_config or {}).get("phone_number_id") != phone_number_id
             ):
                 raise TenantInactiveError("WhatsApp channel is inactive or has changed")
+            if require_current_signing_secret:
+                from app.services.whatsapp.tenant_webhook_auth import (
+                    require_current_signing_secret as check_secret,
+                )
+
+                await check_secret(tenant, current, session)
+            # Serializing acceptance with claims makes sequence order reflect
+            # commit order within this conversation. Provider arrival order can
+            # still differ from the order in which the user sent messages.
+            await lock_for_acceptance(session, tenant.id, sender_fingerprint)
             statement = (
                 insert(WhatsAppInboxEvent)
                 .values(
                     id=event_id,
                     tenant_id=tenant.id,
                     phone_number_id=phone_number_id,
+                    sender_fingerprint=sender_fingerprint,
+                    is_opt_out=is_opt_out,
                     provider_message_id=message.id,
                     ciphertext=envelope.ciphertext,
                     key_version=envelope.version,
@@ -87,5 +110,16 @@ async def persist_incoming_message(
                 .returning(WhatsAppInboxEvent.id)
             )
             inserted = (await session.execute(statement)).scalar_one_or_none() is not None
+            if inserted and is_opt_out:
+                # Commit the consent change with the inbox record before ACK.
+                # Provider sends already holding the contact row may finish;
+                # subsequent consent-checked sends see the committed opt-out.
+                await set_tenant_search_path(session, tenant.db_schema)
+                contact_id = await lock_and_opt_out(session, message.from_)
+                session.add(AuditLog(
+                    tenant_slug=tenant.slug, user_type="system", action="opt_in_change",
+                    resource_type="contact", resource_id=str(contact_id),
+                    details={"new_status": "opted_out", "source": "user_stop"},
+                ))
             await session.commit()
             return inserted

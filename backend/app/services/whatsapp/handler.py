@@ -27,6 +27,7 @@ from app.models.enums import (
     Language,
     MessageDirection,
     MessageType,
+    OptInStatus,
 )
 from app.schemas.feedback import FeedbackCreate
 from app.schemas.whatsapp import ContactInfo, IncomingMessage
@@ -36,6 +37,7 @@ from app.services.conversation.service import HUMAN_HANDOFF_STATUSES, get_conver
 from app.services.feedback.service import get_feedback_service
 from app.services.rag.prompts import PromptTemplates
 from app.services.whatsapp.media import WhatsAppMediaHandler
+from app.services.whatsapp.outbound_fence import OutboundSupersededError
 from app.services.whatsapp.privacy import NoticeResult, get_privacy_notice_service
 from app.services.whatsapp.sender import WhatsAppSenderService
 from app.services.whatsapp.session import WhatsAppSessionManager
@@ -64,6 +66,8 @@ FEEDBACK_ACK_KEYS: dict[FeedbackRating, str] = {
 class HandlingOutcome(str, Enum):
     accepted = "accepted"
     uncertain = "uncertain"
+    suppressed = "suppressed"
+    deferred = "deferred"
 
 
 class MessageHandler:
@@ -113,6 +117,8 @@ class MessageHandler:
                     tenant, phone, _extract_sender_name(contacts, phone)
                 )
                 confirmed = await self._handle_stop_request(tenant, phone, contact)
+            except OutboundSupersededError:
+                return HandlingOutcome.suppressed
             except Exception as exc:
                 self._logger.error(
                     "stop_command_failed",
@@ -139,6 +145,11 @@ class MessageHandler:
                     tenant=tenant.slug,
                     phone_last4=_mask_phone(phone),
                 )
+                # The durable worker has not sent or persisted anything in
+                # this attempt. Keep the encrypted event for a later window;
+                # never acknowledge a dropped citizen message as completed.
+                if durable:
+                    return HandlingOutcome.deferred
 
             # 4. Get or create contact
             sender_name = _extract_sender_name(contacts, phone)
@@ -191,6 +202,8 @@ class MessageHandler:
                                 )
                                 if durable and notice != NoticeResult.accepted:
                                     uncertain = True
+                    except OutboundSupersededError:
+                        raise
                     except Exception:
                         uncertain = True
 
@@ -284,16 +297,13 @@ class MessageHandler:
             # 7. Feedback routing — interactive buttons starting with "feedback_"
             if self._is_feedback_reply(msg):
                 outbound_attempted = True
-                await self._handle_feedback(tenant, msg, conversation.id, phone)
-                # The legacy feedback helper suppresses some failures; the
-                # durable worker must not treat that as confirmed processing.
-                return HandlingOutcome.uncertain
+                confirmed = await self._handle_feedback(tenant, msg, conversation.id, phone)
+                return HandlingOutcome.accepted if confirmed and not uncertain else HandlingOutcome.uncertain
 
             if self._is_source_command(content):
                 outbound_attempted = True
-                await self._handle_source_command(tenant, conversation.id, phone, content, wamid)
-                # The legacy source helper does not report every delivery state.
-                return HandlingOutcome.uncertain
+                confirmed = await self._handle_source_command(tenant, conversation.id, phone, content, wamid)
+                return HandlingOutcome.accepted if confirmed and not uncertain else HandlingOutcome.uncertain
 
             # 11. Get conversation history for LangGraph context
             try:
@@ -369,6 +379,8 @@ class MessageHandler:
                         out_wamid = await self._sender.send_text(tenant, phone, response_text)
                     else:
                         suppressed = True
+            except OutboundSupersededError:
+                return HandlingOutcome.uncertain if uncertain else HandlingOutcome.suppressed
             except Exception as send_err:
                 uncertain = True
                 self._logger.error(
@@ -487,6 +499,8 @@ class MessageHandler:
                 uncertain = True
             return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
 
+        except OutboundSupersededError:
+            return HandlingOutcome.uncertain if uncertain else HandlingOutcome.suppressed
         except Exception as exc:
             self._logger.error(
                 "e2e_processing_failed",
@@ -506,7 +520,7 @@ class MessageHandler:
 
     async def _handle_stop_request(self, tenant: TenantContext, phone: str, contact) -> bool:
         opted_out = await get_segmentation_service().process_stop_command(tenant, phone)
-        if not opted_out:
+        if not opted_out and contact.opt_in_status != OptInStatus.opted_out:
             return False
         lang = contact.language.value if contact.language else "fr"
         messages = {
@@ -538,9 +552,8 @@ class MessageHandler:
         phone: str,
         content: str | None,
         wamid: str,
-    ) -> None:
+    ) -> bool:
         """Answer a persisted `Source` request from local message metadata only."""
-        # The caller has already persisted the inbound request.
         sources = await self._conversation_service.get_latest_sources(tenant, conversation_id)
         response = PromptTemplates.format_sources_message(sources)
         async with self._conversation_service.guard_bot_reply(tenant, conversation_id) as allowed:
@@ -550,7 +563,7 @@ class MessageHandler:
                         f"{tenant.slug}:escalations:message",
                         json.dumps({"conversation_id": str(conversation_id)}),
                     )
-                return
+                return False
             out_wamid = await self._sender.send_text(tenant, phone, response)
         await self._conversation_service.add_message(
             tenant,
@@ -561,6 +574,7 @@ class MessageHandler:
             whatsapp_message_id=out_wamid,
             metadata={"sources_response": True, "sources": sources},
         )
+        return bool(out_wamid)
 
     async def _extract_content(
         self,
@@ -631,7 +645,7 @@ class MessageHandler:
         msg: IncomingMessage,
         conversation_id: uuid.UUID,
         phone: str,
-    ) -> None:
+    ) -> bool:
         """Process a feedback button click.
 
         Finds the last outbound message in the conversation and creates
@@ -640,7 +654,7 @@ class MessageHandler:
         reply = msg.interactive.button_reply  # type: ignore[union-attr]
         rating = FEEDBACK_BUTTON_MAP.get(reply.id)
         if rating is None:
-            return
+            return False
 
         # Find the last outbound message to attach feedback to
         from sqlalchemy import select
@@ -657,6 +671,7 @@ class MessageHandler:
             )
             last_outbound = result.scalar_one_or_none()
 
+        recorded = False
         if last_outbound:
             feedback_data = FeedbackCreate(
                 message_id=last_outbound.id,
@@ -664,20 +679,27 @@ class MessageHandler:
             )
             try:
                 await self._feedback_service.create_feedback(tenant, feedback_data)
+                recorded = True
             except Exception as exc:
                 self._logger.error(
                     "feedback_creation_failed",
-                    error=str(exc),
+                    error_type=type(exc).__name__,
                     tenant=tenant.slug,
                 )
 
         # Send acknowledgment
         ack_key = FEEDBACK_ACK_KEYS.get(rating, "feedback_ack_positive")
         ack_text = PromptTemplates.get_message(ack_key, "fr")
-        with contextlib.suppress(Exception):
+        try:
             async with self._conversation_service.guard_bot_reply(tenant, conversation_id) as allowed:
-                if allowed:
-                    await self._sender.send_text(tenant, phone, ack_text)
+                if not allowed:
+                    return False
+                acknowledged = await self._sender.send_text(tenant, phone, ack_text)
+        except OutboundSupersededError:
+            raise
+        except Exception:
+            return False
+        return recorded and bool(acknowledged)
 
     # ── Rate limiting ──
 

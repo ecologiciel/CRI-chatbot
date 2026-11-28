@@ -29,8 +29,9 @@ class WhatsAppConfig(BaseModel):
     """WhatsApp Business configuration for a tenant."""
 
     phone_number_id: str = Field(..., description="Meta phone number ID")
-    access_token: str = Field(..., description="Meta API access token")
-    verify_token: str = Field(..., description="Webhook verification token")
+    access_token: str = Field(..., description="Meta API access token", repr=False)
+    verify_token: str = Field(..., description="Webhook verification token", repr=False)
+    app_secret: str | None = Field(default=None, min_length=1, max_length=4096, repr=False)
     business_account_id: str = Field(default="", description="WhatsApp Business Account ID")
 
     model_config = ConfigDict(extra="allow")

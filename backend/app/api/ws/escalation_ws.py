@@ -258,7 +258,8 @@ async def escalation_ws_endpoint(
         with contextlib.suppress(Exception):
             await pubsub.aclose()
         await ws_manager.disconnect(websocket, tenant_slug)
-        await websocket.close(code=1011, reason="Notifications unavailable")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason="Notifications unavailable")
         return
 
     async def _listen_redis() -> None:

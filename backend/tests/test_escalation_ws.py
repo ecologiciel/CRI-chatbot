@@ -132,6 +132,29 @@ async def test_connection_without_peer_address_fails_closed():
     assert ws.close.await_args.kwargs["code"] == 4001
 
 
+@pytest.mark.asyncio
+async def test_disconnect_during_subscription_cleanup_does_not_raise():
+    from app.api.ws.escalation_ws import escalation_ws_endpoint
+
+    ws = AsyncMock()
+    ws.client = SimpleNamespace(host="127.0.0.1")
+    ws.receive_text.return_value = '{"type":"auth","token":"token"}'
+    ws.send_text.side_effect = RuntimeError("already disconnected")
+    ws.close.side_effect = RuntimeError("already closed")
+    pubsub = AsyncMock()
+    admin = SimpleNamespace(sub="admin", role="supervisor")
+    tenant = SimpleNamespace(id="tenant-id", slug="rabat")
+    with (
+        patch("app.api.ws.escalation_ws.AuthService", return_value=SimpleNamespace(verify_access_token=AsyncMock(return_value=admin))),
+        patch("app.api.ws.escalation_ws.TenantResolver.from_tenant_id_header", AsyncMock(return_value=tenant)),
+        patch("app.api.ws.escalation_ws.ensure_admin_access", AsyncMock()),
+        patch("app.api.ws.escalation_ws.get_redis", return_value=SimpleNamespace(pubsub=lambda: pubsub)),
+    ):
+        await escalation_ws_endpoint(ws, "tenant-id")
+    pubsub.aclose.assert_awaited_once()
+    ws.close.assert_awaited_once()
+
+
 def test_websocket_first_frame_authenticates_without_token_in_url():
     import asyncio
 

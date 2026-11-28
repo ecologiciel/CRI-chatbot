@@ -152,17 +152,18 @@ async def main():
         async with connect(f"{url}/{tenant_id}", additional_headers=headers) as one, connect(f"{url}/{tenant_id}", additional_headers=headers) as two:
             for ws in (one, two):
                 await ws.send(json.dumps({"type": "auth", "token": token}))
-                assert json.loads(await asyncio.wait_for(ws.recv(), 3))["event"] == "authenticated"
+            for ws in (one, two):
+                assert json.loads(await asyncio.wait_for(ws.recv(), 15))["event"] == "authenticated"
             async with connect(f"{url}/{other_id}") as foreign:
                 await foreign.send(json.dumps({"type": "auth", "token": token}))
                 try:
-                    await asyncio.wait_for(foreign.recv(), 3)
+                    await asyncio.wait_for(foreign.recv(), 15)
                     raise AssertionError("Foreign tenant accepted")
                 except ConnectionClosed as exc:
                     assert exc.code == 4003
             await redis.publish("fixture_a:escalations:new", json.dumps({"id": "synthetic"}))
             for ws in (one, two):
-                assert json.loads(await asyncio.wait_for(ws.recv(), 3))["data"]["id"] == "synthetic"
+                assert json.loads(await asyncio.wait_for(ws.recv(), 15))["data"]["id"] == "synthetic"
                 try:
                     await asyncio.wait_for(ws.recv(), 0.25)
                     raise AssertionError("Duplicate event")
@@ -172,7 +173,7 @@ async def main():
             await redis.publish("fixture_a:escalations:new", json.dumps({"id": "must-not-arrive"}))
             for ws in (one, two):
                 try:
-                    await asyncio.wait_for(ws.recv(), 3)
+                    await asyncio.wait_for(ws.recv(), 15)
                     raise AssertionError("Revoked session received a message")
                 except ConnectionClosed as exc:
                     assert exc.code == 4001

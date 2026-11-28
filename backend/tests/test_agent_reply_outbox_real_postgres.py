@@ -203,6 +203,11 @@ async def test_reply_registration_is_idempotent_scoped_and_audited(encrypted):
             await register_agent_reply(a, ea, aa, uuid.uuid4(), "fixture", cipher=cipher)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM public.agent_reply_outbox_events WHERE tenant_id IN (:a,:b)"), {"a": ta, "b": tb})
+        await conn.execute(text("DELETE FROM public.audit_logs WHERE tenant_slug IN ('fixture_reply_a','fixture_reply_b')"))
+        await conn.execute(text("DELETE FROM public.admins WHERE tenant_id IN (:a,:b)"), {"a": ta, "b": tb})
+        await conn.execute(text("DELETE FROM public.tenants WHERE id IN (:a,:b)"), {"a": ta, "b": tb})
+        await conn.execute(text("DROP SCHEMA tenant_fixture_reply_a CASCADE"))
+        await conn.execute(text("DROP SCHEMA tenant_fixture_reply_b CASCADE"))
     await engine.dispose()
 
 

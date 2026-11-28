@@ -250,6 +250,8 @@ Modifier un tenant (mise a jour partielle).
 
 **Corps :** tous les champs sont optionnels (nom, region, logo, couleur accent, quotas, whatsapp_config, status)
 
+Pour remplacer `whatsapp_config`, fournir la configuration complète, y compris les nouveaux secrets : ils ne sont jamais renvoyés par l'API.
+
 **Reponse 200 :** `TenantAdminResponse`
 
 ---

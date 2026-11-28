@@ -314,7 +314,7 @@ class TenantProvisioningService:
                 details={"cleanup_failures": failures, "tenant_id": str(tenant.id)},
             ) from exc
 
-    async def deprovision_tenant(self, slug: str) -> None:
+    async def deprovision_tenant(self, slug: str, *, tenant_id: uuid.UUID) -> None:
         """Remove all resources for a tenant.
 
         Continues on partial failure so as many resources as possible
@@ -326,9 +326,9 @@ class TenantProvisioningService:
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,49}", slug):
             raise TenantProvisioningError("Invalid tenant slug; no resources removed")
         async with protect_removal(slug):
-            await self._deprovision_locked(slug)
+            await self._deprovision_locked(slug, tenant_id)
 
-    async def _deprovision_locked(self, slug: str) -> None:
+    async def _deprovision_locked(self, slug: str, tenant_id: uuid.UUID) -> None:
         """Remove tenant resources while holding its lifecycle lock."""
         log = self.logger.bind(slug=slug, action="deprovision")
         failures: list[str] = []
@@ -344,13 +344,16 @@ class TenantProvisioningService:
                     select(Tenant).where(Tenant.slug == slug).with_for_update()
                 )
                 tenant = result.scalar_one_or_none()
-                if tenant:
-                    tenant.status = TenantStatus.inactive
-                    await session.execute(
-                        update(Admin).where(Admin.tenant_id == tenant.id).values(is_active=False)
+                if tenant is None or tenant.id != tenant_id:
+                    raise TenantProvisioningError(
+                        "Tenant identity changed or disappeared; resources were not removed"
                     )
-                    await session.commit()
-                    log.info("step_completed", step="deactivated")
+                tenant.status = TenantStatus.inactive
+                await session.execute(
+                    update(Admin).where(Admin.tenant_id == tenant.id).values(is_active=False)
+                )
+                await session.commit()
+                log.info("step_completed", step="deactivated")
         except Exception as exc:
             log.error("deprovision_step_failed", step="deactivate", error_type=type(exc).__name__)
             raise TenantProvisioningError(
@@ -424,7 +427,11 @@ class TenantProvisioningService:
         try:
             factory = get_session_factory()
             async with factory() as session:
-                await session.execute(delete(Tenant).where(Tenant.slug == slug))
+                result = await session.execute(
+                    delete(Tenant).where(Tenant.slug == slug, Tenant.id == tenant_id)
+                )
+                if result.rowcount != 1:
+                    raise TenantProvisioningError("Tenant identity changed during cleanup")
                 await session.commit()
             log.info("step_completed", step="record_deleted")
         except Exception as exc:

@@ -378,6 +378,29 @@ class TestDeprovisionTenant:
     """Test tenant deprovisioning."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("replacement", [False, True])
+    async def test_stale_or_missing_identity_never_deletes_resources(self, replacement):
+        tenant = _make_tenant_orm(status=TenantStatus.active) if replacement else None
+        session = AsyncMock()
+        session.__aenter__.return_value = session
+        session.execute.return_value = MagicMock(scalar_one_or_none=lambda: tenant)
+        service = TenantProvisioningService()
+        with (
+            patch("app.services.tenant.provisioning.get_session_factory", return_value=lambda: session),
+            patch.object(service, "_empty_and_remove_bucket", new_callable=AsyncMock) as bucket,
+            patch.object(service, "_delete_qdrant_collection", new_callable=AsyncMock) as qdrant,
+            patch.object(service, "_drop_schema", new_callable=AsyncMock) as schema,
+        ):
+            with pytest.raises(TenantProvisioningError, match="resources were not removed"):
+                await service.deprovision_tenant("rabat", tenant_id=uuid.uuid4())
+        bucket.assert_not_awaited()
+        qdrant.assert_not_awaited()
+        schema.assert_not_awaited()
+        session.commit.assert_not_awaited()
+        if tenant:
+            assert tenant.status == TenantStatus.active
+
+    @pytest.mark.asyncio
     async def test_empty_minio_page_does_not_prevent_bucket_removal(self):
         async def objects():
             yield None  # miniopy_async emits this for an empty page
@@ -412,7 +435,7 @@ class TestDeprovisionTenant:
         ):
             settings.return_value.kms_master_key = ""
             with pytest.raises(TenantProvisioningError, match="minio"):
-                await service.deprovision_tenant("rabat")
+                await service.deprovision_tenant("rabat", tenant_id=tenant.id)
         assert not any(
             "DELETE FROM" in str(call.args[0]) for call in session.execute.await_args_list
         )
@@ -437,7 +460,7 @@ class TestDeprovisionTenant:
             patch.object(service, "_drop_schema", new_callable=AsyncMock) as drop_schema,
         ):
             with pytest.raises(TenantProvisioningError, match="resources were not removed"):
-                await service.deprovision_tenant("rabat")
+                await service.deprovision_tenant("rabat", tenant_id=tenant.id)
         remove_bucket.assert_not_awaited()
         drop_schema.assert_not_awaited()
         session.commit.assert_not_awaited()
@@ -455,6 +478,7 @@ class TestDeprovisionTenant:
         mock_session.__aexit__ = AsyncMock(return_value=False)
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = tenant_orm
+        mock_result.rowcount = 1
         mock_session.execute = AsyncMock(return_value=mock_result)
         mock_session.commit = AsyncMock()
 
@@ -486,7 +510,7 @@ class TestDeprovisionTenant:
             patch("app.services.tenant.provisioning.get_minio", return_value=mock_minio),
         ):
             service = TenantProvisioningService()
-            await service.deprovision_tenant("rabat")
+            await service.deprovision_tenant("rabat", tenant_id=tenant_orm.id)
 
         # All tenant-bound accounts are disabled before deleting resources.
         statements = [str(call.args[0]) for call in mock_session.execute.await_args_list]
@@ -575,7 +599,7 @@ class TestTenantRedisCleanup:
         ):
             settings.return_value.kms_master_key = ""
             with pytest.raises(TenantProvisioningError, match="redis"):
-                await service.deprovision_tenant("rabat")
+                await service.deprovision_tenant("rabat", tenant_id=tenant.id)
         assert not any(
             "DELETE FROM public.tenants" in str(call.args[0])
             for call in session.execute.await_args_list

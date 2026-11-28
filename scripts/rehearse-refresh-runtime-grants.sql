@@ -42,6 +42,18 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Unsafe queue ownership or PUBLIC privileges';
   END IF;
+  -- A tenant DELETE cascades to ingress replay fences. Tenant removal must
+  -- later use a separately controlled maintenance path; this is not yet wired.
+  IF EXISTS (
+    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname='tenants'
+      AND (c.relowner = (SELECT oid FROM pg_roles WHERE rolname='cri_runtime_access') OR EXISTS (
+        SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+        WHERE a.grantee=0 AND a.privilege_type IN ('DELETE','TRUNCATE','TRIGGER')
+      ))
+  ) THEN
+    RAISE EXCEPTION 'Unsafe tenant ownership or PUBLIC privileges';
+  END IF;
   IF EXISTS (
     SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE c.relkind IN ('r','p','v','m','f')
@@ -57,11 +69,15 @@ BEGIN
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
       AND c.relname = ANY(public_tables) AND c.relname NOT IN (
-        'agent_reply_outbox_events', 'whatsapp_inbox_events', 'whatsapp_status_events'
+        'agent_reply_outbox_events', 'whatsapp_inbox_events', 'whatsapp_status_events', 'tenants'
       )
   LOOP
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES ON TABLE %s TO cri_runtime_access', item.relation);
   END LOOP;
+  IF to_regclass('public.tenants') IS NOT NULL THEN
+    GRANT SELECT, INSERT, UPDATE, REFERENCES ON public.tenants TO cri_runtime_access;
+    REVOKE DELETE, TRUNCATE, TRIGGER ON public.tenants FROM cri_runtime_access;
+  END IF;
   FOR item IN SELECT c.oid::regclass AS relation FROM pg_class c
     JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='public' AND c.relname IN (

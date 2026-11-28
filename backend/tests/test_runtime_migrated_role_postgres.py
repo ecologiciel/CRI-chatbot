@@ -25,6 +25,8 @@ async def test_migrated_schema_limited_login_can_insert_but_not_alter_audit():
     login = "fixture_runtime_" + uuid.uuid4().hex[:12]
     password = secrets.token_hex(24)
     audit_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    event_id = uuid.uuid4()
     try:
         assert await admin.fetchval("SELECT current_database()") == url.database
         assert not await admin.fetchval("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='cri_runtime_access')")
@@ -51,9 +53,17 @@ async def test_migrated_schema_limited_login_can_insert_but_not_alter_audit():
             for operation in ("DELETE FROM", "TRUNCATE"):
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     await runtime.execute(f"{operation} public.{table}")
+        # FK cascades execute with elevated table-owner privileges, so denying
+        # queue DELETE alone does not protect the replay fence.
+        await admin.execute("INSERT INTO public.tenants (id,name,slug,region) VALUES ($1,'fixture',$2,'fixture')", tenant_id, "fixture_" + tenant_id.hex)
+        await admin.execute("INSERT INTO public.whatsapp_inbox_events (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version) VALUES ($1,$2,'fixture','fixture','fixture',1)", event_id, tenant_id)
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await runtime.execute("DELETE FROM public.tenants WHERE id=$1", tenant_id)
+        assert await admin.fetchval("SELECT count(*) FROM public.whatsapp_inbox_events WHERE id=$1", event_id) == 1
     finally:
         if runtime:
             await runtime.close()
+        await admin.execute("DELETE FROM public.tenants WHERE id=$1", tenant_id)
         await admin.execute("DELETE FROM public.audit_logs WHERE id=$1", audit_id)
         if created_login:
             await admin.execute(f"DROP ROLE {login}")

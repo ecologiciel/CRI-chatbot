@@ -50,6 +50,7 @@ async def availability(
         "intake_enabled": enabled,
         "worker_seen": None,
         "pending_messages": None,
+        "deferred_messages": None,
         "oldest_pending_seconds": None,
         "review_messages": None,
         "review_statuses": None,
@@ -74,6 +75,7 @@ async def availability(
                         ),
                     ),
                     func.count().filter(WhatsAppInboxEvent.state.in_(["uncertain", "follow_up"])),
+                    func.count().filter(WhatsAppInboxEvent.state == "pending", WhatsAppInboxEvent.not_before > func.clock_timestamp()),
                 ).where(WhatsAppInboxEvent.tenant_id == tenant.id)
             )
         ).one()
@@ -87,6 +89,7 @@ async def availability(
         ).scalar_one()
     result.update(
         pending_messages=message[0],
+        deferred_messages=message[3],
         oldest_pending_seconds=max(0, int(message[1])) if message[1] is not None else None,
         review_messages=message[2],
         review_statuses=statuses,

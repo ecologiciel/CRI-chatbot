@@ -59,22 +59,9 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 TRANSITION_MESSAGES: dict[str, str] = {
-    "fr": (
-        "Un conseiller CRI va prendre le relais pour mieux vous "
-        "accompagner. Veuillez patienter quelques instants. \U0001f64f"
-    ),
-    "ar": (
-        "\u0633\u064a\u0642\u0648\u0645 \u0645\u0633\u062a\u0634\u0627\u0631 "
-        "\u0645\u0646 \u0627\u0644\u0645\u0631\u0643\u0632 \u0627\u0644\u062c\u0647\u0648\u064a "
-        "\u0644\u0644\u0627\u0633\u062a\u062b\u0645\u0627\u0631 \u0628\u0645\u062a\u0627\u0628\u0639\u0629 "
-        "\u0637\u0644\u0628\u0643\u0645 \u0644\u0645\u0633\u0627\u0639\u062f\u062a\u0643\u0645 "
-        "\u0628\u0634\u0643\u0644 \u0623\u0641\u0636\u0644. "
-        "\u064a\u0631\u062c\u0649 \u0627\u0644\u0627\u0646\u062a\u0638\u0627\u0631 "
-        "\u0644\u062d\u0638\u0627\u062a. \U0001f64f"
-    ),
-    "en": (
-        "A CRI advisor will take over to better assist you. " "Please wait a moment. \U0001f64f"
-    ),
+    "fr": "Votre demande a été enregistrée pour examen par l'équipe. Aucun délai de réponse ne peut être garanti. Vous pouvez aussi contacter l'institution par ses canaux officiels.",
+    "ar": "تم تسجيل طلبكم لمراجعته من طرف الفريق. لا يمكن ضمان موعد للرد. يمكنكم أيضاً التواصل مع المؤسسة عبر قنواتها الرسمية.",
+    "en": "Your request has been recorded for review by the team. A response time cannot be guaranteed. You can also contact the institution through its official channels.",
 }
 
 CLOSURE_MESSAGES: dict[str, str] = {
@@ -97,23 +84,10 @@ CLOSURE_MESSAGES: dict[str, str] = {
 }
 
 ALREADY_ESCALATED_MESSAGES: dict[str, str] = {
-    "fr": (
-        "Votre demande est d\u00e9j\u00e0 en cours de traitement par un "
-        "conseiller. Veuillez patienter, il vous r\u00e9pondra sous peu."
-    ),
-    "ar": (
-        "\u0637\u0644\u0628\u0643\u0645 \u0642\u064a\u062f \u0627\u0644\u0645\u0639\u0627\u0644\u062c\u0629 "
-        "\u0645\u0646 \u0637\u0631\u0641 \u0645\u0633\u062a\u0634\u0627\u0631. "
-        "\u064a\u0631\u062c\u0649 \u0627\u0644\u0627\u0646\u062a\u0638\u0627\u0631\u060c "
-        "\u0633\u064a\u062a\u0645 \u0627\u0644\u0631\u062f \u0639\u0644\u064a\u0643\u0645 "
-        "\u0642\u0631\u064a\u0628\u064b\u0627."
-    ),
-    "en": (
-        "Your request is already being handled by an advisor. "
-        "Please wait, they will respond shortly."
-    ),
+    "fr": "Votre demande a déjà été enregistrée pour examen. Aucun délai de réponse ne peut être garanti. Vous pouvez contacter l'institution par ses canaux officiels.",
+    "ar": "سبق تسجيل طلبكم للمراجعة. لا يمكن ضمان موعد للرد. يمكنكم التواصل مع المؤسسة عبر قنواتها الرسمية.",
+    "en": "Your request has already been recorded for review. A response time cannot be guaranteed. You can contact the institution through its official channels.",
 }
-
 
 class EscalationService:
     """Service for managing escalations to human CRI agents.

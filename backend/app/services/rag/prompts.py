@@ -103,6 +103,11 @@ class PromptTemplates:
     # ------------------------------------------------------------------
 
     MESSAGES: dict[str, dict[str, str]] = {
+        "web_escalation_unavailable": {
+            "fr": "Cette démonstration ne permet pas de joindre un conseiller. Veuillez contacter l'institution par ses canaux officiels.",
+            "ar": "لا تتيح هذه النسخة التجريبية التواصل مع مستشار. يرجى الاتصال بالمؤسسة عبر قنواتها الرسمية.",
+            "en": "This demonstration cannot connect you to an advisor. Please contact the institution through its official channels.",
+        },
         "no_answer": {
             "fr": (
                 "Je ne dispose pas d'informations suffisantes pour répondre à cette "
@@ -171,9 +176,9 @@ class PromptTemplates:
             "en": "Thank you for your feedback. We will improve our responses.",
         },
         "feedback_ack_question": {
-            "fr": "Je vous mets en relation avec un conseiller. Veuillez patienter.",
-            "ar": "سأقوم بتحويلكم إلى مستشار. يرجى الانتظار.",
-            "en": "I'm connecting you with an advisor. Please wait.",
+            "fr": "Pour demander un conseiller, écrivez votre demande ou contactez l'institution par ses canaux officiels.",
+            "ar": "لطلب التواصل مع مستشار، اكتبوا طلبكم أو اتصلوا بالمؤسسة عبر قنواتها الرسمية.",
+            "en": "To request an advisor, write your request or contact the institution through its official channels.",
         },
         "rate_limit_user": {
             "fr": ("Veuillez patienter quelques instants avant " "d'envoyer un nouveau message."),

@@ -16,7 +16,7 @@ from typing import Any
 
 import structlog
 from qdrant_client.models import Distance, VectorParams
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, exists, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
@@ -25,15 +25,19 @@ from app.core.exceptions import (
     DuplicateResourceError,
     DuplicateTenantError,
     TenantProvisioningError,
+    TenantRetentionConflictError,
 )
 from app.core.minio import get_minio
 from app.core.qdrant import get_qdrant
 from app.core.redis import get_redis
 from app.core.tenant_lifecycle import protect_removal
 from app.models.admin import Admin
+from app.models.agent_reply_outbox import AgentReplyOutboxEvent
 from app.models.audit import AuditLog
 from app.models.enums import TenantStatus
 from app.models.tenant import Tenant
+from app.models.whatsapp_inbox import WhatsAppInboxEvent
+from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
 from app.schemas.tenant import TenantCreate
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
@@ -349,6 +353,15 @@ class TenantProvisioningService:
                     raise TenantProvisioningError(
                         "Tenant identity changed or disappeared; resources were not removed"
                     )
+                retained_events = await session.scalar(select(or_(
+                    exists().where(WhatsAppInboxEvent.tenant_id == tenant_id),
+                    exists().where(WhatsAppStatusEvent.tenant_id == tenant_id),
+                    exists().where(AgentReplyOutboxEvent.tenant_id == tenant_id),
+                )))
+                if retained_events:
+                    raise TenantRetentionConflictError(
+                        "Des événements WhatsApp doivent être conservés ; suppression suspendue pour revue."
+                    )
                 tenant.status = TenantStatus.inactive
                 await session.execute(
                     update(Admin).where(Admin.tenant_id == tenant.id).values(is_active=False)
@@ -360,6 +373,8 @@ class TenantProvisioningService:
                 ))
                 await session.commit()
                 log.info("step_completed", step="deactivated")
+        except TenantProvisioningError:
+            raise
         except Exception as exc:
             log.error("deprovision_step_failed", step="deactivate", error_type=type(exc).__name__)
             raise TenantProvisioningError(

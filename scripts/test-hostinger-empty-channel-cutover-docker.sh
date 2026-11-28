@@ -35,17 +35,20 @@ docker build -q --build-arg marker=old -t "$old" "$fixture/image" >/dev/null
 docker build -q --build-arg marker=new -t "$new" "$fixture/image" >/dev/null
 original=$(docker image inspect -f '{{.Id}}' "$old")
 cat > "$fixture/deploy/docker-compose.hostinger.yml" <<EOF
+x-fixture: &fixture {init: true}
 services:
   postgres:
+    <<: *fixture
     image: $old
     environment: {POSTGRES_USER: fixture, POSTGRES_DB: fixture, DB_COUNT: "\${DB_COUNT:-0}"}
   backend:
+    <<: *fixture
     image: $old
     environment: {FAIL_HEALTH: "\${FAIL_HEALTH:-0}", WHATSAPP_CONFIG_REQUIRE_ENCRYPTION: "\${WHATSAPP_CONFIG_REQUIRE_ENCRYPTION:-false}"}
-  ingestion-worker: {image: $old}
-  learning-worker: {image: $old}
-  purge-worker: {image: $old}
-  frontend-admin: {image: $old}
+  ingestion-worker: {<<: *fixture, image: $old}
+  learning-worker: {<<: *fixture, image: $old}
+  purge-worker: {<<: *fixture, image: $old}
+  frontend-admin: {<<: *fixture, image: $old}
 EOF
 printf 'services: {}\n' > "$fixture/deploy/docker-compose.hostinger.local.yml"
 printf '#!/bin/sh\nexit 0\n' > "$fixture/deploy/scripts/backup/check-hostinger-backup.sh"

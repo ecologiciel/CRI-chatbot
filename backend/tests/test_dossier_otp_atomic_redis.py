@@ -97,11 +97,15 @@ async def test_corrupt_or_persistent_budget_fails_closed(environment):
 
 @pytest.mark.asyncio
 async def test_code_is_bound_to_institution_id_even_if_slug_is_reused(environment):
-    service, _, tenant = environment
+    service, redis, tenant = environment
     code = await service.generate_otp(PHONE, tenant)
     replacement = TenantContext(id=uuid.uuid4(), slug=tenant.slug, name="Replacement", status="active", whatsapp_config=None)
-    assert await service.verify_otp(PHONE, code, replacement) is False
-    assert await service.verify_otp(PHONE, code, tenant) is True
+    try:
+        assert await service.verify_otp(PHONE, code, replacement) is False
+        assert await service.verify_otp(PHONE, code, tenant) is True
+        assert await service.verify_otp(PHONE, await service.generate_otp(PHONE, replacement), replacement)
+    finally:
+        await redis.delete(*(service._redis_key(replacement, kind, PHONE) for kind in ("dossier_otp", "dossier_otp_attempts", "dossier_otp_verify_attempts")))
 
 
 @pytest.mark.asyncio
@@ -132,3 +136,26 @@ async def test_factory_service_runs_atomic_protocol_on_real_redis(environment, m
     code = await service.generate_otp(PHONE, tenant)
     outcomes = await asyncio.gather(*(service.verify_otp(PHONE, code, tenant) for _ in range(10)))
     assert sum(outcomes) == 1
+
+
+@pytest.mark.asyncio
+async def test_tenant_and_phone_budgets_are_independent(environment):
+    service, redis, tenant = environment
+    other = TenantContext(id=uuid.uuid4(), slug="otpfixture" + uuid.uuid4().hex, name="Other", status="active", whatsapp_config=None)
+    phone_b = "+212600000002"
+    try:
+        for _ in range(3):
+            await service.generate_otp(PHONE, tenant)
+        with pytest.raises(RateLimitExceededError):
+            await service.generate_otp(PHONE, tenant)
+        tenant_b_code = await service.generate_otp(PHONE, other)
+        phone_b_code = await service.generate_otp(phone_b, tenant)
+        assert await service.verify_otp(PHONE, tenant_b_code, other)
+        assert await service.verify_otp(phone_b, phone_b_code, tenant)
+    finally:
+        keys = [
+            service._redis_key(t, kind, phone)
+            for t, phone in ((other, PHONE), (tenant, phone_b))
+            for kind in ("dossier_otp", "dossier_otp_attempts", "dossier_otp_verify_attempts")
+        ]
+        await redis.delete(*keys)

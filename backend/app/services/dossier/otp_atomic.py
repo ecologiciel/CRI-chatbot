@@ -67,6 +67,12 @@ class AtomicDossierOTPService(DossierOTPService):
     """One-time codes with atomic generation and verification budgets."""
 
     @staticmethod
+    def _redis_key(tenant, key_type, identifier):
+        # Slugs can be reused after removal; bind both OTPs and inherited
+        # sessions to the immutable institution identity as well.
+        return f"{tenant.slug}:{key_type}:{tenant.id.hex}:{identifier}"
+
+    @staticmethod
     def _digest(phone, code, tenant):
         if not isinstance(phone, str) or not _PHONE.fullmatch(phone):
             raise ValueError("Invalid phone number")

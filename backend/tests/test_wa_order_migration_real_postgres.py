@@ -33,8 +33,8 @@ async def test_legacy_inbox_events_are_preserved_and_pending_is_quarantined():
                     INSERT INTO public.whatsapp_inbox_events
                       (id,tenant_id,provider_message_id,phone_number_id,ciphertext,key_version,state,lease_token,lease_until)
                     VALUES (:id,:tenant,:provider,'123','synthetic-ciphertext',1,:state,
-                      CASE WHEN :state='processing' THEN gen_random_uuid() ELSE NULL END,
-                      CASE WHEN :state='processing' THEN now()+interval '5 minutes' ELSE NULL END)
+                      CASE WHEN CAST(:state AS varchar)='processing' THEN gen_random_uuid() ELSE NULL END,
+                      CASE WHEN CAST(:state AS varchar)='processing' THEN now()+interval '5 minutes' ELSE NULL END)
                 """), {"id": event_id, "tenant": tenant, "provider": str(event_id), "state": state})
 
             def run_upgrade(connection):

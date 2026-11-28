@@ -11,7 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 
 from app.core.config import get_settings
 from app.core.database import get_session_factory
@@ -25,6 +25,7 @@ from app.models.whatsapp_status_inbox import WhatsAppStatusEvent
 from app.schemas.auth import AdminTokenPayload
 from app.schemas.whatsapp import IncomingMessage, StatusInfo
 from app.services.crypto.versioned_envelope import VersionedEnvelope, VersionedEnvelopeService
+from app.services.whatsapp.legacy_reconciliation import LegacyReconciliationError, reconcile_legacy_text
 from app.services.whatsapp.worker_presence import HEARTBEAT_KEY
 
 router = APIRouter(prefix="/whatsapp/operations", tags=["whatsapp-operations"])
@@ -115,6 +116,7 @@ async def list_events(
                     model.created_at,
                     model.updated_at,
                     model.redacted_at,
+                    (model.sender_fingerprint.is_(None) if kind == "message" else literal(False)).label("requires_reconciliation"),
                 )
                 .where(model.tenant_id == tenant.id, model.state == state)
                 .order_by(model.created_at, model.id)
@@ -134,6 +136,7 @@ async def list_events(
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
                 "redacted_at": row.redacted_at,
+                "requires_reconciliation": row.requires_reconciliation,
             }
             for row in rows
         ],
@@ -142,6 +145,21 @@ async def list_events(
 
 class ReviewRequest(BaseModel):
     action: Literal["follow_up", "resolve"]
+
+
+@router.post("/events/{event_id}/reconcile")
+async def reconcile_event(
+    event_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(AdminRole.super_admin, AdminRole.admin_tenant)),
+) -> dict[str, bool]:
+    """Classify a legacy message without sending or closing the review."""
+    cipher = VersionedEnvelopeService(get_session_factory(), get_settings().kms_master_key)
+    try:
+        applied = await reconcile_legacy_text(tenant, event_id, uuid.UUID(admin.sub), cipher=cipher)
+    except LegacyReconciliationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"stop_applied": applied}
 
 
 @router.get("/events/{event_id}/detail")
@@ -234,6 +252,8 @@ async def review_event(
         allowed = {"uncertain"} if data.action == "follow_up" else {"uncertain", "follow_up"}
         if event.state not in allowed:
             raise HTTPException(status_code=409, detail="État de l’événement modifié")
+        if kind == "message" and data.action == "resolve" and event.sender_fingerprint is None:
+            raise HTTPException(status_code=409, detail="Message ancien non identifié : rapprochement requis avant clôture")
         previous = event.state
         event.state = "follow_up" if data.action == "follow_up" else "resolved"
         event.updated_at = func.clock_timestamp()

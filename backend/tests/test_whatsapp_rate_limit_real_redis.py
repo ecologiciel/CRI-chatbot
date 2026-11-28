@@ -19,7 +19,7 @@ async def test_concurrent_limit_and_expiry_recovery():
         pytest.skip("requires disposable Redis")
     redis = Redis.from_url(redis_url, decode_responses=True)
     tenant = TenantContext(
-        id=uuid.uuid4(), slug=f"test-{uuid.uuid4().hex}", name="Test", status="active",
+        id=uuid.uuid4(), slug=f"test_{uuid.uuid4().hex}", name="Test", status="active",
         whatsapp_config={},
     )
     phone = "+212600000001"

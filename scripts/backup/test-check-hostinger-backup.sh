@@ -9,6 +9,20 @@ printf 'checksum fixture\n' > "$fixture/$archive.sha256"
 printf 'finished_utc=%s\nstatus=success\narchive=%s\n' "$(date -u +%FT%TZ)" "$archive" > "$fixture/scheduled-backup.status"
 touch "$fixture/recovery-guard.heartbeat"
 BACKUP_DIR="$fixture" bash "$script_dir/check-hostinger-backup.sh"
+set_manifest() {
+    local digest
+    digest=$(sha256sum "$fixture/$archive")
+    printf '%s  %s\n' "${digest%% *}" "$archive" > "$fixture/$archive.sha256"
+}
+set_manifest
+BACKUP_DIR="$fixture" BACKUP_VERIFY_HASH=1 bash "$script_dir/check-hostinger-backup.sh"
+printf 'corrupted\n' >> "$fixture/$archive"
+if BACKUP_DIR="$fixture" BACKUP_VERIFY_HASH=1 bash "$script_dir/check-hostinger-backup.sh"; then exit 1; fi
+set_manifest
+printf '%s  other-file\n' "$(printf '%064d' 0)" > "$fixture/$archive.sha256"
+if BACKUP_DIR="$fixture" BACKUP_VERIFY_HASH=1 bash "$script_dir/check-hostinger-backup.sh"; then exit 1; fi
+set_manifest
+if BACKUP_DIR="$fixture" BACKUP_VERIFY_HASH=invalid bash "$script_dir/check-hostinger-backup.sh"; then exit 1; fi
 printf 'finished_utc=%s\nstatus=failed\n' "$(date -u +%FT%TZ)" > "$fixture/scheduled-backup.status"
 if BACKUP_DIR="$fixture" bash "$script_dir/check-hostinger-backup.sh"; then exit 1; fi
 printf 'finished_utc=%s\nstatus=success\narchive=%s\n' "$(date -u -d '2 days ago' +%FT%TZ)" "$archive" > "$fixture/scheduled-backup.status"

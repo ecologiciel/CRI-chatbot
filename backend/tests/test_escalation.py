@@ -71,6 +71,13 @@ def _make_escalation_service():
     )
 
 
+@pytest.fixture(autouse=True)
+def _mock_outbox_guard_for_legacy_unit_tests():
+    # Database locking and the guard are exercised on real PostgreSQL.
+    with patch("app.services.escalation.service._assert_no_open_agent_reply", new=AsyncMock()):
+        yield
+
+
 # =====================================================================
 # Detection
 # =====================================================================

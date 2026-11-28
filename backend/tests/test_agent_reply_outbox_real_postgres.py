@@ -460,3 +460,44 @@ async def test_one_provider_attempt_respects_stop_and_quarantines_ambiguity():
                 assert (await conn.scalar(text("SELECT outcome_code FROM public.agent_reply_outbox_events WHERE id=:id"), {"id": pending.id})) == "precondition_changed"
                 assert (await conn.scalar(text("SELECT count(*) FROM public.audit_logs WHERE action='agent_reply_review' AND resource_id=:id"), {"id": str(pending.id)})) == 1
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pending_reply_blocks_legacy_send_and_closure_until_resolved():
+    from app.core.exceptions import EscalationConflictError
+    from app.services.escalation.service import EscalationService
+
+    engine = create_async_engine(URL, pool_size=8)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id, actor_id, contact_id, conversation_id, escalation_id, event_id = (uuid.uuid4() for _ in range(6))
+    tenant = TenantContext(tenant_id, "fixtureguard", "Fixture", "active", None)
+    async with engine.begin() as conn:
+        assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
+        await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status) VALUES (:id,'Fixture','fixtureguard','Test','active')"), {"id": tenant_id})
+        await conn.execute(text("INSERT INTO public.admins (id,email,password_hash,full_name,role,tenant_id) VALUES (:id,'guard@example.test','fixture','A','admin_tenant',:tenant)"), {"id": actor_id, "tenant": tenant_id})
+    with patch("app.services.tenant.provisioning.get_session_factory", return_value=factory):
+        await TenantProvisioningService()._create_schema(tenant.slug)
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO tenant_fixtureguard.contacts (id,phone,opt_in_status) VALUES (:id,'+212600000001','opted_out')"), {"id": contact_id})
+        await conn.execute(text("INSERT INTO tenant_fixtureguard.conversations (id,contact_id,status) VALUES (:id,:contact,'human_handled')"), {"id": conversation_id, "contact": contact_id})
+        await conn.execute(text("INSERT INTO tenant_fixtureguard.escalations (id,conversation_id,trigger_type,priority,status,assigned_to) VALUES (:id,:conversation,'manual','medium','assigned',:actor)"), {"id": escalation_id, "conversation": conversation_id, "actor": actor_id})
+        await conn.execute(text("""
+            INSERT INTO public.agent_reply_outbox_events
+              (id,tenant_id,request_key,actor_id,escalation_id,conversation_id,contact_id,phone_number_id,recipient_fingerprint,ciphertext,key_version)
+            VALUES (:id,:tenant,gen_random_uuid(),:actor,:escalation,:conversation,:contact,'123',repeat('a',64),'fixture',1)
+        """), {"id": event_id, "tenant": tenant_id, "actor": actor_id, "escalation": escalation_id, "conversation": conversation_id, "contact": contact_id})
+    sender = AsyncMock()
+    service = EscalationService(gemini=AsyncMock(), sender=sender, audit=AsyncMock())
+    with (patch("app.core.tenant.get_session_factory", return_value=factory),
+          patch("app.services.escalation.service.get_redis", return_value=AsyncMock())):
+        with pytest.raises(EscalationConflictError, match="réponse"):
+            await service.respond_via_whatsapp(escalation_id, "fixture", actor_id, tenant)
+        with pytest.raises(EscalationConflictError, match="réponse"):
+            await service.close_escalation(escalation_id, "fixture", actor_id, tenant)
+        sender.send_text.assert_not_awaited()
+        async with engine.begin() as conn:
+            assert await conn.scalar(text("SELECT status::text FROM tenant_fixtureguard.escalations WHERE id=:id"), {"id": escalation_id}) == "assigned"
+            await conn.execute(text("UPDATE public.agent_reply_outbox_events SET state='canceled' WHERE id=:id"), {"id": event_id})
+        await service.close_escalation(escalation_id, "fixture", actor_id, tenant)
+        sender.send_text.assert_not_awaited()
+    await engine.dispose()

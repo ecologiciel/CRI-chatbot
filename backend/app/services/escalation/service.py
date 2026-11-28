@@ -28,6 +28,7 @@ from sqlalchemy import case, func, select, text, update
 from app.core.exceptions import EscalationConflictError, ResourceNotFoundError
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
+from app.models.agent_reply_outbox import AgentReplyOutboxEvent
 from app.models.audit import AuditLog
 from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
@@ -90,6 +91,22 @@ ALREADY_ESCALATED_MESSAGES: dict[str, str] = {
     "ar": "سبق تسجيل طلبكم للمراجعة. لا يمكن ضمان موعد للرد. يمكنكم التواصل مع المؤسسة عبر قنواتها الرسمية.",
     "en": "Your request has already been recorded for review. A response time cannot be guaranteed. You can contact the institution through its official channels.",
 }
+
+async def _assert_no_open_agent_reply(session, tenant_id: uuid.UUID, conversation_id: uuid.UUID) -> None:
+    """Serialize legacy actions with durable registration for this conversation."""
+    await session.execute(
+        select(Conversation.id).where(Conversation.id == conversation_id).with_for_update()
+    )
+    pending = (await session.execute(
+        select(AgentReplyOutboxEvent.id).where(
+            AgentReplyOutboxEvent.tenant_id == tenant_id,
+            AgentReplyOutboxEvent.conversation_id == conversation_id,
+            AgentReplyOutboxEvent.state.in_(["pending", "processing", "uncertain", "follow_up"]),
+        ).limit(1)
+    )).scalar_one_or_none()
+    if pending is not None:
+        raise EscalationConflictError("Une réponse est en attente ou nécessite une vérification")
+
 
 class EscalationService:
     """Service for managing escalations to human CRI agents.
@@ -535,6 +552,8 @@ class EscalationService:
                     details={"escalation_id": str(escalation_id), "current_status": escalation.status.value},
                 )
 
+            await _assert_no_open_agent_reply(session, tenant.id, escalation.conversation_id)
+
             # Serialize a human reply with a concurrent STOP for this contact.
             contact = (await session.execute(
                 select(Contact)
@@ -627,6 +646,7 @@ class EscalationService:
                     details={"escalation_id": str(escalation_id), "current_status": escalation.status.value},
                 )
 
+            await _assert_no_open_agent_reply(session, tenant.id, escalation.conversation_id)
             escalation.status = EscalationStatus.resolved
             escalation.resolution_notes = resolution_notes
             escalation.resolved_at = now

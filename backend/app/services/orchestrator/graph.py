@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from typing import Any
 
 import structlog
@@ -51,6 +52,7 @@ from app.services.rag.prompts import PromptTemplates
 from app.services.whatsapp.outbound_fence import OutboundSupersededError
 
 logger = structlog.get_logger()
+_runtime_tenant: ContextVar[TenantContext | None] = ContextVar("conversation_runtime_tenant", default=None)
 
 
 # ---------------------------------------------------------------------------
@@ -59,14 +61,19 @@ logger = structlog.get_logger()
 
 
 def _reconstruct_tenant(state: ConversationState) -> TenantContext:
-    """Reconstruct a TenantContext from the serialized dict in state."""
+    """Resolve the request-local tenant without putting credentials in state."""
     tc = state.get("tenant_context", {})
+    runtime = _runtime_tenant.get()
+    if runtime is not None:
+        if str(runtime.id) != tc.get("id") or runtime.slug != tc.get("slug"):
+            raise ValueError("Conversation tenant context mismatch")
+        return runtime
     return TenantContext(
         id=uuid.UUID(tc["id"]),
         slug=tc["slug"],
         name=tc["name"],
         status=tc["status"],
-        whatsapp_config=tc.get("whatsapp_config"),
+        whatsapp_config=None,
     )
 
 
@@ -77,7 +84,6 @@ def _serialize_tenant(tenant: TenantContext) -> dict:
         "slug": tenant.slug,
         "name": tenant.name,
         "status": tenant.status,
-        "whatsapp_config": tenant.whatsapp_config,
     }
 
 
@@ -416,6 +422,7 @@ async def run_conversation(
         "authenticated_phone": None,
     }
 
+    token = _runtime_tenant.set(tenant)
     try:
         graph = get_conversation_graph()
         final_state = await graph.ainvoke(initial_state)
@@ -463,3 +470,5 @@ async def run_conversation(
             "incentive_state": incentive_state or {},
             "error": str(exc),
         }
+    finally:
+        _runtime_tenant.reset(token)

@@ -15,7 +15,7 @@ import re
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import structlog
@@ -51,7 +51,7 @@ class TenantContext:
     slug: str
     name: str
     status: str
-    whatsapp_config: dict | None
+    whatsapp_config: dict | None = field(repr=False)
 
     def __post_init__(self) -> None:
         # Defense-in-depth: prevent SQL injection in SET search_path
@@ -186,24 +186,23 @@ class TenantResolver:
 
     @staticmethod
     def _build_context_from_dict(data: dict) -> TenantContext:
-        """Reconstruct TenantContext from a Redis-cached dict."""
+        """Reconstruct identity only; a cache cannot supply channel credentials."""
         return TenantContext(
             id=uuid.UUID(data["id"]),
             slug=data["slug"],
             name=data["name"],
             status=data["status"],
-            whatsapp_config=data.get("whatsapp_config"),
+            whatsapp_config=None,
         )
 
     @staticmethod
     def _context_to_dict(ctx: TenantContext) -> dict:
-        """Serialize TenantContext for Redis caching."""
+        """Serialize identity only; never persist channel credentials in cache."""
         return {
             "id": str(ctx.id),
             "slug": ctx.slug,
             "name": ctx.name,
             "status": ctx.status,
-            "whatsapp_config": ctx.whatsapp_config,
         }
 
 

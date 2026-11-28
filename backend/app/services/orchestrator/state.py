@@ -23,7 +23,7 @@ class ConversationState(TypedDict, total=False):
 
     # ── Tenant & user identity ──
     tenant_slug: str
-    tenant_context: dict  # serialized TenantContext (id, slug, name, status, whatsapp_config)
+    tenant_context: dict  # tenant identity only; credentials remain request-local
     phone: str  # user's WhatsApp phone (E.164)
     channel: str  # "web" or "whatsapp"
     defer_feedback: bool  # send feedback after the actual response

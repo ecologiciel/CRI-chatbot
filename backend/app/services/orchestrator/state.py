@@ -26,6 +26,7 @@ class ConversationState(TypedDict, total=False):
     tenant_context: dict  # serialized TenantContext (id, slug, name, status, whatsapp_config)
     phone: str  # user's WhatsApp phone (E.164)
     channel: str  # "web" or "whatsapp"
+    defer_feedback: bool  # send feedback after the actual response
 
     # ── Language & intent detection ──
     language: str  # detected language: "fr", "ar", "en"

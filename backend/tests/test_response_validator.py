@@ -175,6 +175,15 @@ class TestFeedbackCollector:
         sender.send_buttons.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_deferred_feedback_does_not_send_from_graph(self):
+        sender = AsyncMock()
+        collector = FeedbackCollector(sender=sender)
+        state = _make_state(intent=IntentType.FAQ, phone="+212600000001")
+        state["defer_feedback"] = True
+        assert await collector.collect(state, TEST_TENANT) == {}
+        sender.send_buttons.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_feedback_buttons_sent_for_faq(self):
         """Intent=faq → send_buttons called with 3 localized buttons."""
         mock_sender = AsyncMock()

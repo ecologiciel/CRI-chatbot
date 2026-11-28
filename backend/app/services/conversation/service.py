@@ -7,7 +7,10 @@ timed out and, if so, closes it and creates a fresh one.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -19,9 +22,11 @@ from app.models.conversation import Conversation, Message
 from app.models.enums import (
     AgentType,
     ConversationStatus,
+    EscalationStatus,
     MessageDirection,
     MessageType,
 )
+from app.models.escalation import Escalation
 
 logger = structlog.get_logger()
 
@@ -140,6 +145,38 @@ class ConversationService:
             if status is None:
                 raise ValueError("Conversation introuvable")
             return status
+
+    @asynccontextmanager
+    async def guard_bot_reply(
+        self, tenant: TenantContext, conversation_id: uuid.UUID, escalation_id: uuid.UUID | None = None,
+    ) -> AsyncIterator[bool]:
+        """Serialize the start of a provider call with human takeover.
+
+        The row lock stays held while the caller makes a bounded provider call.
+        An already-started request cannot be recalled if its outcome is unknown.
+        """
+        async with asyncio.timeout(40):
+            async with tenant.db_session() as session:
+                result = await session.execute(
+                    select(Conversation).where(Conversation.id == conversation_id).with_for_update()
+                )
+                conversation = result.scalar_one_or_none()
+                if conversation is None:
+                    raise ValueError("Conversation introuvable")
+                if escalation_id is None:
+                    allowed = conversation.status == ConversationStatus.active
+                elif conversation.status == ConversationStatus.escalated:
+                    pending = await session.execute(
+                        select(Escalation.id).where(
+                            Escalation.id == escalation_id,
+                            Escalation.conversation_id == conversation_id,
+                            Escalation.status == EscalationStatus.pending,
+                        )
+                    )
+                    allowed = pending.scalar_one_or_none() is not None
+                else:
+                    allowed = False
+                yield allowed
 
     async def record_faq_outcome(
         self, tenant: TenantContext, conversation_id: uuid.UUID, *, low_confidence: bool

@@ -7,13 +7,14 @@ suffix=$(basename "$fixture" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
 project="cutover${suffix}"
 old="cutover-${suffix}-old:test"
 new="cutover-${suffix}-new:test"
+old_worker="cutover-${suffix}-worker:test"
 cleanup() {
   rc=$?
   if (( rc != 0 )); then cat "$fixture/success.log" "$fixture/failure.log" 2>/dev/null || true; fi
   if [[ -f "$fixture/deploy/docker-compose.hostinger.yml" ]]; then
     docker compose -p "$project" --env-file "$fixture/deploy/.env.demo" -f "$fixture/deploy/docker-compose.hostinger.yml" down --remove-orphans >/dev/null 2>&1 || true
   fi
-  docker image rm "$old" "$new" >/dev/null 2>&1 || true
+  docker image rm "$old" "$old_worker" "$new" >/dev/null 2>&1 || true
   case "$fixture" in "${TMPDIR:-/tmp}"/codex-channel-docker.*) rm -rf -- "$fixture" ;; *) exit 1 ;; esac
 }
 trap cleanup EXIT
@@ -33,6 +34,7 @@ printf '#!/bin/sh\necho "${DB_COUNT:-0}"\n' > "$fixture/image/psql"
 chmod +x "$fixture/image/psql"
 docker build -q --build-arg marker=old -t "$old" "$fixture/image" >/dev/null
 docker build -q --build-arg marker=new -t "$new" "$fixture/image" >/dev/null
+docker build -q --build-arg marker=worker -t "$old_worker" "$fixture/image" >/dev/null
 original=$(docker image inspect -f '{{.Id}}' "$old")
 cat > "$fixture/deploy/docker-compose.hostinger.yml" <<EOF
 x-fixture: &fixture {init: true}
@@ -51,6 +53,12 @@ services:
   frontend-admin: {<<: *fixture, image: $old}
 EOF
 printf 'services: {}\n' > "$fixture/deploy/docker-compose.hostinger.local.yml"
+cat > "$fixture/deploy/.initial.yml" <<EOF
+services:
+  ingestion-worker: {image: $old_worker}
+  learning-worker: {image: $old_worker}
+  purge-worker: {image: $old_worker}
+EOF
 printf '#!/bin/sh\nexit 0\n' > "$fixture/deploy/scripts/backup/check-hostinger-backup.sh"
 cd "$fixture/deploy"
 git init -q
@@ -62,7 +70,7 @@ export DEPLOY_DIR="$fixture/deploy" BACKUP_DIR="$fixture/backups" COMPOSE_PROJEC
 export CANDIDATE_BACKEND="$new" CANDIDATE_ADMIN="$new" EXPECTED_HEAD="$(git rev-parse HEAD)"
 compose=(docker compose -p "$project" --env-file .env.demo -f docker-compose.hostinger.yml -f docker-compose.hostinger.local.yml)
 printf 'DB_COUNT=0\nFAIL_HEALTH=0\n' > .env.demo
-"${compose[@]}" up -d --wait --wait-timeout 60 >/dev/null
+"${compose[@]}" -f .initial.yml up -d --wait --wait-timeout 60 >/dev/null
 bash "$root/cutover-hostinger-empty-channels.sh" > "$fixture/success.log" 2>&1
 grep -q '^WHATSAPP_CONFIG_REQUIRE_ENCRYPTION=true$' .env.demo
 [[ "$(docker inspect -f '{{.Image}}' "$(${compose[@]} ps -q backend)")" == "$(docker image inspect -f '{{.Id}}' "$new")" ]]
@@ -71,10 +79,15 @@ echo CUTOVER_REAL_DOCKER_SUCCESS_OK
 "${compose[@]}" down --remove-orphans >/dev/null
 printf 'DB_COUNT=0\nFAIL_HEALTH=1\n' > .env.demo
 docker tag "$original" "$old"
-"${compose[@]}" up -d --wait --wait-timeout 60 >/dev/null
+"${compose[@]}" -f .initial.yml up -d --wait --wait-timeout 60 >/dev/null
 before=$(docker inspect -f '{{.Image}}' "$(${compose[@]} ps -q backend)")
+worker_before=$(docker inspect -f '{{.Image}}' "$(${compose[@]} ps -q ingestion-worker)")
+[[ "$worker_before" != "$before" ]]
 if bash "$root/cutover-hostinger-empty-channels.sh" > "$fixture/failure.log" 2>&1; then echo 'Expected readiness failure' >&2; exit 1; fi
 ! grep -q '^WHATSAPP_CONFIG_REQUIRE_ENCRYPTION=' .env.demo
 grep -q 'Previous images restored' "$fixture/failure.log"
 [[ "$(docker inspect -f '{{.Image}}' "$(${compose[@]} ps -q backend)")" == "$before" ]]
+for service in ingestion-worker learning-worker purge-worker; do
+  [[ "$(docker inspect -f '{{.Image}}' "$(${compose[@]} ps -q "$service")")" == "$worker_before" ]]
+done
 echo CUTOVER_REAL_DOCKER_ROLLBACK_OK

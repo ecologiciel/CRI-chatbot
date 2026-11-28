@@ -49,6 +49,7 @@ async def require_current_signing_secret(tenant: TenantContext, current, session
 
 def verify_tenant_challenge(tenant: TenantContext, mode: str, token: str, challenge: str) -> str:
     """Return the challenge only after this institution's token is verified."""
+    _secret(tenant.whatsapp_config, "app_secret")
     expected = _secret(tenant.whatsapp_config, "verify_token")
     try:
         supplied = token.encode("utf-8") if isinstance(token, str) else b""

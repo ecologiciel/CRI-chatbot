@@ -10,11 +10,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.exceptions import TenantInactiveError, WhatsAppSignatureError
 from app.core.tenant import TenantResolver
+from app.main import app
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.whatsapp.config_envelope import seal_channel_config
@@ -43,7 +45,11 @@ async def test_encrypted_tenant_intake_commits_deduplicates_and_rejects_rotated_
     tenant_id = uuid.uuid4()
     master = secrets.token_hex(32)
     config = {"phone_number_id": "87900001", "app_secret": "fixture-signing-key", "verify_token": "fixture-verify", "access_token": "fixture-access"}
-    settings = SimpleNamespace(kms_master_key=master, whatsapp_config_require_encryption=True)
+    settings = SimpleNamespace(
+        kms_master_key=master, whatsapp_config_require_encryption=True,
+        whatsapp_tenant_webhook_enabled=True, whatsapp_durable_inbox_enabled=True,
+        webhook_proxy_shared_secret="", whatsapp_webhook_max_body_bytes=4096,
+    )
     kms = KMSService(factory, AsyncMock(), master)
     cipher = VersionedEnvelopeService(factory, master)
     try:
@@ -62,6 +68,8 @@ async def test_encrypted_tenant_intake_commits_deduplicates_and_rejects_rotated_
             patch("app.services.whatsapp.inbox_intake.get_session_factory", return_value=factory),
             patch("app.services.whatsapp.inbox.get_session_factory", return_value=factory),
             patch("app.services.whatsapp.status_inbox.get_session_factory", return_value=factory),
+            patch("app.api.v1.webhook.get_settings", return_value=settings),
+            patch("app.api.v1.webhook.get_redis", return_value=SimpleNamespace(exists=AsyncMock(return_value=1))),
         ):
             tenant = await TenantResolver.from_tenant_id_header(str(tenant_id))
             raw = event(config["phone_number_id"], "fixture-1", "fixture-status-1")
@@ -69,6 +77,14 @@ async def test_encrypted_tenant_intake_commits_deduplicates_and_rejects_rotated_
                 await persist_tenant_authenticated_webhook(tenant, raw, sign(raw, "wrong"))
             await persist_tenant_authenticated_webhook(tenant, raw, sign(raw, config["app_secret"]))
             await persist_tenant_authenticated_webhook(tenant, raw, sign(raw, config["app_secret"]))
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                route = f"/api/v1/webhook/whatsapp/tenant/{tenant.slug}"
+                challenge = await client.get(route, params={"hub.mode": "subscribe", "hub.verify_token": config["verify_token"], "hub.challenge": "ok"})
+                assert challenge.status_code == 200 and challenge.text == "ok"
+                wrong = await client.post(route, content=raw, headers={"X-Hub-Signature-256": sign(raw, "wrong")})
+                assert wrong.status_code == 403
+                replay = await client.post(route, content=raw, headers={"X-Hub-Signature-256": sign(raw, config["app_secret"])})
+                assert replay.status_code == 200
             async with engine.connect() as conn:
                 row = (await conn.execute(text("SELECT ciphertext FROM public.whatsapp_inbox_events WHERE tenant_id=:id"), {"id": tenant_id})).all()
                 status_count = await conn.scalar(text("SELECT count(*) FROM public.whatsapp_status_events WHERE tenant_id=:id"), {"id": tenant_id})

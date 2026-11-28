@@ -87,6 +87,8 @@ def test_missing_credentials_and_invalid_or_empty_payloads_fail_closed():
     with pytest.raises(WhatsAppSignatureError):
         verify_tenant_challenge(missing, "subscribe", "token", "challenge")
     with pytest.raises(WhatsAppSignatureError):
+        verify_tenant_challenge(tenant("111", "", "token"), "subscribe", "token", "challenge")
+    with pytest.raises(WhatsAppSignatureError):
         authenticate_tenant_payload(missing, body("111"), "sha256=" + "a" * 64)
     valid = tenant("111", "fixture-secret", "fixture-token")
     for raw in (b"not-json", body()):

@@ -28,8 +28,7 @@ case " $* " in
   *' inspect -f {{.State.Running}} '*) echo true ;;
   *' ps --status running --services '*) printf '%s\n' backend ingestion-worker learning-worker purge-worker frontend-admin ;;
   *' ps -q '*) printf '%s\n' "${*: -1}" ;;
-  *' config --images frontend-admin '*) echo 'fixture/admin:main' ;;
-  *' config --images backend '*) echo 'fixture/backend:main' ;;
+  *' config --no-interpolate --format json '*) printf '%s\n' '{"services":{"backend":{"image":"fixture/backend:main"},"frontend-admin":{"image":"fixture/admin:main"},"redis":{"image":"fixture/redis:main"}}}' ;;
   *' exec -T postgres '*)
     if [[ -f "$FIXTURE_STARTED" ]]; then echo "${FIXTURE_AFTER_COUNT:-0}"; else echo "${FIXTURE_BEFORE_COUNT:-0}"; fi ;;
   *' exec -T backend python -m app.scripts.healthcheck '*) [[ "${FIXTURE_FAIL_HEALTH:-0}" != 1 ]] ;;

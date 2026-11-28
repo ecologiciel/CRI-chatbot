@@ -25,6 +25,20 @@ if grep -Eq '^[[:space:]]*(export[[:space:]]+)?WHATSAPP_CONFIG_REQUIRE_ENCRYPTIO
   echo 'Existing strict-mode setting requires a separate procedure' >&2; exit 1
 fi
 COMPOSE=(docker compose --project-name "$PROJECT" --env-file .env.demo -f docker-compose.hostinger.yml -f docker-compose.hostinger.local.yml)
+image_tags=$("${COMPOSE[@]}" config --no-interpolate --format json | python3 -c '
+import json, re, sys
+s = json.load(sys.stdin)["services"]
+backend, admin = s["backend"]["image"], s["frontend-admin"]["image"]
+if any(not re.fullmatch(r"[a-z0-9][a-z0-9._/:\-]*", v) for v in (backend, admin)):
+    raise SystemExit("Invalid application image tag")
+protected = {s[name]["image"] for name in ("postgres", "redis", "qdrant", "minio") if name in s}
+if backend == admin or backend in protected or admin in protected:
+    raise SystemExit("Application image tag conflicts with another service")
+print(backend)
+print(admin)
+')
+backend_tag=${image_tags%%$'\n'*}
+admin_tag=${image_tags#*$'\n'}
 services=(backend ingestion-worker learning-worker purge-worker frontend-admin)
 running=$("${COMPOSE[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies ps --status running --services)
 if grep -Eq '^(whatsapp-inbox-worker|dossier-import-worker|dossier-outbox-worker|agent-reply-worker)$' <<< "$running"; then
@@ -84,8 +98,6 @@ rollback() {
     # Restore common tags as well as each service's exact previously running image.
     old_backend=$(awk '$1 == "backend:" {getline; print $2}' "$override")
     old_admin=$(awk '$1 == "frontend-admin:" {getline; print $2}' "$override")
-    backend_tag=$("${COMPOSE[@]}" config --images backend | head -n 1)
-    admin_tag=$("${COMPOSE[@]}" config --images frontend-admin | head -n 1)
     docker tag "$old_backend" "$backend_tag" && docker tag "$old_admin" "$admin_tag" && \
       "${COMPOSE[@]}" -f "$override" up -d --no-deps --no-build --force-recreate "${services[@]}"
     if [[ $? == 0 ]]; then
@@ -104,8 +116,6 @@ printf '%s\n' stopping_services > "$bundle/state"
 "${COMPOSE[@]}" stop -t 780 "${services[@]}"
 [[ "$(channel_count)" == 0 ]] || { echo 'Existing channel requires the migration procedure' >&2; false; }
 printf '\nWHATSAPP_CONFIG_REQUIRE_ENCRYPTION=true\n' >> .env.demo
-backend_tag=$("${COMPOSE[@]}" config --images backend | head -n 1)
-admin_tag=$("${COMPOSE[@]}" config --images frontend-admin | head -n 1)
 docker tag "$expected_backend" "$backend_tag"
 docker tag "$expected_admin" "$admin_tag"
 printf '%s\n' starting_candidate > "$bundle/state"

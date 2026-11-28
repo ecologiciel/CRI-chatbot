@@ -8,13 +8,15 @@ project="cutover${suffix}"
 old="cutover-${suffix}-old:test"
 new="cutover-${suffix}-new:test"
 old_worker="cutover-${suffix}-worker:test"
+old_admin="cutover-${suffix}-admin:test"
+old_db="cutover-${suffix}-db:test"
 cleanup() {
   rc=$?
   if (( rc != 0 )); then cat "$fixture/success.log" "$fixture/failure.log" 2>/dev/null || true; fi
   if [[ -f "$fixture/deploy/docker-compose.hostinger.yml" ]]; then
     docker compose -p "$project" --env-file "$fixture/deploy/.env.demo" -f "$fixture/deploy/docker-compose.hostinger.yml" down --remove-orphans >/dev/null 2>&1 || true
   fi
-  docker image rm "$old" "$old_worker" "$new" >/dev/null 2>&1 || true
+  docker image rm "$old" "$old_worker" "$old_admin" "$old_db" "$new" >/dev/null 2>&1 || true
   case "$fixture" in "${TMPDIR:-/tmp}"/codex-channel-docker.*) rm -rf -- "$fixture" ;; *) exit 1 ;; esac
 }
 trap cleanup EXIT
@@ -36,12 +38,14 @@ docker build -q --build-arg marker=old -t "$old" "$fixture/image" >/dev/null
 docker build -q --build-arg marker=new -t "$new" "$fixture/image" >/dev/null
 docker build -q --build-arg marker=worker -t "$old_worker" "$fixture/image" >/dev/null
 original=$(docker image inspect -f '{{.Id}}' "$old")
+docker tag "$original" "$old_admin"
+docker tag "$original" "$old_db"
 cat > "$fixture/deploy/docker-compose.hostinger.yml" <<EOF
 x-fixture: &fixture {init: true}
 services:
   postgres:
     <<: *fixture
-    image: $old
+    image: $old_db
     environment: {POSTGRES_USER: fixture, POSTGRES_DB: fixture, DB_COUNT: "\${DB_COUNT:-0}"}
   backend:
     <<: *fixture
@@ -50,7 +54,7 @@ services:
   ingestion-worker: {<<: *fixture, image: $old}
   learning-worker: {<<: *fixture, image: $old}
   purge-worker: {<<: *fixture, image: $old}
-  frontend-admin: {<<: *fixture, image: $old}
+  frontend-admin: {<<: *fixture, image: $old_admin}
 EOF
 printf 'services: {}\n' > "$fixture/deploy/docker-compose.hostinger.local.yml"
 cat > "$fixture/deploy/.initial.yml" <<EOF
@@ -79,6 +83,7 @@ echo CUTOVER_REAL_DOCKER_SUCCESS_OK
 "${compose[@]}" down --remove-orphans >/dev/null
 printf 'DB_COUNT=0\nFAIL_HEALTH=1\n' > .env.demo
 docker tag "$original" "$old"
+docker tag "$original" "$old_admin"
 "${compose[@]}" -f .initial.yml up -d --wait --wait-timeout 60 >/dev/null
 before=$(docker inspect -f '{{.Image}}' "$(${compose[@]} ps -q backend)")
 worker_before=$(docker inspect -f '{{.Image}}' "$(${compose[@]} ps -q ingestion-worker)")

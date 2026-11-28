@@ -10,6 +10,7 @@ old="agenttest-${suffix}-old:test"
 old_admin="agenttest-${suffix}-admin:test"
 api="proxytest-${suffix}-api:test"
 bad="proxytest-${suffix}-bad:test"
+other="proxytest-${suffix}-other:test"
 cleanup(){
   rc=$?
   if (( rc != 0 )); then
@@ -26,7 +27,7 @@ cleanup(){
       fi
     done
   fi
-  docker image rm "$old" "$old_admin" "$api" "$bad" >/dev/null 2>&1 || true
+  docker image rm "$old" "$old_admin" "$api" "$bad" "$other" >/dev/null 2>&1 || true
   case "$fixture" in /tmp/codex-proxy-mode.*) rm -rf -- "$fixture" ;; *) exit 1 ;; esac
 }
 trap cleanup EXIT
@@ -36,6 +37,8 @@ docker tag "$TEST_OLD_ADMIN" "$old_admin"
 docker tag "$TEST_OLD_BACKEND" "$api"
 printf "ARG BASE\nFROM \$BASE\nUSER root\nRUN rm /app/app/main.py\nUSER cri\n" > "$fixture/Dockerfile"
 docker build -q --build-arg BASE="$TEST_NEW_BACKEND" -t "$bad" "$fixture" >/dev/null
+printf "ARG BASE\nFROM \$BASE\nLABEL fixture-version=older-worker\n" > "$fixture/Dockerfile"
+docker build -q --build-arg BASE="$TEST_OLD_BACKEND" -t "$other" "$fixture" >/dev/null
 cat > "$fixture/deploy/docker-compose.hostinger.yml" <<EOF
 x-backend: &env
   ENVIRONMENT: development
@@ -77,9 +80,9 @@ services:
   frontend-admin:
     image: $old_admin
     environment: { HOSTNAME: 0.0.0.0 }
-  ingestion-worker: { image: $old, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
-  learning-worker: { image: $old, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
-  purge-worker: { image: $old, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
+  ingestion-worker: { image: $other, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
+  learning-worker: { image: $other, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
+  purge-worker: { image: $other, environment: *env, entrypoint: ["python3.12", "-c", "import signal,sys; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); signal.pause()"], healthcheck: {disable: true} }
   agent-reply-worker:
     image: $old
     profiles: ["agent-replies"]

@@ -33,10 +33,17 @@ new=$(docker image inspect -f '{{.Id}}' "$CANDIDATE_API")
 [[ "$old" =~ ^sha256:[a-f0-9]{64}$ && "$new" =~ ^sha256:[a-f0-9]{64}$ && "$new" != "$old" ]] || exit 1
 [[ "$(docker image inspect -f '{{.Id}}' "$api_tag")" == "$old" ]] || { echo 'API compatibility tag not prepared' >&2; exit 1; }
 declare -A worker_ids
+declare -A worker_images
 for service in agent-reply-worker whatsapp-inbox-worker ingestion-worker learning-worker purge-worker; do
   id=$("${c[@]}" ps -q "$service")
-  [[ -n "$id" && "$(docker inspect -f '{{.State.Running}}' "$id")" == true && "$(docker inspect -f '{{.Image}}' "$id")" == "$old" ]] || { echo "Unexpected worker state: $service" >&2; exit 1; }
+  [[ -n "$id" && "$(docker inspect -f '{{.State.Running}}' "$id")" == true ]] || { echo "Unexpected worker state: $service" >&2; exit 1; }
+  image=$(docker inspect -f '{{.Image}}' "$id")
+  [[ "$image" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+  if [[ "$service" == agent-reply-worker || "$service" == whatsapp-inbox-worker ]]; then
+    [[ "$image" == "$old" ]] || { echo "Unexpected durable worker image: $service" >&2; exit 1; }
+  fi
   worker_ids[$service]=$id
+  worker_images[$service]=$image
 done
 relay=$("${c[@]}" ps -q whatsapp-relay)
 [[ -n "$relay" && "$(docker inspect -f '{{.State.Health.Status}}' "$relay")" == healthy ]] || { echo 'Relay unavailable' >&2; exit 1; }
@@ -78,7 +85,7 @@ printf '%s\n' starting_candidate > "$bundle/state"
 "${c[@]}" exec -T backend python -c 'from app.core.config import get_settings; s=get_settings(); assert len(s.trusted_proxy_ip_secret)==64 and s.whatsapp_config_require_encryption and s.agent_reply_outbox_enabled and s.whatsapp_durable_inbox_enabled and s.whatsapp_tenant_webhook_enabled'
 [[ "$(docker inspect -f '{{.Image}}' "$("${c[@]}" ps -q backend)")" == "$new" ]] || { echo 'Unexpected API image' >&2; false; }
 for service in "${!worker_ids[@]}"; do
-  [[ "$("${c[@]}" ps -q "$service")" == "${worker_ids[$service]}" && "$(docker inspect -f '{{.State.Running}}' "${worker_ids[$service]}")" == true ]] || { echo "Worker changed: $service" >&2; false; }
+  [[ "$("${c[@]}" ps -q "$service")" == "${worker_ids[$service]}" && "$(docker inspect -f '{{.State.Running}}' "${worker_ids[$service]}")" == true && "$(docker inspect -f '{{.Image}}' "${worker_ids[$service]}")" == "${worker_images[$service]}" ]] || { echo "Worker changed: $service" >&2; false; }
 done
 [[ "$("${c[@]}" ps -q whatsapp-relay)" == "$relay" && "$(docker inspect -f '{{.State.Health.Status}}' "$relay")" == healthy ]] || { echo 'Relay changed or unhealthy' >&2; false; }
 printf '%s\n' completed > "$bundle/state"

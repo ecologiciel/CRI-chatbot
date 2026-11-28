@@ -11,9 +11,10 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.core.tenant import TenantContext
+from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
 from app.models.enums import (
     AgentType,
@@ -41,6 +42,8 @@ class ConversationService:
         tenant: TenantContext,
         contact_id: uuid.UUID,
         agent_type: AgentType = AgentType.public,
+        *,
+        resume_escalated: bool = False,
     ) -> Conversation:
         """Get the active conversation for a contact or create a new one.
 
@@ -52,24 +55,43 @@ class ConversationService:
             tenant: Tenant context for DB session.
             contact_id: UUID of the contact.
             agent_type: Type of agent handling the conversation.
+            resume_escalated: Reuse an open human handoff when the channel
+                supports agent replies. Web demos leave this disabled.
 
         Returns:
             Active or newly created Conversation ORM object.
         """
         async with tenant.db_session() as session:
-            # Find the most recent active conversation for this contact
+            # Serialize concurrent creation for the same contact. Otherwise two
+            # arrivals can both observe no active conversation and create one.
+            contact = await session.execute(
+                select(Contact.id).where(Contact.id == contact_id).with_for_update()
+            )
+            if contact.scalar_one_or_none() is None:
+                raise ValueError("Contact introuvable")
+
+            statuses = [ConversationStatus.active]
+            if resume_escalated:
+                statuses.append(ConversationStatus.escalated)
             result = await session.execute(
                 select(Conversation)
                 .where(
                     Conversation.contact_id == contact_id,
-                    Conversation.status == ConversationStatus.active,
+                    Conversation.status.in_(statuses),
                 )
-                .order_by(Conversation.started_at.desc())
+                .order_by(
+                    case((Conversation.status == ConversationStatus.escalated, 0), else_=1),
+                    Conversation.started_at.desc(),
+                )
                 .limit(1),
             )
             existing = result.scalar_one_or_none()
 
             if existing is not None:
+                # An open human handoff is not an idle bot conversation and
+                # must not be closed by the normal 30-minute timeout.
+                if existing.status == ConversationStatus.escalated:
+                    return existing
                 # Check last message timestamp for timeout
                 last_ts = await self._get_last_message_time(session, existing.id)
                 reference_time = last_ts or existing.started_at
@@ -105,6 +127,17 @@ class ConversationService:
                 contact_id=str(contact_id),
             )
             return conversation
+
+    async def get_status(self, tenant: TenantContext, conversation_id: uuid.UUID) -> ConversationStatus:
+        """Read current state again before dispatching an automated response."""
+        async with tenant.db_session() as session:
+            result = await session.execute(
+                select(Conversation.status).where(Conversation.id == conversation_id)
+            )
+            status = result.scalar_one_or_none()
+            if status is None:
+                raise ValueError("Conversation introuvable")
+            return status
 
     async def close_conversation(
         self,

@@ -10,6 +10,7 @@ This is the central integration point connecting all Wave 1-8 services.
 from __future__ import annotations
 
 import contextlib
+import json
 import unicodedata
 import uuid
 from enum import Enum
@@ -22,6 +23,7 @@ from app.core.tenant import TenantContext
 from app.models.conversation import Message
 from app.models.enums import (
     AgentType,
+    ConversationStatus,
     FeedbackRating,
     Language,
     MessageDirection,
@@ -177,6 +179,7 @@ class MessageHandler:
                 tenant,
                 contact.id,
                 AgentType.public,
+                resume_escalated=True,
             )
 
             # 6. Extract content from the message
@@ -231,6 +234,20 @@ class MessageHandler:
             except Exception:
                 self._logger.warning("session_update_failed", tenant=tenant.slug)
                 uncertain = True
+
+            # Do not resume the bot while a human handoff is open. The inbound
+            # message was persisted above; notify the operator interface
+            # without putting message content or the phone number on pub/sub.
+            if await self._conversation_service.get_status(tenant, conversation.id) == ConversationStatus.escalated:
+                try:
+                    await get_redis().publish(
+                        f"{tenant.slug}:escalations:message",
+                        json.dumps({"conversation_id": str(conversation.id)}),
+                    )
+                except Exception:
+                    self._logger.warning("handoff_message_notification_failed", tenant=tenant.slug)
+                    uncertain = True
+                return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
 
             # 11. Get conversation history for LangGraph context
             try:

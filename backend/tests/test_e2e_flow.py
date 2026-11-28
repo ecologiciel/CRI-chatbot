@@ -16,6 +16,7 @@ import pytest
 from app.core.tenant import TenantContext
 from app.models.enums import (
     AgentType,
+    ConversationStatus,
     FeedbackRating,
     Language,
     MessageDirection,
@@ -262,6 +263,23 @@ def _setup_happy_path(mocks, contact=None, conversation=None, run_result=None):
 
 class TestHappyPath:
     """Full pipeline: text message → LangGraph → response."""
+
+    @pytest.mark.asyncio()
+    async def test_open_handoff_persists_inbound_without_bot_reply(self, handler_env):
+        handler, mocks = handler_env
+        _, conversation, _ = _setup_happy_path(mocks)
+        mocks["conv_svc"].get_status.return_value = ConversationStatus.escalated
+
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock) as run:
+            await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+
+        assert mocks["conv_svc"].get_or_create.await_args.kwargs["resume_escalated"] is True
+        assert mocks["conv_svc"].add_message.await_count == 1
+        assert mocks["conv_svc"].add_message.await_args.args[2] == MessageDirection.inbound
+        run.assert_not_awaited()
+        mocks["sender"].send_text.assert_not_awaited()
+        mocks["redis"].publish.assert_awaited_once()
+        assert str(conversation.id) in mocks["redis"].publish.await_args.args[1]
 
     @pytest.mark.asyncio()
     async def test_happy_path_text_faq(self, handler_env):

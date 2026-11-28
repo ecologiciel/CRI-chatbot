@@ -13,7 +13,7 @@ fail="agenttest-${suffix}-failure:test"
 cleanup(){
   rc=$?
   if (( rc != 0 )); then
-    cat "$fixture/success.log" "$fixture/failure.log" 2>/dev/null || true
+    cat "$fixture/success.log" "$fixture/failure.log" "$fixture/race.log" 2>/dev/null || true
     docker logs --tail 30 "${project}-agent-reply-worker-1" 2>&1 || true
   fi
   if [[ "$project" =~ ^modetestcodexagentmode[a-z0-9]+$ && -f "$fixture/deploy/docker-compose.hostinger.yml" ]]; then
@@ -120,3 +120,24 @@ grep -q 'Previous agent mode restored' "$fixture/failure.log"
 if grep -q '^AGENT_REPLY_OUTBOX_ENABLED=' .env.demo; then echo 'Flag not restored' >&2; exit 1; fi
 "${c[@]}" exec -T backend python -c 'from app.core.config import get_settings; assert not get_settings().agent_reply_outbox_enabled'
 echo AGENT_MODE_ROLLBACK_OK
+
+# A newly committed reply must prevent a rollback to the legacy sender.
+"${c[@]}" --profile agent-replies down -v --remove-orphans >/dev/null
+docker tag "$TEST_OLD_BACKEND" "$old"
+printf 'REHEARSAL_FAIL=1\n' > .env.demo
+initialise
+"${c[@]}" exec -T postgres psql -U fixture -d ragtest_release -v ON_ERROR_STOP=1 -q -c "INSERT INTO public.tenants (id,name,slug,region,status) VALUES ('11111111-1111-1111-1111-111111111111','Fixture','fixturemode','Test','active')"
+bash "$root/enable-hostinger-agent-outbox.sh" > "$fixture/race.log" 2>&1 & activation=$!
+observed=0
+for i in $(seq 1 200); do
+  if grep -q '^AGENT_REPLY_OUTBOX_ENABLED=true$' .env.demo; then observed=1; break; fi
+  if ! kill -0 "$activation" 2>/dev/null; then break; fi
+  sleep 0.1
+done
+[[ "$observed" == 1 ]] || { echo 'Activation did not reach flagged state' >&2; wait "$activation" || true; exit 1; }
+"${c[@]}" exec -T postgres psql -U fixture -d ragtest_release -v ON_ERROR_STOP=1 -q -c "INSERT INTO public.agent_reply_outbox_events (tenant_id,request_key,actor_id,escalation_id,conversation_id,contact_id,phone_number_id,recipient_fingerprint,ciphertext,key_version) VALUES ('11111111-1111-1111-1111-111111111111',gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'123',repeat('a',64),'fixture',1)"
+if wait "$activation"; then echo 'Expected refusal to roll back' >&2; exit 1; fi
+grep -q 'Rollback refused because channel or outbox state changed' "$fixture/race.log"
+grep -q '^AGENT_REPLY_OUTBOX_ENABLED=true$' .env.demo
+[[ "$("${c[@]}" exec -T postgres psql -U fixture -d ragtest_release -Atqc 'SELECT count(*) FROM public.agent_reply_outbox_events')" == 1 ]]
+echo AGENT_MODE_CONCURRENT_EVENT_FAIL_CLOSED_OK

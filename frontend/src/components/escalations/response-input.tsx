@@ -71,6 +71,7 @@ export function ResponseInput({
         />
         <Button
           size="icon"
+          aria-label="Envoyer la réponse"
           onClick={handleSend}
           disabled={disabled || respondMutation.isPending || reviewRequired || !message.trim()}
           className="shrink-0 h-10 w-10"

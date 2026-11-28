@@ -25,7 +25,7 @@ services=json.load(sys.stdin)["services"]
 tag=services["backend"]["image"]
 if not re.fullmatch(r"[a-z0-9][a-z0-9._/:\-]*",tag): raise SystemExit("Invalid image tag")
 if services["ingestion-worker"]["image"] != tag: raise SystemExit("Worker tag differs")
-allowed={"backend","extractor","ingestion-worker","learning-worker","purge-worker","whatsapp-inbox-worker","demo-bootstrap"}
+allowed={"backend","extractor","ingestion-worker","learning-worker","purge-worker","whatsapp-inbox-worker","agent-reply-worker","demo-bootstrap"}
 if any(v.get("image")==tag for k,v in services.items() if k not in allowed): raise SystemExit("Image tag collision")
 print(tag)')
 candidate=$(docker image inspect -f '{{.Id}}' "$CANDIDATE_BACKEND")

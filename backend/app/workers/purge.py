@@ -26,6 +26,7 @@ from arq.cron import cron
 from sqlalchemy import and_, case, delete, func, or_, select, text
 
 from app.core.config import get_settings
+from app.services.escalation.reply_retention import redact_expired_agent_replies
 from app.services.whatsapp.inbox_retention import redact_expired_inbox
 
 logger = structlog.get_logger()
@@ -299,6 +300,7 @@ class WorkerSettings:
     functions: list = []
     cron_jobs = [
         cron(task_purge_expired_data, hour=3, minute=0),  # Daily 03:00 UTC
+        cron(redact_expired_agent_replies, minute=50),
         cron(redact_expired_inbox, minute=20),  # Hourly; includes inactive tenants.
     ]
     on_startup = startup

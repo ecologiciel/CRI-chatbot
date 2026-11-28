@@ -9,27 +9,42 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
+from app.core.config import get_settings
+from app.core.database import get_session_factory
 from app.core.exceptions import EscalationConflictError, ResourceNotFoundError
 from app.core.rbac import require_role
+from app.core.redis import get_redis
 from app.core.tenant import TenantContext, get_current_tenant
+from app.models.agent_reply_outbox import AgentReplyOutboxEvent
 from app.models.enums import (
     AdminRole,
     EscalationPriority,
     EscalationStatus,
 )
+from app.models.escalation import Escalation
 from app.schemas.auth import AdminTokenPayload
 from app.schemas.conversation import MessageResponse
 from app.schemas.escalation import (
+    AgentReplyRequest,
+    AgentReplyReviewRequest,
     EscalationList,
     EscalationRead,
     EscalationResolve,
     EscalationRespond,
     EscalationStats,
 )
+from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.escalation import get_escalation_service
+from app.services.escalation.reply_outbox import (
+    AgentReplyConflictError,
+    register_agent_reply,
+)
+from app.services.escalation.reply_presence import HEARTBEAT_KEY
+from app.services.escalation.reply_review import review_agent_reply
 
 logger = structlog.get_logger()
 
@@ -78,6 +93,22 @@ async def get_escalation_stats(
     svc = get_escalation_service()
     stats = await svc.get_escalation_stats(tenant)
     return EscalationStats(**stats)
+
+
+@router.get("/reply-mode")
+async def reply_mode(
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(*_ESCALATION_ROLES)),
+) -> dict:
+    """Report configuration only; this is not a worker or delivery check."""
+    enabled = get_settings().agent_reply_outbox_enabled
+    seen = None
+    if enabled:
+        try:
+            seen = bool(await get_redis().exists(HEARTBEAT_KEY))
+        except Exception:
+            seen = None
+    return {"durable": enabled, "worker_seen": seen}
 
 
 @router.get("/{escalation_id}", response_model=EscalationRead)
@@ -151,6 +182,8 @@ async def respond_to_escalation(
 
     Returns the WhatsApp message ID (wamid).
     """
+    if get_settings().agent_reply_outbox_enabled:
+        raise EscalationConflictError("Utilisez la file de réponses durables")
     svc = get_escalation_service()
 
     # Verify escalation exists and is in a respondable state
@@ -186,6 +219,107 @@ async def respond_to_escalation(
         ) from err
 
     return {"wamid": wamid}
+
+
+@router.post("/{escalation_id}/reply-requests", status_code=202)
+async def create_reply_request(
+    escalation_id: uuid.UUID,
+    body: AgentReplyRequest,
+    response: Response,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(*_ESCALATION_ROLES)),
+) -> dict:
+    """Record an encrypted intention; acceptance is not provider delivery."""
+    settings = get_settings()
+    if not settings.agent_reply_outbox_enabled:
+        raise HTTPException(status_code=503, detail="File de réponses désactivée")
+    try:
+        worker_seen = bool(await get_redis().exists(HEARTBEAT_KEY))
+    except Exception:
+        worker_seen = False
+    if not worker_seen:
+        raise HTTPException(status_code=503, detail="Worker de réponses indisponible")
+    cipher = VersionedEnvelopeService(get_session_factory(), settings.kms_master_key)
+    try:
+        result = await register_agent_reply(
+            tenant, escalation_id, uuid.UUID(admin.sub), body.request_key, body.message, cipher=cipher,
+        )
+    except AgentReplyConflictError as exc:
+        raise EscalationConflictError(str(exc)) from exc
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Réponse invalide") from None
+    response.status_code = 202 if result.created else 200
+    return {"id": str(result.id), "state": result.state, "created": result.created}
+
+
+@router.get("/{escalation_id}/reply-requests/{request_key}")
+async def get_reply_request(
+    escalation_id: uuid.UUID,
+    request_key: uuid.UUID,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(*_ESCALATION_ROLES)),
+) -> dict:
+    """Retrieve the requesting agent's status without exposing content."""
+    async with get_session_factory()() as session:
+        event = (await session.execute(
+            select(AgentReplyOutboxEvent).where(
+                AgentReplyOutboxEvent.tenant_id == tenant.id,
+                AgentReplyOutboxEvent.escalation_id == escalation_id,
+                AgentReplyOutboxEvent.request_key == request_key,
+                AgentReplyOutboxEvent.actor_id == uuid.UUID(admin.sub),
+            )
+        )).scalar_one_or_none()
+    if event is None:
+        raise ResourceNotFoundError("Demande introuvable")
+    return {"id": str(event.id), "state": event.state, "outcome_code": event.outcome_code,
+            "created_at": event.created_at, "redacted_at": event.redacted_at}
+
+
+@router.get("/{escalation_id}/reply-requests")
+async def list_open_reply_requests(
+    escalation_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(*_ESCALATION_ROLES)),
+) -> dict:
+    """Expose unresolved metadata, never the encrypted text or recipient."""
+    actor_id = uuid.UUID(admin.sub)
+    async with tenant.db_session() as session:
+        conversation_id = (await session.execute(
+            select(Escalation.conversation_id).where(Escalation.id == escalation_id)
+        )).scalar_one_or_none()
+        if conversation_id is None:
+            raise ResourceNotFoundError("Escalade introuvable")
+        events = (await session.execute(
+            select(AgentReplyOutboxEvent).where(
+                AgentReplyOutboxEvent.tenant_id == tenant.id,
+                AgentReplyOutboxEvent.conversation_id == conversation_id,
+                AgentReplyOutboxEvent.state.in_(["pending", "processing", "uncertain", "follow_up"]),
+            ).order_by(AgentReplyOutboxEvent.sequence).limit(51)
+        )).scalars().all()
+    return {"has_more": len(events) > 50, "events": [
+        {"id": str(event.id), "escalation_id": str(event.escalation_id), "state": event.state, "outcome_code": event.outcome_code,
+         "created_at": event.created_at, "mine": event.actor_id == actor_id,
+         "request_key": str(event.request_key) if event.actor_id == actor_id else None}
+        for event in events[:50]
+    ]}
+
+
+@router.post("/{escalation_id}/reply-requests/{event_id}/review")
+async def review_reply_request(
+    escalation_id: uuid.UUID,
+    event_id: uuid.UUID,
+    body: AgentReplyReviewRequest,
+    tenant: TenantContext = Depends(get_current_tenant),
+    admin: AdminTokenPayload = Depends(require_role(*_ESCALATION_ROLES)),
+) -> dict[str, str]:
+    """Record an operator declaration without retrying or proving delivery."""
+    try:
+        state = await review_agent_reply(
+            tenant, escalation_id, event_id, uuid.UUID(admin.sub), action=body.action, decision=body.decision,
+        )
+    except AgentReplyConflictError as exc:
+        raise EscalationConflictError(str(exc)) from exc
+    return {"id": str(event_id), "state": state}
 
 
 @router.post("/{escalation_id}/close", response_model=EscalationRead)

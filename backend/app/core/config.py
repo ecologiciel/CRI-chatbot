@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     whatsapp_durable_inbox_enabled: bool = Field(
         default=False, description="Use transactional WhatsApp webhook intake"
     )
+    agent_reply_outbox_enabled: bool = Field(
+        default=False, description="Enable durable human-agent replies"
+    )
     whatsapp_tenant_webhook_enabled: bool = Field(
         default=False, description="Enable institution-specific durable webhook endpoints"
     )

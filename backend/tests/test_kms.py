@@ -157,7 +157,6 @@ def test_kms_valid_master_key():
     master_hex = secrets.token_hex(32)
     kms = KMSService(MagicMock(), MagicMock(), master_hex)
     assert kms.NONCE_SIZE == 12
-    assert kms.CACHE_TTL == 300
 
 
 # ── Schema security ──
@@ -225,61 +224,49 @@ async def test_generate_tenant_key():
 
 
 @pytest.mark.asyncio
-async def test_get_data_key_cache_hit():
-    """When Redis has cached key, no DB query is made."""
+async def test_get_data_key_ignores_legacy_redis_cache():
+    """A cached foreign or stale key never overrides the database key."""
     from app.services.crypto.kms import KMSService
 
     master_hex = secrets.token_hex(32)
     data_key = secrets.token_bytes(32)
-
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=data_key.hex())
-    mock_factory = MagicMock()
-
-    kms = KMSService(mock_factory, mock_redis, master_hex)
-    result = await kms._get_data_key("test-tenant")
-
-    assert result == data_key
-    mock_redis.get.assert_called_once_with("test-tenant:kms:data_key")
-    # Factory should NOT be called (no DB hit)
-    mock_factory.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_get_data_key_cache_miss():
-    """On cache miss, loads from DB, decrypts, and caches."""
-    from app.services.crypto.kms import KMSService
-
-    master_hex = secrets.token_hex(32)
-    master_key = bytes.fromhex(master_hex)
-    data_key = secrets.token_bytes(32)
-
-    # Encrypt the data key with master (simulating what's stored in DB)
-    master_aesgcm = AESGCM(master_key)
     nonce = secrets.token_bytes(12)
-    wrapped = master_aesgcm.encrypt(nonce, data_key, None)
-    stored_blob = nonce + wrapped
-
-    # Mock Redis: cache miss
-    mock_redis = AsyncMock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.set = AsyncMock()
-
-    # Mock DB session with a result containing the encrypted blob
+    stored_blob = nonce + AESGCM(bytes.fromhex(master_hex)).encrypt(nonce, data_key, None)
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = stored_blob
     mock_session = AsyncMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=False)
     mock_session.execute = AsyncMock(return_value=mock_result)
-    mock_factory = MagicMock(return_value=mock_session)
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = secrets.token_hex(32)
+    kms = KMSService(MagicMock(return_value=mock_session), mock_redis, master_hex)
 
-    kms = KMSService(mock_factory, mock_redis, master_hex)
-    result = await kms._get_data_key("test-tenant")
+    assert await kms._get_data_key("test-tenant") == data_key
+    mock_redis.get.assert_not_awaited()
+    mock_redis.set.assert_not_awaited()
+    mock_session.execute.assert_awaited_once()
 
-    assert result == data_key
-    # Verify cache was populated
-    mock_redis.set.assert_called_once_with("test-tenant:kms:data_key", data_key.hex(), ex=300)
+
+@pytest.mark.asyncio
+async def test_legacy_cache_cannot_bypass_missing_database_key():
+    from app.core.exceptions import CRIDecryptionError
+    from app.services.crypto.kms import KMSService
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_session = AsyncMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = secrets.token_hex(32)
+    kms = KMSService(MagicMock(return_value=mock_session), mock_redis, secrets.token_hex(32))
+
+    with pytest.raises(CRIDecryptionError, match="No active encryption key"):
+        await kms._get_data_key("another-tenant")
+    mock_redis.get.assert_not_awaited()
+    mock_redis.set.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -296,6 +283,7 @@ async def test_encrypt_decrypt_roundtrip_service():
     mock_factory = MagicMock()
 
     kms = KMSService(mock_factory, mock_redis, master_hex)
+    kms._get_data_key = AsyncMock(return_value=data_key)
 
     plaintext = "CIN: AB123456"
     ciphertext = await kms.encrypt(plaintext, "test-tenant")
@@ -324,6 +312,8 @@ async def test_decrypt_tampered_ciphertext_raises():
 
     kms = KMSService(mock_factory, mock_redis, master_hex)
 
+    kms._get_data_key = AsyncMock(return_value=data_key)
+
     # Encrypt, then tamper
     ciphertext = await kms.encrypt("secret data", "test-tenant")
     raw = bytearray(base64.b64decode(ciphertext))
@@ -348,6 +338,7 @@ async def test_decrypt_too_short_ciphertext_raises():
     mock_factory = MagicMock()
 
     kms = KMSService(mock_factory, mock_redis, master_hex)
+    kms._get_data_key = AsyncMock(return_value=data_key)
     short_b64 = base64.b64encode(b"tooshort").decode("ascii")
 
     with pytest.raises(CRIDecryptionError, match="too short"):

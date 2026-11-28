@@ -31,7 +31,8 @@ s = json.load(sys.stdin)["services"]
 backend, admin = s["backend"]["image"], s["frontend-admin"]["image"]
 if any(not re.fullmatch(r"[a-z0-9][a-z0-9._/:\-]*", v) for v in (backend, admin)):
     raise SystemExit("Invalid application image tag")
-protected = {s[name]["image"] for name in ("postgres", "redis", "qdrant", "minio") if name in s}
+shared_backend = {"backend", "extractor", "ingestion-worker", "learning-worker", "purge-worker", "whatsapp-inbox-worker", "demo-bootstrap"}
+protected = {entry["image"] for name, entry in s.items() if name not in shared_backend | {"frontend-admin"} and "image" in entry}
 if backend == admin or backend in protected or admin in protected:
     raise SystemExit("Application image tag conflicts with another service")
 print(backend)

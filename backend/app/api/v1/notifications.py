@@ -304,24 +304,16 @@ async def send_manual_notification(
         overrides = tenant.whatsapp_config.get("notification_templates", {})
         template_name = overrides.get(data.event_type, template_name)
 
-    # 6. Build template components
-    language_code = contact.language.value if contact.language else "fr"
-    components = service.build_template_components(
-        contact_name=contact.name or "Investisseur",
-        dossier_numero=dossier.numero,
-        event_type=event_type,
-        language_code=language_code,
-    )
-
-    # 7. Send via WhatsApp
+    # 6. Re-read and lock both records, build the actual status under the lock,
+    # and send only if the dossier still belongs to this contact.
     sender = WhatsAppSenderService()
     try:
-        skip_reason, wamid = await service._send_with_current_consent(
+        skip_reason, wamid = await service._send_manual_with_current_data(
             tenant,
             data.contact_id,
+            data.dossier_id,
+            event_type=event_type,
             template_name=template_name,
-            language_code=language_code,
-            components=components,
             sender=sender,
         )
         if skip_reason:

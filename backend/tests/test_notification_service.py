@@ -78,6 +78,16 @@ def _make_tenant(slug: str = "rabat") -> MagicMock:
     return tenant
 
 
+def _arrange_locked_records(tenant, contact, event):
+    """Supply the independently reloaded recipient and dossier rows."""
+    session = tenant.db_session.return_value.__aenter__.return_value
+    dossier = MagicMock(contact_id=contact.id, numero=event.numero, statut=event.new_statut)
+    session.execute.side_effect = [
+        MagicMock(scalar_one_or_none=lambda: contact),
+        MagicMock(scalar_one_or_none=lambda: dossier),
+    ]
+
+
 # =====================================================================
 # TestShouldNotify — pure logic, no I/O
 # =====================================================================
@@ -324,6 +334,7 @@ class TestSendNotification:
             old_statut="en_attente",
             new_statut="valide",
         )
+        _arrange_locked_records(tenant, contact, event)
 
         mock_redis = AsyncMock()
         mock_redis.set = AsyncMock(return_value=True)  # NX: not duplicate
@@ -348,6 +359,7 @@ class TestSendNotification:
         contact = _make_contact(opt_in_status=OptInStatus.opted_in)
         tenant = _make_tenant()
         event = _make_event(contact_id=str(contact.id), new_statut="valide")
+        _arrange_locked_records(tenant, contact, event)
         redis = AsyncMock()
         redis.set.return_value = True
         with (
@@ -416,6 +428,7 @@ class TestSendNotification:
         contact = _make_contact(opt_in_status=OptInStatus.opted_in)
         tenant = _make_tenant()
         event = _make_event(contact_id=str(contact.id), new_statut="valide")
+        _arrange_locked_records(tenant, contact, event)
 
         mock_redis = AsyncMock()
         mock_redis.set = AsyncMock(return_value=True)

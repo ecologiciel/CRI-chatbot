@@ -38,7 +38,7 @@ async def environment(monkeypatch):
     try:
         yield service, redis, tenant
     finally:
-        keys = [service._redis_key(tenant, kind, PHONE) for kind in ("dossier_otp", "dossier_otp_attempts", "dossier_otp_verify_attempts")]
+        keys = [service._redis_key(tenant, kind, PHONE) for kind in ("dossier_otp", "dossier_otp_attempts", "dossier_otp_verify_attempts", "dossier_session")]
         await redis.delete(*keys)
         await redis.aclose()
 
@@ -159,3 +159,32 @@ async def test_tenant_and_phone_budgets_are_independent(environment):
             for kind in ("dossier_otp", "dossier_otp_attempts", "dossier_otp_verify_attempts")
         ]
         await redis.delete(*keys)
+
+
+@pytest.mark.asyncio
+async def test_replaced_session_cannot_validate_and_token_is_not_stored(environment):
+    service, redis, tenant = environment
+    first = await service.create_dossier_session(PHONE, tenant)
+    key = service._redis_key(tenant, "dossier_session", PHONE)
+    stored = await redis.get(key)
+    assert first.encode() not in stored
+    assert PHONE.encode() not in stored
+    assert await service.validate_dossier_session(PHONE, first, tenant)
+    second = await service.create_dossier_session(PHONE, tenant)
+    assert first != second
+    await redis.expire(key, 10)
+    assert not await service.validate_dossier_session(PHONE, first, tenant)
+    assert 0 < await redis.ttl(key) <= 10
+    assert await service.validate_dossier_session(PHONE, second, tenant)
+    assert await redis.ttl(key) > 1700
+    await service.invalidate_session(PHONE, tenant)
+    assert not await service.validate_dossier_session(PHONE, second, tenant)
+
+
+@pytest.mark.asyncio
+async def test_session_with_missing_expiration_is_rejected(environment):
+    service, redis, tenant = environment
+    token = await service.create_dossier_session(PHONE, tenant)
+    key = service._redis_key(tenant, "dossier_session", PHONE)
+    await redis.persist(key)
+    assert not await service.validate_dossier_session(PHONE, token, tenant)

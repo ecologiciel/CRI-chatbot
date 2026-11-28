@@ -15,10 +15,14 @@ from app.core.config import get_settings
 from app.core.exceptions import RateLimitExceededError
 from app.core.metrics import OTP_ATTEMPTS, OTP_FAILURES, OTP_SUCCESS, RATE_LIMIT_TRIGGERED
 from app.core.redis import get_redis
-from app.services.dossier.otp import ATTEMPT_WINDOW, MAX_OTP_ATTEMPTS, OTP_TTL, DossierOTPService
+from app.services.dossier.otp import (
+    ATTEMPT_WINDOW, MAX_OTP_ATTEMPTS, OTP_TTL, SESSION_TOKEN_BYTES, SESSION_TTL,
+    DossierOTPService,
+)
 
 _PHONE = re.compile(r"\+[1-9][0-9]{6,14}\Z", re.ASCII)
 _CODE = re.compile(r"[0-9]{6}\Z", re.ASCII)
+_SESSION = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
 
 # Each script runs entirely within Redis. A generation budget is independent
 # of the verification budget; creating a new code cannot remove that budget.
@@ -62,6 +66,14 @@ if attempts >= tonumber(ARGV[2]) then redis.call('DEL', KEYS[1]) end
 return 0
 """
 
+_CHECK_SESSION = """
+local stored = redis.call('GET', KEYS[1])
+if not stored or stored ~= ARGV[1] then return 0 end
+if redis.call('TTL', KEYS[1]) < 0 then return 0 end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return 1
+"""
+
 
 class AtomicDossierOTPService(DossierOTPService):
     """One-time codes with atomic generation and verification budgets."""
@@ -73,7 +85,7 @@ class AtomicDossierOTPService(DossierOTPService):
         return f"{tenant.slug}:{key_type}:{tenant.id.hex}:{identifier}"
 
     @staticmethod
-    def _digest(phone, code, tenant):
+    def _digest(phone, code, tenant, *, purpose=b"dossier-otp-v1"):
         if not isinstance(phone, str) or not _PHONE.fullmatch(phone):
             raise ValueError("Invalid phone number")
         try:
@@ -82,7 +94,7 @@ class AtomicDossierOTPService(DossierOTPService):
             raise RuntimeError("OTP key unavailable") from exc
         if len(key) != 32:
             raise RuntimeError("OTP key unavailable")
-        message = b"dossier-otp-v1\0" + tenant.id.bytes + b"\0" + phone.encode("ascii") + b"\0" + code.encode("ascii")
+        message = purpose + b"\0" + tenant.id.bytes + b"\0" + phone.encode("ascii") + b"\0" + code.encode("ascii")
         return "v1:" + hmac.new(key, message, hashlib.sha256).hexdigest()
 
     async def generate_otp(self, phone, tenant):
@@ -124,3 +136,18 @@ class AtomicDossierOTPService(DossierOTPService):
         OTP_FAILURES.labels(tenant=tenant.slug).inc()
         await self._audit(tenant, "otp_verify_fail", phone, details={"reason": "invalid_or_expired"})
         return False
+
+    async def create_dossier_session(self, phone, tenant):
+        token = secrets.token_hex(SESSION_TOKEN_BYTES)
+        digest = self._digest(phone, token, tenant, purpose=b"dossier-session-v1")
+        await get_redis().set(self._redis_key(tenant, "dossier_session", phone), digest, ex=SESSION_TTL)
+        await self._audit(tenant, "dossier_session_create", phone)
+        return token
+
+    async def validate_dossier_session(self, phone, session_token, tenant):
+        if not isinstance(session_token, str) or not _SESSION.fullmatch(session_token):
+            return False
+        digest = self._digest(phone, session_token, tenant, purpose=b"dossier-session-v1")
+        return await get_redis().eval(
+            _CHECK_SESSION, 1, self._redis_key(tenant, "dossier_session", phone), digest, SESSION_TTL
+        ) == 1

@@ -5,14 +5,19 @@ Each test patches the getter functions to inject AsyncMock instances,
 then rebuilds the graph to pick up the mocked singletons.
 """
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from langgraph.graph import END, StateGraph
 
-from app.core.tenant import TenantContext
+from app.core.tenant import TenantContext, TenantResolver
 from app.services.orchestrator.graph import (
+    _reconstruct_tenant,
+    _runtime_tenant,
     _serialize_tenant,
+    _wrap_tenant_node,
     build_conversation_graph,
     check_auto_escalation,
     check_feedback_escalation,
@@ -32,6 +37,59 @@ TEST_TENANT = TenantContext(
     status="active",
     whatsapp_config=None,
 )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_conversations_keep_credentials_out_of_state_and_isolated():
+    tenants = [
+        TenantContext(uuid.uuid4(), f"fixture{i}", f"Fixture {i}", "active", {
+            "access_token": f"synthetic-secret-{i}", "verify_token": f"synthetic-verify-{i}",
+            "additional_secret": f"synthetic-extra-{i}",
+        })
+        for i in range(2)
+    ]
+    reached = 0
+    all_entered = asyncio.Event()
+
+    async def node(state, tenant):
+        nonlocal reached
+        assert "whatsapp_config" not in state["tenant_context"]
+        assert "synthetic-secret" not in repr(state)
+        reached += 1
+        if reached == 2:
+            all_entered.set()
+        await asyncio.wait_for(all_entered.wait(), timeout=3)
+        assert tenant.whatsapp_config == tenants[int(tenant.slug[-1])].whatsapp_config
+        return {"response": tenant.slug}
+
+    graph = StateGraph(ConversationState)
+    graph.add_node("fixture", _wrap_tenant_node(node, "fixture"))
+    graph.set_entry_point("fixture")
+    graph.add_edge("fixture", END)
+    with patch("app.services.orchestrator.graph.get_conversation_graph", return_value=graph.compile()):
+        results = await asyncio.gather(*(run_conversation(t, "fixture", "test") for t in tenants))
+    assert [item["response"] for item in results] == [item.slug for item in tenants]
+    assert _runtime_tenant.get() is None
+    assert "synthetic-secret" not in repr(tenants[0])
+
+
+def test_runtime_context_rejects_cross_tenant_state():
+    other = TenantContext(uuid.uuid4(), "other", "Other", "active", {"access_token": "fixture"})
+    token = _runtime_tenant.set(other)
+    try:
+        with pytest.raises(ValueError, match="tenant context mismatch"):
+            _reconstruct_tenant(_make_state())
+    finally:
+        _runtime_tenant.reset(token)
+
+
+def test_tenant_cache_conversion_cannot_store_or_restore_credentials():
+    tenant = TenantContext(uuid.uuid4(), "cachefixture", "Fixture", "active", {"access_token": "synthetic-secret"})
+    data = TenantResolver._context_to_dict(tenant)
+    assert "whatsapp_config" not in data
+    data["whatsapp_config"] = {"access_token": "untrusted-secret"}
+    assert TenantResolver._build_context_from_dict(data).whatsapp_config is None
+    assert "synthetic-secret" not in repr(tenant)
 
 
 def _make_state(**overrides) -> ConversationState:

@@ -15,15 +15,15 @@ from app.schemas.rag import GenerationRequest
 from app.services.conversation.service import get_conversation_service
 from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.orchestrator.state import ConversationState
-from app.services.rag.generation import GenerationService, get_generation_service
+from app.services.rag.generation import (
+    LOW_EVIDENCE_THRESHOLD,
+    GenerationService,
+    get_generation_service,
+)
 from app.services.rag.prompts import PromptTemplates
 from app.services.rag.retrieval import RetrievalService, get_retrieval_service
 
 logger = structlog.get_logger()
-
-# Matches EscalationService.LOW_CONFIDENCE_THRESHOLD — kept local to avoid
-# circular imports (graph → escalation → … → graph).
-_LOW_CONFIDENCE_THRESHOLD = 0.5
 
 
 class FAQOutcomePersistenceError(RuntimeError):
@@ -146,7 +146,7 @@ class FAQAgent:
             updates["chunk_ids"] = gen_response.chunk_ids
             updates["sources"] = gen_response.sources
             updates["confidence"] = gen_response.confidence
-            low_confidence = gen_response.confidence < _LOW_CONFIDENCE_THRESHOLD
+            low_confidence = gen_response.confidence < LOW_EVIDENCE_THRESHOLD
             updates["retrieved_chunks"] = [
                 {
                     "chunk_id": c.chunk_id,

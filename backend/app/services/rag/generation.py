@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import math
 import time
 import uuid
 
@@ -33,6 +34,10 @@ from app.services.rag.prompts import PromptTemplates
 from app.services.rag.retrieval import get_retrieval_service
 
 logger = structlog.get_logger()
+
+# This conservative cutoff matches the existing repeated-failure escalation
+# trigger; it is a similarity heuristic, not a probability of correctness.
+LOW_EVIDENCE_THRESHOLD = 0.5
 
 # ---------------------------------------------------------------------------
 # Prometheus metrics
@@ -175,7 +180,35 @@ class GenerationService:
                 confidence = min(confidence, self._compute_chunks_confidence(selected_chunks))
                 is_confident = is_confident and confidence >= request.confidence_threshold
             chunks = selected_chunks
+            if not math.isfinite(confidence) or any(not math.isfinite(chunk.score) for chunk in chunks):
+                confidence = 0.0
+                is_confident = False
             GENERATION_CONFIDENCE.labels(tenant=tenant.slug).observe(confidence)
+
+            # Do not ask the model to infer an institutional answer from very
+            # weak evidence. Repeated abstentions still reach the existing
+            # human-escalation mechanism through their low confidence score.
+            if confidence < LOW_EVIDENCE_THRESHOLD:
+                latency_ms = (time.monotonic() - start_time) * 1000
+                GENERATION_REQUESTS.labels(
+                    tenant=tenant.slug, status="weak_evidence", language=language
+                ).inc()
+                log.info("generation_weak_evidence", latency_ms=round(latency_ms, 1))
+                return GenerationResponse(
+                    answer=PromptTemplates.get_message("no_answer", language),
+                    language=language,
+                    chunk_ids=[],
+                    sources=[],
+                    confidence=confidence,
+                    is_confident=False,
+                    disclaimer=None,
+                    model="none",
+                    input_tokens=0,
+                    output_tokens=0,
+                    total_tokens=0,
+                    latency_ms=round(latency_ms, 1),
+                    trace_id=trace_id,
+                )
 
             # 4. Confidence check → disclaimer
             disclaimer: str | None = None

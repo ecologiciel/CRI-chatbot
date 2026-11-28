@@ -34,6 +34,7 @@ class OutboundScope:
     recipient: str
     suppressed: bool = False
     uncertain: bool = False
+    attempted: bool = False
 
 
 _scope: ContextVar[OutboundScope | None] = ContextVar("wa_outbound_scope", default=None)
@@ -43,6 +44,12 @@ def mark_outbound_uncertain() -> None:
     scope = _scope.get()
     if scope is not None:
         scope.uncertain = True
+
+
+def mark_outbound_attempted() -> None:
+    scope = _scope.get()
+    if scope is not None:
+        scope.attempted = True
 
 
 @contextmanager
@@ -116,6 +123,7 @@ async def guarded_provider_send(tenant: TenantContext, recipient: str) -> AsyncI
                 raise OutboundSupersededError("Response superseded by opt-out")
             # The lock stays held until the provider call returns or fails.
             try:
+                mark_outbound_attempted()
                 yield
                 await session.commit()
             except BaseException:

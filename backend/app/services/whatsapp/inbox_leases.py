@@ -208,6 +208,7 @@ async def defer_claim(event_id: uuid.UUID, token: uuid.UUID, *, delay_seconds: i
             WhatsAppInboxEvent.state == "processing",
             WhatsAppInboxEvent.lease_token == token,
             WhatsAppInboxEvent.lease_until > func.clock_timestamp(),
+            WhatsAppInboxEvent.is_opt_out.is_(False),
         )
         .values(
             state="pending", lease_token=None, lease_until=None,

@@ -27,7 +27,9 @@ async def _process(claim: InboxClaim) -> HandlingOutcome:
             outcome = await get_message_handler().handle_message(
                 tenant, payload.message, payload.contacts, durable=True
             )
-            return HandlingOutcome.uncertain if scope.uncertain else outcome
+            if scope.uncertain or (outcome == HandlingOutcome.deferred and scope.attempted):
+                return HandlingOutcome.uncertain
+            return outcome
 
 
 async def _heartbeat(claim: InboxClaim, lease_seconds: int) -> None:

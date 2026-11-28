@@ -63,6 +63,8 @@ async def test_deferred_first_event_blocks_its_stream_but_not_others_or_stop():
             claims = [await claim_next(), await claim_next()]
             assert {c.id for c in claims if c} == {other, stop}
             for item in claims:
+                if item and item.id == stop:
+                    assert not await defer_claim(item.id, item.lease_token)
                 assert item and await finish_claim(item.id, item.lease_token, uncertain=False)
             assert await claim_next() is None
             async with engine.begin() as conn:

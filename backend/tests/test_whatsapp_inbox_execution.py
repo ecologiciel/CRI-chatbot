@@ -102,6 +102,29 @@ async def test_ambiguous_prior_send_never_becomes_deferred(monkeypatch, claim):
 
 
 @pytest.mark.asyncio
+async def test_confirmed_prior_send_also_prevents_automatic_deferral(monkeypatch, claim):
+    from types import SimpleNamespace
+
+    from app.services.whatsapp.outbound_fence import mark_outbound_attempted
+
+    @asynccontextmanager
+    async def channel(_claim):
+        yield object()
+
+    async def handler(*_args, **_kwargs):
+        mark_outbound_attempted()
+        return HandlingOutcome.deferred
+
+    monkeypatch.setattr(execution, "protect_claim_channel", channel)
+    monkeypatch.setattr(execution, "get_settings", lambda: SimpleNamespace(kms_master_key="00" * 32))
+    monkeypatch.setattr(execution, "get_session_factory", lambda: object())
+    monkeypatch.setattr(execution, "VersionedEnvelopeService", lambda *_args: object())
+    monkeypatch.setattr(execution, "decrypt_claim", AsyncMock(return_value=SimpleNamespace(message=SimpleNamespace(from_="fixture"), contacts=[])))
+    monkeypatch.setattr(execution, "get_message_handler", lambda: SimpleNamespace(handle_message=handler))
+    assert await execution._process(claim) == HandlingOutcome.uncertain
+
+
+@pytest.mark.asyncio
 async def test_earlier_ambiguous_send_is_not_hidden_by_later_suppression(monkeypatch, claim):
     from types import SimpleNamespace
 

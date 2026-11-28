@@ -22,10 +22,11 @@ from app.core.exceptions import ValidationError
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
 from app.models.enums import ContactSource, Language, OptInStatus
+from app.services.contact.phone_identity import phone_variants
 
 logger = structlog.get_logger()
 
-PHONE_PATTERN = re.compile(r"^\+[1-9]\d{6,14}$")
+PHONE_PATTERN = re.compile(r"^\+[1-9][0-9]{6,14}$")
 CIN_PATTERN = re.compile(r"^[A-Z]{1,2}\d{5,6}$")
 MAX_IMPORT_ROWS = 50_000
 BATCH_SIZE = 500
@@ -176,23 +177,30 @@ class ContactImportExportService:
         async with tenant.db_session() as session:
             for i in range(0, len(valid_rows), BATCH_SIZE):
                 batch = valid_rows[i : i + BATCH_SIZE]
-                batch_phones = [r["phone"] for r in batch]
+                batch_phones = [variant for row in batch for variant in phone_variants(row["phone"])]
 
                 # Find existing phones
                 existing_result = await session.execute(
                     select(Contact.phone).where(Contact.phone.in_(batch_phones)),
                 )
-                existing_phones = {row[0] for row in existing_result.all()}
+                existing_phones = {row[0].removeprefix("+") for row in existing_result.all()}
 
                 # Split into new and existing
-                new_rows = [r for r in batch if r["phone"] not in existing_phones]
+                new_rows = []
+                for row in batch:
+                    identity = row["phone"].removeprefix("+")
+                    if identity not in existing_phones:
+                        new_rows.append(row)
+                        existing_phones.add(identity)
                 result.skipped += len(batch) - len(new_rows)
 
                 if new_rows:
-                    await session.execute(
-                        pg_insert(Contact).values(new_rows),
+                    inserted = await session.execute(
+                        pg_insert(Contact).values(new_rows).on_conflict_do_nothing().returning(Contact.id),
                     )
-                    result.created += len(new_rows)
+                    created = len(inserted.scalars().all())
+                    result.created += created
+                    result.skipped += len(new_rows) - created
 
         self._logger.info(
             "import_completed",

@@ -24,6 +24,12 @@ class Contact(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "contacts"
     __table_args__ = (
         Index("ix_contacts_phone", "phone", unique=True),
+        Index(
+            "uq_contacts_canonical_phone",
+            text("ltrim(phone, '+')"),
+            unique=True,
+            postgresql_where=text("phone ~ '^[+]?[1-9][0-9]{6,14}$'"),
+        ),
         Index("ix_contacts_cin", "cin"),
         Index("ix_contacts_tags", "tags", postgresql_using="gin"),
         Index("ix_contacts_created_at", "created_at"),

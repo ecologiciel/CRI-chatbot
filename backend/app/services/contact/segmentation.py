@@ -21,6 +21,7 @@ from app.models.conversation import Conversation, Message
 from app.models.enums import ContactSource, OptInStatus
 from app.schemas.audit import AuditLogCreate
 from app.schemas.contacts_extended import SegmentInfo
+from app.services.contact.phone_identity import phone_variants
 
 logger = structlog.get_logger()
 
@@ -296,7 +297,7 @@ class SegmentationService:
         """
         async with tenant.db_session() as session:
             result = await session.execute(
-                select(Contact).where(Contact.phone == phone),
+                select(Contact).where(Contact.phone.in_(phone_variants(phone))).with_for_update(),
             )
             contact = result.scalar_one_or_none()
 

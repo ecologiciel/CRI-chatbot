@@ -13,7 +13,7 @@ class ContactCreate(BaseModel):
 
     phone: str = Field(
         ...,
-        pattern=r"^\+[1-9]\d{6,14}$",
+        pattern=r"^\+[1-9][0-9]{6,14}$",
         description="Phone in E.164 format, e.g. +212612345678",
     )
     name: str | None = Field(default=None, max_length=255)

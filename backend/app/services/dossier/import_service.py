@@ -39,6 +39,7 @@ from app.models.contact import Contact
 from app.models.dossier import Dossier, DossierHistory
 from app.models.enums import DossierStatut, SyncStatus
 from app.models.sync import SyncLog
+from app.services.contact.phone_identity import phone_variants
 
 logger = structlog.get_logger()
 
@@ -786,11 +787,14 @@ class DossierImportService:
         if phones:
             result = await session.execute(
                 select(Contact.id, Contact.phone).where(
-                    Contact.phone.in_(phones),
+                    Contact.phone.in_([variant for phone in phones for variant in phone_variants(phone)]),
                 ),
             )
             for contact_id, phone in result.all():
-                phone_to_contact[phone] = contact_id
+                for variant in phone_variants(phone):
+                    if variant in phone_to_contact and phone_to_contact[variant] != contact_id:
+                        raise ValueError("Ambiguous contact identity; reconciliation required")
+                    phone_to_contact[variant] = contact_id
 
         # Process each row
         for row in batch:

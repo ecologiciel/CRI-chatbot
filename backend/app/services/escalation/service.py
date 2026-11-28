@@ -42,6 +42,7 @@ from app.models.escalation import Escalation
 from app.schemas.audit import AuditLogCreate
 from app.services.ai.gemini import GeminiService, get_gemini_service
 from app.services.audit.service import AuditService, get_audit_service
+from app.services.contact.phone_identity import phone_variants
 from app.services.guardrails.pii_masker import get_pii_masker
 from app.services.whatsapp.sender import WhatsAppSenderService
 
@@ -214,7 +215,7 @@ class EscalationService:
                 select(Conversation.id)
                 .join(Contact, Conversation.contact_id == Contact.id)
                 .where(
-                    Contact.phone == phone,
+                    Contact.phone.in_(phone_variants(phone)),
                     Conversation.status.in_(
                         [
                             ConversationStatus.active,

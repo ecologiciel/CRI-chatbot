@@ -34,6 +34,7 @@ async def environment(monkeypatch):
     service = AtomicDossierOTPService()
     service._audit = AsyncMock()
     monkeypatch.setattr(otp_atomic, "get_redis", lambda: redis)
+    monkeypatch.setattr(otp, "get_redis", lambda: redis)
     monkeypatch.setattr(otp_atomic, "get_settings", lambda: SimpleNamespace(kms_master_key="6a" * 32))
     try:
         yield service, redis, tenant

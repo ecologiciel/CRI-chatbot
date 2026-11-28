@@ -170,7 +170,8 @@ def create_app() -> FastAPI:
             error_type=type(exc).__name__,
             message=exc.message,
             details=exc.details,
-            path=str(request.url),
+            # Query strings may contain webhook verification credentials.
+            path=request.url.path,
         )
         status_code = _get_status_code(exc)
         return JSONResponse(

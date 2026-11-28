@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -22,7 +23,9 @@ from app.core.exceptions import (
     DuplicateResourceError,
     TenantProvisioningError,
 )
+from app.core.rbac import get_current_admin
 from app.core.tenant import TenantResolver
+from app.main import app
 from app.schemas.notification import NotificationTemplateUpdate
 from app.schemas.tenant import TenantCreate, TenantUpdate, WhatsAppChannelUpdate
 from app.services.crypto.kms import KMSService
@@ -71,6 +74,14 @@ async def test_channel_update_preserves_settings_and_audits_atomically():
                 await conn.execute(text("ALTER TABLE public.audit_logs DROP CONSTRAINT fixture_reject_wa_channel_update"))
                 constraint = False
             result = await update_whatsapp_channel(tenant_id, change, admin)
+            app.dependency_overrides[get_current_admin] = lambda: SimpleNamespace(role="super_admin", sub=admin.sub)
+            try:
+                with patch("app.core.audit_middleware._fire_audit", new=AsyncMock(return_value=True)):
+                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                        response = await client.put(f"/api/v1/tenants/{tenant_id}/whatsapp-channel", json=change.model_dump())
+                assert response.status_code == 200 and "secret" not in response.text
+            finally:
+                app.dependency_overrides.pop(get_current_admin, None)
         assert result.phone_number_id == change.phone_number_id
         assert "secret" not in repr(result.model_dump())
         async with engine.connect() as conn:
@@ -80,7 +91,7 @@ async def test_channel_update_preserves_settings_and_audits_atomically():
         decoded = await open_channel_config(tenant_id, stored, cipher)
         assert decoded["notification_templates"] == {"status": "keep"}
         assert decoded["annual_message_limit"] == 1234 and decoded["app_secret"] == "new-app-secret"
-        assert audit == 1
+        assert audit == 2
     finally:
         async with engine.begin() as conn:
             if constraint:

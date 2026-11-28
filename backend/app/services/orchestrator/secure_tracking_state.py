@@ -53,14 +53,17 @@ if ARGV[2] == '0' then
 elseif not current or current ~= ARGV[3] then
   return 0
 end
-if ARGV[4] == 'set' then
-  redis.call('SET', KEYS[1], ARGV[5], 'EX', ARGV[6])
-elseif ARGV[4] == 'delete' then
-  redis.call('DEL', KEYS[1])
-else
+if ARGV[4] ~= 'set' and ARGV[4] ~= 'delete' then
   return redis.error_reply('invalid tracking operation')
 end
+-- Redis Lua is atomic but does not roll back prior commands after an error.
+-- Advance the guard first so a failed state write invalidates stale readers.
 redis.call('SET', KEYS[2], ARGV[7], 'EX', ARGV[8])
+if ARGV[4] == 'set' then
+  redis.call('SET', KEYS[1], ARGV[5], 'EX', ARGV[6])
+else
+  redis.call('DEL', KEYS[1])
+end
 return 1
 """
 

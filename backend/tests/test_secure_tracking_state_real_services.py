@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import time
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -23,7 +24,7 @@ from app.services.orchestrator.secure_tracking_state import (
     SecureTrackingStateError,
     SecureTrackingStateManager,
 )
-from app.services.orchestrator.tracking_state import TrackingStep
+from app.services.orchestrator.tracking_state import TrackingStep, TrackingUserState
 
 DB_URL = os.getenv("TEST_TRACKING_STATE_DB_URL")
 REDIS_URL = os.getenv("TEST_ATOMIC_OTP_REDIS_URL")
@@ -220,3 +221,22 @@ async def test_cleared_state_cannot_be_recreated_by_stale_idle_reader(environmen
     stale.step = TrackingStep.otp_sent
     with pytest.raises(SecureTrackingStateConflictError):
         await manager.set_state(PHONE, stale, tenant)
+
+
+@pytest.mark.asyncio
+async def test_missing_guard_and_expired_operation_fail_closed(environment):
+    manager, redis, tenant, _ = environment
+    with pytest.raises(SecureTrackingStateConflictError):
+        await manager.set_state(PHONE, TrackingUserState(), tenant)
+    state = await manager.get_state(PHONE, tenant)
+    key, revision, previous, _ = state._secure_snapshot
+    state._secure_snapshot = (key, revision, previous, time.monotonic() - 421)
+    with pytest.raises(SecureTrackingStateConflictError):
+        await manager.set_state(PHONE, state, tenant)
+    state = await manager.get_state(PHONE, tenant)
+    state.step = TrackingStep.otp_sent
+    await manager.set_state(PHONE, state, tenant)
+    await redis.delete(key + ":guard")
+    with pytest.raises(SecureTrackingStateError):
+        await manager.get_state(PHONE, tenant)
+    assert await redis.exists(key)

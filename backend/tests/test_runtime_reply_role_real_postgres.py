@@ -61,11 +61,20 @@ async def test_restricted_role_can_run_reply_lifecycle_but_cannot_erase_fences()
     factory = async_sessionmaker(restricted, expire_on_commit=False)
     cipher = VersionedEnvelopeService(factory, "08" * 32)
     audit_login = (scripts / "rehearse-audit-runtime-login.sql").read_text().replace("\\set ON_ERROR_STOP on", "")
+    audit_tenant = (scripts / "rehearse-audit-tenant-login.sql").read_text().replace("\\set ON_ERROR_STOP on", "")
     try:
         async with restricted.connect() as conn:
             assert (await conn.execute(text("SELECT current_user, session_user"))).one() == ("fixture_reply_login", "fixture_reply_login")
             raw = await conn.get_raw_connection()
             await raw.driver_connection.execute(audit_login)
+        # The common runtime group has access to every tenant schema. Even
+        # with safe reply-table privileges it must fail tenant isolation.
+        async with restricted.connect() as conn:
+            await conn.execute(text("SELECT set_config('rehearsal.expected_tenant_schema', :schema, true)"), {"schema": tenant.db_schema})
+            raw = await conn.get_raw_connection()
+            with pytest.raises(asyncpg.PostgresError, match="another tenant schema"):
+                await raw.driver_connection.execute(audit_tenant)
+            await conn.rollback()
         async with elevated.begin() as conn:
             await conn.execute(text("CREATE ROLE fixture_reply_extra NOLOGIN"))
             await conn.execute(text("GRANT UPDATE (request_key) ON public.agent_reply_outbox_events TO fixture_reply_extra"))

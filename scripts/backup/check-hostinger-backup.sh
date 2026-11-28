@@ -5,6 +5,8 @@ BACKUP_DIR="${BACKUP_DIR:-/root/chatbot-backups}"
 MAX_BACKUP_AGE_SECONDS="${BACKUP_MAX_AGE_SECONDS:-108000}"
 MAX_GUARD_AGE_SECONDS="${BACKUP_GUARD_MAX_AGE_SECONDS:-300}"
 MAX_RUNNING_SECONDS="${BACKUP_MAX_RUNNING_SECONDS:-3600}"
+VERIFY_HASH="${BACKUP_VERIFY_HASH:-0}"
+[[ "$VERIFY_HASH" == 0 || "$VERIFY_HASH" == 1 ]] || exit 2
 for limit in "$MAX_BACKUP_AGE_SECONDS" "$MAX_GUARD_AGE_SECONDS" "$MAX_RUNNING_SECONDS"; do
     [[ "$limit" =~ ^[1-9][0-9]*$ && ${#limit} -le 9 ]] || exit 2
 done
@@ -20,6 +22,15 @@ mapfile -t lines < "$status"
 archive="${BASH_REMATCH[1]}"
 [[ -f "$BACKUP_DIR/$archive" && ! -L "$BACKUP_DIR/$archive" && -s "$BACKUP_DIR/$archive" ]] || fail 'last archive missing or empty'
 [[ -f "$BACKUP_DIR/$archive.sha256" && ! -L "$BACKUP_DIR/$archive.sha256" && -s "$BACKUP_DIR/$archive.sha256" ]] || fail 'last checksum missing or empty'
+if [[ "$VERIFY_HASH" == 1 ]]; then
+    # Do not pass an unchecked manifest to sha256sum -c: it could name an
+    # arbitrary file. Require exactly one checksum for the selected archive.
+    mapfile -t checksum_lines < "$BACKUP_DIR/$archive.sha256"
+    [[ ${#checksum_lines[@]} -eq 1 && "${checksum_lines[0]}" =~ ^([0-9a-f]{64})'  '"$archive"$ ]] || fail 'invalid checksum manifest'
+    expected="${BASH_REMATCH[1]}"
+    actual=$(sha256sum -- "$BACKUP_DIR/$archive") || fail 'could not calculate archive checksum'
+    [[ "${actual%% *}" == "$expected" ]] || fail 'backup checksum mismatch'
+fi
 now=$(date -u +%s)
 finished=$(date -u -d "${lines[0]#finished_utc=}" +%s) || fail 'invalid backup timestamp'
 guard_time=$(stat -c %Y "$heartbeat")
@@ -39,4 +50,8 @@ if [[ -e "$BACKUP_DIR/.cold-backup-services" || -L "$BACKUP_DIR/.cold-backup-ser
     echo 'BACKUP_OK: backup is currently running'
     exit 0
 fi
-echo 'BACKUP_OK: recent backup and recovery guard heartbeat found'
+if [[ "$VERIFY_HASH" == 1 ]]; then
+    echo 'BACKUP_OK: archive checksum, backup age and recovery guard verified'
+else
+    echo 'BACKUP_OK: recent backup and recovery guard heartbeat found'
+fi

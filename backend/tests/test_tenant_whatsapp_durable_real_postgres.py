@@ -80,8 +80,14 @@ async def test_encrypted_tenant_intake_commits_deduplicates_and_rejects_rotated_
             stale = event(config["phone_number_id"], "fixture-2")
             with pytest.raises(TenantInactiveError):
                 await persist_tenant_authenticated_webhook(tenant, stale, sign(stale, config["app_secret"]))
+            stale_status = json.loads(event(config["phone_number_id"], "unused", "fixture-status-2"))
+            del stale_status["entry"][0]["changes"][0]["value"]["messages"]
+            raw_status = json.dumps(stale_status).encode()
+            with pytest.raises(TenantInactiveError):
+                await persist_tenant_authenticated_webhook(tenant, raw_status, sign(raw_status, config["app_secret"]))
             async with engine.connect() as conn:
                 assert await conn.scalar(text("SELECT count(*) FROM public.whatsapp_inbox_events WHERE tenant_id=:id"), {"id": tenant_id}) == 1
+                assert await conn.scalar(text("SELECT count(*) FROM public.whatsapp_status_events WHERE tenant_id=:id"), {"id": tenant_id}) == 1
     finally:
         async with engine.begin() as conn:
             await conn.execute(text("DELETE FROM public.whatsapp_status_events WHERE tenant_id=:id"), {"id": tenant_id})

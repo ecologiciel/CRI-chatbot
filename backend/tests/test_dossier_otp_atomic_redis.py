@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
+from redis.exceptions import ResponseError
 
 from app.core.exceptions import RateLimitExceededError
 from app.core.tenant import TenantContext
@@ -75,7 +76,8 @@ async def test_generation_budget_is_atomic_and_not_bypassed_by_new_code(environm
 async def test_expired_codes_and_missing_key_are_rejected(environment, monkeypatch):
     service, redis, tenant = environment
     code = await service.generate_otp(PHONE, tenant)
-    await redis.delete(service._redis_key(tenant, "dossier_otp", PHONE))
+    await redis.pexpire(service._redis_key(tenant, "dossier_otp", PHONE), 20)
+    await asyncio.sleep(0.05)
     assert await service.verify_otp(PHONE, code, tenant) is False
     monkeypatch.setattr(otp_atomic, "get_settings", lambda: SimpleNamespace(kms_master_key=""))
     with pytest.raises(RuntimeError, match="OTP key unavailable"):
@@ -87,7 +89,7 @@ async def test_corrupt_or_persistent_budget_fails_closed(environment):
     service, redis, tenant = environment
     budget = service._redis_key(tenant, "dossier_otp_attempts", PHONE)
     await redis.set(budget, "1")
-    with pytest.raises(Exception, match="invalid OTP generation budget"):
+    with pytest.raises(ResponseError, match="invalid OTP generation budget"):
         await service.generate_otp(PHONE, tenant)
     assert await redis.get(service._redis_key(tenant, "dossier_otp", PHONE)) is None
 
@@ -99,3 +101,22 @@ async def test_code_is_bound_to_institution_id_even_if_slug_is_reused(environmen
     replacement = TenantContext(id=uuid.uuid4(), slug=tenant.slug, name="Replacement", status="active", whatsapp_config=None)
     assert await service.verify_otp(PHONE, code, replacement) is False
     assert await service.verify_otp(PHONE, code, tenant) is True
+
+
+@pytest.mark.asyncio
+async def test_malformed_input_uses_attempt_budget_but_correct_code_can_still_work(environment):
+    service, _, tenant = environment
+    code = await service.generate_otp(PHONE, tenant)
+    assert await service.verify_otp(PHONE, "12", tenant) is False
+    assert await service.verify_otp(PHONE, "é" * 6, tenant) is False
+    assert await service.verify_otp(PHONE, code, tenant) is True
+
+
+@pytest.mark.asyncio
+async def test_persistent_verification_counter_is_rejected(environment):
+    service, redis, tenant = environment
+    code = await service.generate_otp(PHONE, tenant)
+    key = service._redis_key(tenant, "dossier_otp_verify_attempts", PHONE)
+    await redis.set(key, "1")
+    with pytest.raises(ResponseError, match="invalid OTP verification budget"):
+        await service.verify_otp(PHONE, code, tenant)

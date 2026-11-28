@@ -5,8 +5,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import asyncpg
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -32,6 +34,7 @@ async def test_restricted_role_can_run_reply_lifecycle_but_cannot_erase_fences()
     async with elevated.begin() as conn:
         assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
         assert not await conn.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='cri_runtime_access')"))
+        assert not await conn.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname IN ('fixture_reply_login','fixture_reply_extra'))"))
         await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status,whatsapp_config) VALUES (:id,'Fixture','fixture_runtime_reply','Test','active','{\"phone_number_id\":\"981\",\"access_token\":\"fixture\"}')"), {"id": tenant_id})
         await conn.execute(text("INSERT INTO public.admins (id,email,password_hash,full_name,role,tenant_id) VALUES (:id,'runtime-reply@example.test','fixture','Fixture','admin_tenant',:tenant)"), {"id": actor_id, "tenant": tenant_id})
     with patch("app.services.tenant.provisioning.get_session_factory", return_value=admin_factory):
@@ -48,18 +51,34 @@ async def test_restricted_role_can_run_reply_lifecycle_but_cannot_erase_fences()
     async with elevated.connect() as conn:
         raw = await conn.get_raw_connection()
         await raw.driver_connection.execute(prepare)
+    async with elevated.begin() as conn:
+        # Fixture-only credential, never used for a production account.
+        await conn.execute(text("CREATE ROLE fixture_reply_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'synthetic-fixture-password'"))
+        await conn.execute(text("GRANT cri_runtime_access TO fixture_reply_login"))
 
-    restricted = create_async_engine(URL)
-
-    @event.listens_for(restricted.sync_engine, "connect")
-    def set_restricted_role(connection, _record):
-        cursor = connection.cursor()
-        cursor.execute("SET ROLE cri_runtime_access")
-        cursor.close()
+    restricted = create_async_engine(make_url(URL).set(username="fixture_reply_login", password="synthetic-fixture-password"))
 
     factory = async_sessionmaker(restricted, expire_on_commit=False)
     cipher = VersionedEnvelopeService(factory, "08" * 32)
+    audit_login = (scripts / "rehearse-audit-runtime-login.sql").read_text().replace("\\set ON_ERROR_STOP on", "")
     try:
+        async with restricted.connect() as conn:
+            assert (await conn.execute(text("SELECT current_user, session_user"))).one() == ("fixture_reply_login", "fixture_reply_login")
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(audit_login)
+        async with elevated.begin() as conn:
+            await conn.execute(text("CREATE ROLE fixture_reply_extra NOLOGIN"))
+            await conn.execute(text("GRANT UPDATE (request_key) ON public.agent_reply_outbox_events TO fixture_reply_extra"))
+            await conn.execute(text("GRANT fixture_reply_extra TO fixture_reply_login WITH INHERIT FALSE"))
+        async with restricted.connect() as conn:
+            raw = await conn.get_raw_connection()
+            with pytest.raises(asyncpg.PostgresError, match="immutable reply identity"):
+                await raw.driver_connection.execute(audit_login)
+            await conn.rollback()
+        async with elevated.begin() as conn:
+            await conn.execute(text("REVOKE fixture_reply_extra FROM fixture_reply_login"))
+            await conn.execute(text("DROP OWNED BY fixture_reply_extra"))
+            await conn.execute(text("DROP ROLE fixture_reply_extra"))
         with (patch("app.services.escalation.reply_outbox.get_session_factory", return_value=factory),
               patch("app.services.escalation.reply_review.get_session_factory", return_value=factory),
               patch("app.services.escalation.reply_retention.get_session_factory", return_value=factory)):
@@ -86,6 +105,8 @@ async def test_restricted_role_can_run_reply_lifecycle_but_cannot_erase_fences()
             await conn.execute(text("DROP SCHEMA tenant_fixture_runtime_reply CASCADE"))
             await conn.execute(text("DELETE FROM public.admins WHERE id=:id"), {"id": actor_id})
             await conn.execute(text("DELETE FROM public.tenants WHERE id=:id"), {"id": tenant_id})
+            await conn.execute(text("DROP OWNED BY fixture_reply_login"))
+            await conn.execute(text("DROP ROLE fixture_reply_login"))
             await conn.execute(text("DROP OWNED BY cri_runtime_access"))
             await conn.execute(text("DROP ROLE cri_runtime_access"))
         await elevated.dispose()

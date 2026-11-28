@@ -74,6 +74,15 @@ class EscalationHandler:
         language = state.get("language", "fr")
         intent = state.get("intent", "")
 
+        # The anonymous web demo has no agent-to-browser reply transport.
+        # Do not open an unanswerable case or promise a human response.
+        if state.get("channel") == "web":
+            return {  # type: ignore[return-value]
+                "response": PromptTemplates.get_message("web_escalation_unavailable", language),
+                "sources": [],
+                "chunk_ids": [],
+            }
+
         try:
             # Step 1: Check if already escalated (avoid duplicates)
             if state.get("escalation_id"):

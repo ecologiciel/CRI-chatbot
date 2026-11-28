@@ -362,6 +362,7 @@ async def run_conversation(
     conversation_id: str | None = None,
     tracking_state: str | None = None,
     tracking_available: bool = True,
+    channel: str = "whatsapp",
 ) -> dict:
     """Run a user message through the conversation graph.
 
@@ -383,6 +384,7 @@ async def run_conversation(
         "tenant_slug": tenant.slug,
         "tenant_context": _serialize_tenant(tenant),
         "phone": phone,
+        "channel": channel,
         "language": "fr",
         "intent": "",
         "messages": conversation_history or [],

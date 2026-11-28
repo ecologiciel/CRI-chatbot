@@ -77,6 +77,7 @@ async def test_public_messages_disable_private_dossier_tracking():
             "session",
         )
     assert run.await_args.kwargs["tracking_available"] is False
+    assert run.await_args.kwargs["channel"] == "web"
     stored_input = conversations.add_message.await_args_list[0].args[-1]
     assert "0522123456" not in stored_input
     assert "[PHONE_1]" in stored_input

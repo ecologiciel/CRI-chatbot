@@ -166,6 +166,7 @@ async def send_message(
         incentive_state=(conversation.metadata_ or {}).get("incentive_state"),
         conversation_id=str(conversation.id),
         tracking_available=False,
+        channel="web",
     )
 
     answer = (

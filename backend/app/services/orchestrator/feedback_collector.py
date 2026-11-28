@@ -64,6 +64,10 @@ class FeedbackCollector:
         Returns:
             Empty partial state (feedback doesn't modify conversation state).
         """
+        # A browser session uses a synthetic contact, not a WhatsApp number.
+        if state.get("channel", "whatsapp") != "whatsapp":
+            return {}  # type: ignore[return-value]
+
         intent = state.get("intent", "")
         if intent not in _FEEDBACK_INTENTS:
             return {}  # type: ignore[return-value]

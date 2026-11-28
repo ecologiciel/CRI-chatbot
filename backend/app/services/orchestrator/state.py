@@ -25,6 +25,7 @@ class ConversationState(TypedDict, total=False):
     tenant_slug: str
     tenant_context: dict  # serialized TenantContext (id, slug, name, status, whatsapp_config)
     phone: str  # user's WhatsApp phone (E.164)
+    channel: str  # "web" or "whatsapp"
 
     # ── Language & intent detection ──
     language: str  # detected language: "fr", "ar", "en"

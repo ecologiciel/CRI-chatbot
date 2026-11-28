@@ -47,6 +47,10 @@ async def test_migrated_schema_limited_login_can_insert_but_not_alter_audit():
         for command in ("UPDATE public.audit_logs SET action='tampered'", "DELETE FROM public.audit_logs", "TRUNCATE public.audit_logs", "UPDATE public.alembic_version SET version_num='forged'", "DELETE FROM public.agent_reply_outbox_events", "TRUNCATE public.agent_reply_outbox_events"):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await runtime.execute(command)
+        for table in ("whatsapp_inbox_events", "whatsapp_status_events"):
+            for operation in ("DELETE FROM", "TRUNCATE"):
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await runtime.execute(f"{operation} public.{table}")
     finally:
         if runtime:
             await runtime.close()

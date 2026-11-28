@@ -399,6 +399,51 @@ class TestGetNotificationStats:
 
 class TestSendManualNotification:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("mismatch", ["contact", "status"])
+    async def test_mismatched_dossier_or_status_is_not_sent(self, mismatch):
+        _setup_overrides(role=AdminRole.admin_tenant.value)
+        contact_id, dossier_id = uuid.uuid4(), uuid.uuid4()
+        contact = _make_contact_orm(contact_id=contact_id)
+        dossier = _make_dossier_orm(
+            dossier_id=dossier_id,
+            contact_id=uuid.uuid4() if mismatch == "contact" else contact_id,
+            statut=DossierStatut.valide if mismatch == "contact" else DossierStatut.en_cours,
+        )
+        contact_result = MagicMock(scalar_one_or_none=lambda: contact)
+        dossier_result = MagicMock(scalar_one_or_none=lambda: dossier)
+        session = _mock_tenant_db_session(
+            execute_results=[contact_result, dossier_result, contact_result, dossier_result]
+        )
+        try:
+            with (
+                patch("app.core.middleware.TenantResolver") as resolver,
+                patch.object(TenantContext, "db_session", return_value=session),
+                patch("app.api.v1.notifications.WhatsAppSenderService") as sender,
+                patch("app.api.v1.notifications.get_audit_service") as audit,
+            ):
+                resolver.from_tenant_id_header = AsyncMock(return_value=TEST_TENANT)
+                sender.return_value.send_template = AsyncMock()
+                audit.return_value.log_action = AsyncMock()
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.post(
+                        "/api/v1/notifications/send",
+                        headers=_headers(),
+                        json={
+                            "contact_id": str(contact_id),
+                            "dossier_id": str(dossier_id),
+                            "event_type": "decision_finale",
+                        },
+                    )
+                sender.return_value.send_template.assert_not_awaited()
+        finally:
+            _clear_overrides()
+        assert response.status_code == 200
+        assert response.json()["status"] == "skipped"
+        assert response.json()["reason"] == f"dossier_{mismatch}_mismatch"
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "revoked, provider", [(False, "ok"), (True, "ok"), (False, "empty"), (False, "timeout")]
     )
@@ -409,7 +454,9 @@ class TestSendManualNotification:
         contact_id = uuid.uuid4()
         dossier_id = uuid.uuid4()
         contact = _make_contact_orm(contact_id=contact_id)
-        dossier = _make_dossier_orm(dossier_id=dossier_id)
+        dossier = _make_dossier_orm(
+            dossier_id=dossier_id, contact_id=contact_id, statut=DossierStatut.rejete
+        )
 
         # Contact load, dossier load, then a locked consent recheck.
         contact_result = MagicMock()
@@ -424,7 +471,7 @@ class TestSendManualNotification:
         )
 
         mock_session = _mock_tenant_db_session(
-            execute_results=[contact_result, dossier_result, recheck_result],
+            execute_results=[contact_result, dossier_result, recheck_result, dossier_result],
         )
 
         try:
@@ -473,6 +520,8 @@ class TestSendManualNotification:
         else:
             assert data["status"] == "sent"
             assert data["wamid"] == "wamid.test123"
+            components = mock_sender_inst.send_template.await_args.kwargs["components"]
+            assert components[0]["parameters"][2]["text"] == "Rejeté"
 
     @pytest.mark.asyncio
     async def test_send_contact_not_found(self):

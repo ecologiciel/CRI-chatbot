@@ -99,14 +99,15 @@ async def _send_with_retry(
                 "notification_retry",
                 attempt=attempt + 1,
                 delay=delay,
-                error=str(exc),
+                error_type=type(exc).__name__,
             )
             if attempt < len(RETRY_DELAYS) - 1:
                 await asyncio.sleep(delay)
 
     # Final failure — the service already audits the failure internally
-    log.error("notification_exhausted_retries", error=str(last_error))
-    return {"status": "failed", "error": str(last_error)}
+    error_type = type(last_error).__name__
+    log.error("notification_exhausted_retries", error_type=error_type)
+    return {"status": "failed", "error_type": error_type}
 
 
 async def _process_tenant_notifications(tenant_slug: str) -> dict[str, int]:
@@ -168,9 +169,7 @@ async def _process_tenant_notifications(tenant_slug: str) -> dict[str, int]:
             except Exception as exc:
                 log.error(
                     "notification_event_error",
-                    error=str(exc),
-                    raw_event=raw[:200],
-                    exc_info=True,
+                    error_type=type(exc).__name__,
                 )
                 stats["processed"] += 1
                 stats["failed"] += 1
@@ -204,8 +203,8 @@ async def task_send_notifications(
     log = logger.bind(task="send_notifications", tenant=tenant_slug)
     try:
         return await _process_tenant_notifications(tenant_slug)
-    except Exception:
-        log.error("task_send_notifications_failed", exc_info=True)
+    except Exception as exc:
+        log.error("task_send_notifications_failed", error_type=type(exc).__name__)
         raise
 
 
@@ -257,8 +256,7 @@ async def process_all_notifications(ctx: dict) -> dict[str, Any]:
             log.error(
                 "tenant_notification_error",
                 tenant=slug,
-                error=str(exc),
-                exc_info=True,
+                error_type=type(exc).__name__,
             )
 
     if aggregate["total_processed"] > 0:

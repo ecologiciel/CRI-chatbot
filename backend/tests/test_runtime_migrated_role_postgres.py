@@ -44,7 +44,7 @@ async def test_migrated_schema_limited_login_can_insert_but_not_alter_audit():
         assert await runtime.fetchval("SELECT count(*) FROM public.audit_logs WHERE id=$1", audit_id) == 1
         assert await runtime.fetchval("SELECT has_table_privilege(current_user, 'public.agent_reply_outbox_events', 'INSERT')")
         assert await runtime.fetchval("SELECT has_table_privilege(current_user, 'tenant_template.contacts', 'SELECT')")
-        for command in ("UPDATE public.audit_logs SET action='tampered'", "DELETE FROM public.audit_logs", "TRUNCATE public.audit_logs", "UPDATE public.alembic_version SET version_num='forged'"):
+        for command in ("UPDATE public.audit_logs SET action='tampered'", "DELETE FROM public.audit_logs", "TRUNCATE public.audit_logs", "UPDATE public.alembic_version SET version_num='forged'", "DELETE FROM public.agent_reply_outbox_events", "TRUNCATE public.agent_reply_outbox_events"):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await runtime.execute(command)
     finally:

@@ -28,6 +28,18 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Restricted runtime group is missing or unsafe';
   END IF;
+  -- Deleting a reply record removes its idempotency fence. Refuse to grant
+  -- access when PUBLIC or ownership would bypass that protection.
+  IF EXISTS (
+    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname='agent_reply_outbox_events'
+      AND (c.relowner = (SELECT oid FROM pg_roles WHERE rolname='cri_runtime_access') OR EXISTS (
+        SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+        WHERE a.grantee=0 AND a.privilege_type IN ('DELETE','TRUNCATE','TRIGGER','REFERENCES')
+      ))
+  ) THEN
+    RAISE EXCEPTION 'Unsafe agent reply outbox ownership or PUBLIC privileges';
+  END IF;
   IF EXISTS (
     SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE c.relkind IN ('r','p','v','m','f')
@@ -42,10 +54,14 @@ BEGIN
     SELECT c.oid::regclass AS relation
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
-      AND c.relname = ANY(public_tables)
+      AND c.relname = ANY(public_tables) AND c.relname <> 'agent_reply_outbox_events'
   LOOP
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES ON TABLE %s TO cri_runtime_access', item.relation);
   END LOOP;
+  IF to_regclass('public.agent_reply_outbox_events') IS NOT NULL THEN
+    GRANT SELECT, INSERT, UPDATE ON public.agent_reply_outbox_events TO cri_runtime_access;
+    REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.agent_reply_outbox_events FROM cri_runtime_access;
+  END IF;
   GRANT SELECT, INSERT ON public.audit_logs TO cri_runtime_access;
   REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.audit_logs FROM cri_runtime_access;
   GRANT SELECT ON public.alembic_version TO cri_runtime_access;

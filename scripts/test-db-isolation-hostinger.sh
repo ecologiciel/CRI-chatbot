@@ -27,7 +27,10 @@ docker network create "$net" >/dev/null
 docker run -d --name "$pg" --network "$net" -e POSTGRES_USER=fixture -e POSTGRES_PASSWORD=fixture-pass -e POSTGRES_DB=ragtest_empty postgres:16-alpine >/dev/null
 ready=0
 for attempt in $(seq 1 60); do
-  if docker exec "$pg" pg_isready -U fixture -d ragtest_empty >/dev/null 2>&1; then ready=1; break; fi
+  if docker exec "$pg" psql -U fixture -d ragtest_empty -Atqc 'SELECT 1' >/dev/null 2>&1; then
+    sleep 2
+    if docker exec "$pg" psql -U fixture -d ragtest_empty -Atqc 'SELECT 1' >/dev/null 2>&1; then ready=1; break; fi
+  fi
   sleep 1
 done
 [[ "$ready" == 1 ]] || { echo 'Fixture PostgreSQL unavailable' >&2; exit 1; }

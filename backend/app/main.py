@@ -163,7 +163,9 @@ def create_app() -> FastAPI:
             error_type=type(exc).__name__,
             message=exc.message,
             details=exc.details,
-            path=str(request.url),
+            # Query strings can contain webhook verification tokens and other
+            # credentials; audit the route without recording those values.
+            path=request.url.path,
         )
         status_code = _get_status_code(exc)
         return JSONResponse(

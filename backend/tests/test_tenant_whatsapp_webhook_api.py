@@ -5,11 +5,12 @@ import hmac
 import json
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.exceptions import CRIBaseException
 from app.core.tenant import TenantContext
 from app.main import app
 from app.schemas.tenant import WhatsAppConfig
@@ -132,3 +133,18 @@ async def test_success_requires_both_event_writes_and_failures_return_503(harnes
 def test_credentials_are_excluded_from_schema_repr():
     config = WhatsAppConfig(phone_number_id="123", access_token="fixture-access", verify_token="fixture-token", app_secret="fixture-secret")
     assert all(value not in repr(config) for value in ("fixture-access", "fixture-token", "fixture-secret"))
+
+
+@pytest.mark.asyncio
+async def test_exception_logging_omits_webhook_query_tokens():
+    logger = MagicMock()
+    params = {"hub.mode": "subscribe", "hub.verify_token": "fixture-private-token", "hub.challenge": "challenge"}
+    with (
+        patch("app.main.logger", logger),
+        patch("app.api.v1.webhook._require_proxy_secret"),
+        patch("app.api.v1.webhook.webhook_service.verify_webhook", side_effect=CRIBaseException("fixture")),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await client.get("/api/v1/webhook/whatsapp", params=params)
+    assert logger.warning.call_args.kwargs["path"] == "/api/v1/webhook/whatsapp"
+    assert "fixture-private-token" not in str(logger.warning.call_args)

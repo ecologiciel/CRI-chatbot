@@ -8,7 +8,9 @@ Usage:
 
 from __future__ import annotations
 
+import math
 import time
+from numbers import Real
 
 import structlog
 from google import genai
@@ -130,7 +132,23 @@ class EmbeddingService:
             config=config,
         )
 
-        vectors = [emb.values for emb in result.embeddings]
+        # Validate each provider batch before it can be combined with another.
+        # Checking only the final total could hide one missing vector followed
+        # by an extra vector and associate embeddings with the wrong documents.
+        embeddings = result.embeddings
+        if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+            raise ValueError("Embedding provider returned an invalid batch count")
+        vectors = []
+        for embedding in embeddings:
+            values = embedding.values
+            if (
+                not isinstance(values, list)
+                or len(values) != self._dimension
+                or not all(isinstance(value, Real) and not isinstance(value, bool)
+                           and math.isfinite(value) for value in values)
+            ):
+                raise ValueError("Embedding provider returned an invalid vector")
+            vectors.append(values)
 
         # Token count: use API metadata if available, else approximate
         token_count = 0

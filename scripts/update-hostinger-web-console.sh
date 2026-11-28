@@ -8,6 +8,21 @@ COMPOSE=(docker compose --env-file .env.demo -f docker-compose.hostinger.yml -f 
 
 cd "$DEPLOY_DIR"
 test -f .env.demo
+command -v flock >/dev/null
+[[ ! -L .kms-rotation.lock ]] || { echo "Unsafe maintenance lock." >&2; exit 1; }
+exec 8> .kms-rotation.lock
+chmod 600 .kms-rotation.lock
+flock -x -n 8 || { echo "Backup or KMS maintenance in progress." >&2; exit 1; }
+[[ ! -L .kms-maintenance && ! -e .kms-maintenance/journal && ! -L .kms-maintenance/journal ]] || { echo "Unfinished or unsafe KMS maintenance." >&2; exit 1; }
+ensure_no_durable_workers() {
+  local profile_running
+  profile_running=$("${COMPOSE[@]}" --profile whatsapp-durable --profile dossier-import --profile dossier-outbox --profile agent-replies ps --status running --services)
+  if grep -Eq '^(whatsapp-inbox-worker|dossier-import-worker|dossier-outbox-worker|agent-reply-worker)$' <<< "$profile_running"; then
+    echo "A durable worker is running; use a coordinated maintenance procedure." >&2
+    return 1
+  fi
+}
+ensure_no_durable_workers
 umask 077
 mkdir -p "$BACKUP_DIR"
 
@@ -19,11 +34,12 @@ echo "PostgreSQL backup catalog verified: $backup_file"
 
 # Builds happen while the existing services remain available.
 "${COMPOSE[@]}" build backend frontend-demo frontend-admin
+ensure_no_durable_workers
 
 # The old ingestion worker must not publish old-format chunks during migration.
-"${COMPOSE[@]}" stop ingestion-worker learning-worker purge-worker
+"${COMPOSE[@]}" stop backend ingestion-worker learning-worker purge-worker
 echo "Applying database migrations..."
-"${COMPOSE[@]}" run --rm --no-deps backend alembic upgrade head
+"${COMPOSE[@]}" run --rm --no-deps --no-build backend alembic upgrade head
 
 # The isolated extractor runs the backend image too. Recreate it and wait for
 # its health check before restarting workers, so extraction code is not stale.
@@ -34,7 +50,7 @@ echo "Applying database migrations..."
 echo "Waiting for the API to become healthy..."
 for attempt in $(seq 1 36); do
   if "${COMPOSE[@]}" exec -T backend python -m app.scripts.healthcheck; then
-    "${COMPOSE[@]}" up -d --no-deps --force-recreate ingestion-worker learning-worker purge-worker
+    "${COMPOSE[@]}" up -d --no-deps --no-build --force-recreate ingestion-worker learning-worker purge-worker
     "${COMPOSE[@]}" ps
     exit 0
   fi

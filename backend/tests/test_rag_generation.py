@@ -317,8 +317,8 @@ class TestGenerationConfidence:
         mock_retrieval = MagicMock()
         mock_retrieval.retrieve = AsyncMock(
             return_value=_make_retrieval_result(
-                chunks=_make_chunks(2, score=0.5),
-                confidence=0.45,
+                chunks=_make_chunks(2, score=0.65),
+                confidence=0.60,
                 is_confident=False,
             )
         )
@@ -330,6 +330,25 @@ class TestGenerationConfidence:
         assert response.is_confident is False
         assert response.disclaimer is not None
         assert "informations partielles" in response.disclaimer
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("language", ["fr", "ar", "en"])
+    @pytest.mark.parametrize("provided_chunks", [False, True])
+    async def test_very_weak_evidence_abstains_without_model(self, language, provided_chunks):
+        chunks = _make_chunks(2, score=0.45)
+        retrieval = MagicMock()
+        retrieval.retrieve = AsyncMock(return_value=_make_retrieval_result(
+            chunks=chunks, confidence=0.425, is_confident=False,
+        ))
+        service, _, model, _ = _make_generation_service(mock_retrieval=retrieval)
+        response = await service.generate(TEST_TENANT, GenerationRequest(
+            query="Question", language=language, chunks=chunks if provided_chunks else None,
+        ))
+        assert response.answer == PromptTemplates.get_message("no_answer", language)
+        assert response.is_confident is False
+        assert response.model == "none"
+        assert response.chunk_ids == [] and response.sources == []
+        model.generate.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_no_chunks_returns_no_answer(self):
@@ -555,3 +574,55 @@ def test_table_context_is_masked_and_identified_separately():
     assert "En-tête du tableau, extrait de la même source" in prompt
     assert "| Valeur |" in prompt
     assert chunk.metadata["table_header"] == "| Contact test@example.com |"
+
+
+@pytest.mark.asyncio
+async def test_repeated_weak_evidence_routes_to_escalation_without_generation():
+    from app.services.orchestrator.faq_agent import FAQAgent
+    from app.services.orchestrator.graph import check_auto_escalation
+
+    chunks = _make_chunks(2, score=0.4)
+    retrieval = MagicMock()
+    retrieval.retrieve = AsyncMock(return_value=_make_retrieval_result(
+        chunks=chunks, confidence=0.375, is_confident=False,
+    ))
+    generation, _, model, _ = _make_generation_service(mock_retrieval=retrieval)
+    agent = FAQAgent(retrieval, generation)
+    state = {"query": "Question", "language": "fr", "messages": [],
+             "consecutive_low_confidence": 0}
+    first = await agent.handle(state, TEST_TENANT)
+    assert first["response"] == PromptTemplates.get_message("no_answer", "fr")
+    assert first["consecutive_low_confidence"] == 1
+    second = await agent.handle({**state, **first}, TEST_TENANT)
+    assert second["consecutive_low_confidence"] == 2
+    assert check_auto_escalation(second) == "escalation_handler"
+    assert second["sources"] == []
+    model.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("score", [float("nan"), float("inf"), float("-inf")])
+async def test_nonfinite_confidence_fails_closed(score):
+    retrieval = MagicMock()
+    retrieval.retrieve = AsyncMock(return_value=_make_retrieval_result(
+        chunks=_make_chunks(1), confidence=score, is_confident=True,
+    ))
+    generation, _, model, _ = _make_generation_service(mock_retrieval=retrieval)
+    response = await generation.generate(TEST_TENANT, GenerationRequest(query="Question", language="fr"))
+    assert response.confidence == 0.0
+    assert response.answer == PromptTemplates.get_message("no_answer", "fr")
+    assert response.is_confident is False
+    model.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_nonfinite_chunk_score_fails_closed_even_with_finite_aggregate():
+    retrieval = MagicMock()
+    retrieval.retrieve = AsyncMock(return_value=_make_retrieval_result(
+        chunks=_make_chunks(1, score=float("nan")), confidence=0.9, is_confident=True,
+    ))
+    generation, _, model, _ = _make_generation_service(mock_retrieval=retrieval)
+    response = await generation.generate(TEST_TENANT, GenerationRequest(query="Question", language="fr"))
+    assert response.confidence == 0.0
+    assert response.model == "none"
+    model.generate.assert_not_awaited()

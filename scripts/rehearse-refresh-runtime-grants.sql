@@ -38,7 +38,7 @@ BEGIN
         WHERE a.grantee=0 AND a.privilege_type IN ('UPDATE','DELETE','TRUNCATE','TRIGGER','REFERENCES')
       ) OR EXISTS (
         SELECT 1 FROM pg_attribute col
-        CROSS JOIN LATERAL aclexplode(coalesce(col.attacl, '{}'::aclitem[])) a
+        CROSS JOIN LATERAL aclexplode(col.attacl) a
         WHERE col.attrelid=c.oid AND col.attnum > 0 AND NOT col.attisdropped
           AND a.grantee=0 AND a.privilege_type='UPDATE'
       ))

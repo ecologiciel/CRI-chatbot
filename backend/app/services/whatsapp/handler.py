@@ -655,9 +655,16 @@ class MessageHandler:
         """
         redis = get_redis()
         key = f"{tenant.redis_prefix}:rl:user:{phone}"
-        count = await redis.incr(key)
-        if count == 1:
-            await redis.expire(key, USER_RATE_LIMIT_WINDOW)
+        # Increment and set the expiry together. Recover counters left without
+        # a TTL by the previous two-command implementation as well.
+        count = await redis.eval(
+            "local n = redis.call('INCR', KEYS[1]); "
+            "if redis.call('TTL', KEYS[1]) < 0 then "
+            "redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return n",
+            1,
+            key,
+            USER_RATE_LIMIT_WINDOW,
+        )
         return count > USER_RATE_LIMIT_MAX
 
 

@@ -273,6 +273,26 @@ class TestHappyPath:
     """Full pipeline: text message → LangGraph → response."""
 
     @pytest.mark.asyncio()
+    async def test_takeover_before_privacy_notice_keeps_inbound_and_suppresses_bot(self, handler_env):
+        handler, mocks = handler_env
+        _setup_happy_path(mocks)
+        mocks["conv_svc"].get_status.return_value = ConversationStatus.active
+
+        @asynccontextmanager
+        async def deny_reply(*_args):
+            yield False
+
+        mocks["conv_svc"].guard_bot_reply = MagicMock(side_effect=deny_reply)
+        handler._privacy_service = AsyncMock()
+        with patch(RUN_CONV_PATH, new_callable=AsyncMock) as run:
+            await handler.handle_message(TEST_TENANT, _make_text_message(), None)
+        mocks["conv_svc"].add_message.assert_awaited_once()
+        mocks["redis"].publish.assert_awaited_once()
+        handler._privacy_service.send_privacy_notice.assert_not_awaited()
+        mocks["sender"].send_text.assert_not_awaited()
+        run.assert_not_awaited()
+
+    @pytest.mark.asyncio()
     @pytest.mark.parametrize("status", [ConversationStatus.escalated, ConversationStatus.human_handled])
     async def test_open_handoff_persists_inbound_without_bot_reply(self, handler_env, status):
         handler, mocks = handler_env

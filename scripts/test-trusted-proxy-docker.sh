@@ -82,7 +82,7 @@ for attempt in $(seq 1 30); do
 done
 [[ "$ready" == 1 ]] || { echo 'Fixture proxy did not become ready' >&2; exit 1; }
 docker exec -e EXPECTED_IP="$client_ip" "$client" python -c '
-import asyncio,json,os,urllib.request
+import asyncio,http.client,json,os,urllib.request
 import websockets
 expected=os.environ["EXPECTED_IP"]
 def http(url, headers):
@@ -91,6 +91,17 @@ def http(url, headers):
 for url in ("http://proxy:8080/", "http://backend:8000/"):
  result=http(url,{"X-Forwarded-For":"203.0.113.99", "X-Internal-Client-IP-Proof":"attacker"})
  assert result == {"client":expected,"proof_present":False}, result
+conn=http.client.HTTPConnection("proxy",8080,timeout=5)
+conn.putrequest("GET","/")
+conn.putheader("X-Forwarded-For","203.0.113.99")
+conn.putheader("X-Forwarded-For","203.0.113.98")
+conn.putheader("X-Internal-Client-IP-Proof","attacker1")
+conn.putheader("X-Internal-Client-IP-Proof","attacker2")
+conn.endheaders()
+response=conn.getresponse()
+assert response.status==200
+assert json.load(response)=={"client":expected,"proof_present":False}
+conn.close()
 async def ws():
  async with websockets.connect("ws://proxy:8080/ws", additional_headers={"X-Forwarded-For":"203.0.113.99", "X-Internal-Client-IP-Proof":"attacker"}) as conn:
   result=json.loads(await conn.recv())

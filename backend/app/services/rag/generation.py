@@ -139,10 +139,9 @@ class GenerationService:
                 confidence = retrieval_result.confidence
                 is_confident = retrieval_result.is_confident
 
-            GENERATION_CONFIDENCE.labels(tenant=tenant.slug).observe(confidence)
-
             # 3. No chunks → early return with "no_answer"
             if not chunks:
+                GENERATION_CONFIDENCE.labels(tenant=tenant.slug).observe(0.0)
                 latency_ms = (time.monotonic() - start_time) * 1000
                 GENERATION_REQUESTS.labels(
                     tenant=tenant.slug, status="no_chunks", language=language
@@ -167,7 +166,15 @@ class GenerationService:
             # give the model additional documents whose citations would be
             # silently dropped from the answer shown to the user.
             cited_documents = {source["document_id"] for source in self._build_sources(chunks)}
-            chunks = [chunk for chunk in chunks if chunk.document_id in cited_documents]
+            selected_chunks = [chunk for chunk in chunks if chunk.document_id in cited_documents]
+            if len(selected_chunks) != len(chunks):
+                # A passage excluded from the prompt cannot support the answer
+                # or increase confidence in it. Preserve any stricter upstream
+                # confidence rather than making the answer more confident.
+                confidence = min(confidence, self._compute_chunks_confidence(selected_chunks))
+                is_confident = is_confident and confidence >= request.confidence_threshold
+            chunks = selected_chunks
+            GENERATION_CONFIDENCE.labels(tenant=tenant.slug).observe(confidence)
 
             # 4. Confidence check → disclaimer
             disclaimer: str | None = None

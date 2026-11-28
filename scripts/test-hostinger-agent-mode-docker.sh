@@ -12,7 +12,10 @@ new="agenttest-${suffix}-new:test"
 fail="agenttest-${suffix}-failure:test"
 cleanup(){
   rc=$?
-  if (( rc != 0 )); then cat "$fixture/success.log" "$fixture/failure.log" 2>/dev/null || true; fi
+  if (( rc != 0 )); then
+    cat "$fixture/success.log" "$fixture/failure.log" 2>/dev/null || true
+    docker logs --tail 30 "${project}-agent-reply-worker-1" 2>&1 || true
+  fi
   if [[ "$project" =~ ^modetestcodexagentmode[a-z0-9]+$ && -f "$fixture/deploy/docker-compose.hostinger.yml" ]]; then
     docker compose -p "$project" --env-file "$fixture/deploy/.env.demo" -f "$fixture/deploy/docker-compose.hostinger.yml" --profile agent-replies down -v --remove-orphans >/dev/null 2>&1 || true
   fi
@@ -71,7 +74,7 @@ services:
     profiles: ["agent-replies"]
     environment: *env
     entrypoint: ["/bin/sh", "-c"]
-    command: 'if [ "\$\$REHEARSAL_FAIL" = 1 ]; then exit 42; fi; exec arq app.workers.agent_reply_outbox.WorkerSettings'
+    command: ['if [ "\$\$REHEARSAL_FAIL" = 1 ]; then exit 42; fi; exec arq app.workers.agent_reply_outbox.WorkerSettings']
     healthcheck: { disable: true }
 EOF
 printf 'services: {}\n' > "$fixture/deploy/docker-compose.hostinger.local.yml"

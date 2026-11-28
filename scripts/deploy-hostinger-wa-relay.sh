@@ -10,7 +10,7 @@ PROJECT=${COMPOSE_PROJECT_NAME:-chatbot-demo}
 [[ "$PROJECT" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo 'Invalid project' >&2; exit 1; }
 cd "$DEPLOY_DIR"
 [[ -f .env.demo && ! -L .env.demo && -d "$BACKUP_DIR" && ! -L "$BACKUP_DIR" ]] || { echo 'Unsafe deployment paths' >&2; exit 1; }
-[[ ! -L .kms-rotation.lock && ! -e .kms-maintenance/journal && ! -L .kms-maintenance/journal ]] || { echo 'Unsafe KMS state' >&2; exit 1; }
+[[ ! -L .kms-rotation.lock && ! -L .kms-maintenance && ! -e .kms-maintenance/journal && ! -L .kms-maintenance/journal ]] || { echo 'Unsafe KMS state' >&2; exit 1; }
 [[ ! -L "$BACKUP_DIR/.cold-backup.lock" && ! -e "$BACKUP_DIR/.cold-backup-services" && ! -L "$BACKUP_DIR/.cold-backup-services" ]] || { echo 'Unsafe backup state' >&2; exit 1; }
 exec 8> .kms-rotation.lock
 flock -x -n 8 || { echo 'KMS maintenance or backup in progress' >&2; exit 1; }
@@ -23,7 +23,16 @@ backend_id=$("${COMPOSE[@]}" ps -q backend)
 [[ -n "$backend_id" && "$(docker inspect -f '{{.State.Health.Status}}' "$backend_id")" == healthy ]] || { echo 'Backend unavailable' >&2; exit 1; }
 "${COMPOSE[@]}" exec -T backend python -c 'from app.core.config import get_settings; s=get_settings(); assert not s.whatsapp_tenant_webhook_enabled and not s.whatsapp_durable_inbox_enabled and s.webhook_proxy_shared_secret'
 [[ -z "$("${COMPOSE[@]}" ps -aq whatsapp-relay)" ]] || { echo 'Relay already exists; refusing replacement' >&2; exit 1; }
-relay_tag=chatbot-wa-relay:hostinger-v1
+relay_tag=$("${COMPOSE[@]}" --profile whatsapp-durable --profile agent-replies --profile dossier-import --profile dossier-outbox config --no-interpolate --format json | python3 -c '
+import json, re, sys
+services = json.load(sys.stdin)["services"]
+tag = services["whatsapp-relay"]["image"]
+if not re.fullmatch(r"[a-z0-9][a-z0-9._/:\-]*", tag):
+    raise SystemExit("Invalid relay image tag")
+if any(service.get("image") == tag for name, service in services.items() if name != "whatsapp-relay"):
+    raise SystemExit("Relay image tag conflicts with another service")
+print(tag)
+')
 if docker image inspect "$relay_tag" >/dev/null 2>&1; then echo 'Relay tag already exists; refusing replacement' >&2; exit 1; fi
 image=$(docker image inspect -f '{{.Id}}' "$CANDIDATE_RELAY")
 [[ "$image" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo 'Invalid image identity' >&2; exit 1; }

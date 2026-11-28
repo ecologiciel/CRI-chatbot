@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.database import get_session_factory, set_tenant_search_path
-from app.core.tenant import TenantContext
+from app.core.tenant import TenantContext, TenantResolver
 from app.core.tenant_lifecycle import lock_active_tenant
 from app.models.admin import Admin
 from app.models.agent_reply_outbox import AgentReplyOutboxEvent
@@ -152,7 +152,8 @@ async def register_agent_reply(
         contact = (await session.execute(
             select(Contact).where(Contact.id == conversation.contact_id).with_for_update()
         )).scalar_one_or_none()
-        config = current.whatsapp_config or {}
+        current_context = await TenantResolver._build_context(current, session=session)
+        config = current_context.whatsapp_config or {}
         channel = config.get("phone_number_id", "")
         variants = phone_variants(contact.phone) if contact is not None else ()
         if (contact is None or contact.opt_in_status == OptInStatus.opted_out or len(variants) != 2

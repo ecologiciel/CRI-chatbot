@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.core.redis import get_redis
-from app.core.tenant import TenantContext
+from app.core.tenant import TenantContext, TenantResolver
 from app.models.contact import Contact
 from app.models.dossier import Dossier, DossierHistory
 from app.models.enums import DossierStatut, OptInStatus, TenantStatus
@@ -339,8 +339,10 @@ class NotificationService:
                 if (
                     tenant_record is None
                     or tenant_record.status != TenantStatus.active
-                    or tenant_record.whatsapp_config != tenant.whatsapp_config
                 ):
+                    return "tenant_or_channel_changed", None
+                current_context = await TenantResolver._build_context(tenant_record, session=session)
+                if current_context.whatsapp_config != tenant.whatsapp_config:
                     return "tenant_or_channel_changed", None
                 dossier = (
                     await session.execute(

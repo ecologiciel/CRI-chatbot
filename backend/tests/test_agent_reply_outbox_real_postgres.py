@@ -1,6 +1,7 @@
 """Idempotent, encrypted reply registration on disposable PostgreSQL."""
 
 import asyncio
+import json
 import os
 import uuid
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.core.config import get_settings
 from app.core.tenant import TenantContext
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
@@ -26,6 +28,7 @@ from app.services.escalation.reply_outbox import AgentReplyConflictError, regist
 from app.services.escalation.reply_retention import redact_tenant_replies
 from app.services.escalation.reply_review import review_agent_reply
 from app.services.tenant.provisioning import TenantProvisioningService
+from app.services.whatsapp.config_envelope import seal_channel_config
 from app.workers.agent_reply_outbox import process_one_reply
 
 URL = os.getenv("TEST_WA_ORDER_DB_URL")
@@ -93,7 +96,8 @@ async def test_retention_redacts_only_terminal_payloads_with_atomic_audit_and_re
 
 
 @pytest.mark.asyncio
-async def test_reply_registration_is_idempotent_scoped_and_audited():
+@pytest.mark.parametrize("encrypted", [False, True])
+async def test_reply_registration_is_idempotent_scoped_and_audited(encrypted):
     # More concurrent requests than connections must not deadlock while
     # holding lifecycle locks and waiting for encryption keys.
     engine = create_async_engine(URL, pool_size=4, max_overflow=0, pool_timeout=10)
@@ -128,7 +132,15 @@ async def test_reply_registration_is_idempotent_scoped_and_audited():
     kms = KMSService(factory, AsyncMock(), "05" * 32)
     await kms.generate_tenant_key(ta)
     await kms.generate_tenant_key(tb)
+    if encrypted:
+        for tenant_id, phone in ((ta, "971"), (tb, "972")):
+            sealed = await seal_channel_config(tenant_id, {"phone_number_id": phone, "access_token": "fixture"}, cipher)
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE public.tenants SET whatsapp_config=CAST(:config AS jsonb) WHERE id=:id"), {"config": json.dumps(sealed), "id": tenant_id})
+    settings = get_settings().model_copy(update={"kms_master_key": "05" * 32})
     with (patch("app.core.tenant_lifecycle.get_session_factory", return_value=factory),
+          patch("app.core.config.get_settings", return_value=settings),
+          patch("app.core.tenant.get_session_factory", return_value=factory),
           patch("app.services.escalation.reply_outbox.get_session_factory", return_value=factory)):
         results = await asyncio.gather(*(
             register_agent_reply(a, ea, aa, request, "fixture-private-text", cipher=cipher)

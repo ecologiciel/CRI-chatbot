@@ -27,6 +27,7 @@ docker tag "$TEST_NEW_BACKEND" "$new"
 cat > "$fixture/wrapper/Dockerfile" <<EOF
 FROM $new
 USER root
+RUN rm /usr/local/bin/python
 COPY python-wrapper /usr/local/bin/python
 RUN chmod 755 /usr/local/bin/python
 USER cri

@@ -8,6 +8,7 @@ import pytest
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
+from app.api.v1.tenant import router
 from app.core.exceptions import AuthorizationError
 from app.core.rbac import get_current_admin
 from app.main import app
@@ -16,7 +17,7 @@ from app.models.enums import AdminRole
 
 @pytest.mark.asyncio
 async def test_channel_configuration_requires_super_admin():
-    route = next(r for r in app.routes if isinstance(r, APIRoute) and r.path.endswith("/tenants/{tenant_id}/whatsapp-channel"))
+    route = next(r for r in router.routes if isinstance(r, APIRoute) and r.path == "/tenants/{tenant_id}/whatsapp-channel")
     dependency = next(d.call for d in route.dependant.dependencies if d.name == "admin")
     with pytest.raises(AuthorizationError):
         await dependency(admin=SimpleNamespace(role=AdminRole.admin_tenant.value))

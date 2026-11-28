@@ -50,6 +50,30 @@ def test_public_source_preserves_section_path():
     assert source.language == "fr"
 
 
+@pytest.mark.parametrize("url", [
+    "javascript:alert(1)", "data:text/html,unsafe", "//example.org/path",
+    "https://user:password@example.org/", "https://example.org/\nnext", "x" * 1001,
+])
+def test_unsafe_legacy_citation_urls_are_not_returned(url):
+    from app.services.rag.generation import GenerationService
+
+    chunk = RetrievedChunk(
+        chunk_id="point", document_id="doc", content="test", score=0.9,
+        metadata={"title": "Document", "source_url": url},
+    )
+    assert GenerationService._build_sources([chunk])[0]["url"] is None
+
+
+def test_valid_citation_url_is_preserved():
+    from app.services.rag.generation import GenerationService
+
+    chunk = RetrievedChunk(
+        chunk_id="point", document_id="doc", content="test", score=0.9,
+        metadata={"title": "Document", "source_url": "https://www.onssa.gov.ma/"},
+    )
+    assert GenerationService._build_sources([chunk])[0]["url"] == "https://www.onssa.gov.ma/"
+
+
 def test_source_merges_verified_pages_for_the_same_document():
     from app.schemas.public_chat import PublicSource
     from app.services.rag.generation import GenerationService

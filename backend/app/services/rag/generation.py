@@ -18,6 +18,7 @@ from prometheus_client import Counter, Histogram
 from app.core.exceptions import GenerationError
 from app.core.tenant import TenantContext
 from app.schemas.ai import GeminiRequest, GeminiResponse
+from app.schemas.kb import KBDocumentValidationRequest
 from app.schemas.rag import (
     ConversationTurn,
     GenerationRequest,
@@ -299,6 +300,16 @@ class GenerationService:
         ]
 
     @staticmethod
+    def _safe_source_url(value: object) -> str | None:
+        """Drop unsafe legacy URLs before returning citations to clients."""
+        if not isinstance(value, str) or len(value) > 1000:
+            return None
+        try:
+            return KBDocumentValidationRequest.validate_source_url(value)
+        except ValueError:
+            return None
+
+    @staticmethod
     def _build_sources(chunks: list[RetrievedChunk]) -> list[dict]:
         """Create up to three stable, document-level citations for the user."""
         sources: list[dict] = []
@@ -324,7 +335,7 @@ class GenerationService:
                 "reference": metadata.get("source_reference"),
                 "version": metadata.get("source_version"),
                 "published_at": metadata.get("published_at"),
-                "url": metadata.get("source_url"),
+                "url": GenerationService._safe_source_url(metadata.get("source_url")),
                 "section_path": metadata.get("section_path") or [],
                 "page_numbers": pages,
                 "language": metadata.get("language") or None,

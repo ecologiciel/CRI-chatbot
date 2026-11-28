@@ -10,9 +10,9 @@ import json
 import uuid
 
 from pydantic import ValidationError
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
-from app.core.database import get_session_factory
+from app.core.database import get_session_factory, set_tenant_search_path
 from app.core.tenant import TenantContext
 from app.core.tenant_lifecycle import protect_ingestion
 from app.models.audit import AuditLog
@@ -99,10 +99,7 @@ async def reconcile_legacy_text(
                     or event.ciphertext != ciphertext or event.key_version != version):
                 raise LegacyReconciliationError("Événement modifié pendant le rapprochement")
             if is_stop:
-                await session.execute(
-                    text("SELECT set_config('search_path', :path, true)"),
-                    {"path": tenant.db_schema},
-                )
+                await set_tenant_search_path(session, tenant.db_schema)
                 contact_id = await lock_and_opt_out(session, message.from_)
                 session.add(AuditLog(
                     tenant_slug=tenant.slug, user_id=actor_id, user_type="admin",

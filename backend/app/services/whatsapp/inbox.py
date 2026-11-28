@@ -8,10 +8,10 @@ from __future__ import annotations
 import json
 import uuid
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from app.core.database import get_session_factory
+from app.core.database import get_session_factory, set_tenant_search_path
 from app.core.exceptions import TenantInactiveError
 from app.core.tenant import TenantContext
 from app.core.tenant_lifecycle import protect_ingestion
@@ -107,10 +107,7 @@ async def persist_incoming_message(
                 # Commit the consent change with the inbox record before ACK.
                 # Provider sends already holding the contact row may finish;
                 # subsequent consent-checked sends see the committed opt-out.
-                await session.execute(
-                    text("SELECT set_config('search_path', :path, true)"),
-                    {"path": tenant.db_schema},
-                )
+                await set_tenant_search_path(session, tenant.db_schema)
                 contact_id = await lock_and_opt_out(session, message.from_)
                 session.add(AuditLog(
                     tenant_slug=tenant.slug, user_type="system", action="opt_in_change",

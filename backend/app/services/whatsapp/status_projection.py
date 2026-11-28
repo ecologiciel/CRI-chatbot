@@ -6,9 +6,9 @@ import json
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
-from app.core.database import get_session_factory
+from app.core.database import get_session_factory, set_tenant_search_path
 from app.core.exceptions import TenantInactiveError
 from app.core.tenant import TenantResolver
 from app.core.tenant_lifecycle import protect_ingestion
@@ -78,10 +78,7 @@ async def apply_status_event(event_id: uuid.UUID, *, cipher: VersionedEnvelopeSe
         if not isinstance(payload, dict) or payload.get("phone_number_id") != event.phone_number_id:
             raise ValueError("Status channel mismatch")
         status = StatusInfo.model_validate(payload.get("status"))
-        await session.execute(
-            text("SELECT set_config('search_path', :schema, true)"),
-            {"schema": initial.db_schema},
-        )
+        await set_tenant_search_path(session, initial.db_schema)
         matched = (
             await session.execute(
                 select(Message, Contact.phone)

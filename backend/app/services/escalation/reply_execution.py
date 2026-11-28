@@ -11,7 +11,7 @@ import hmac
 
 from sqlalchemy import func, select, text
 
-from app.core.database import get_session_factory
+from app.core.database import get_session_factory, set_tenant_search_path
 from app.core.tenant import TenantResolver
 from app.core.tenant_lifecycle import lock_active_tenant
 from app.models.admin import Admin
@@ -87,7 +87,7 @@ async def execute_agent_reply(
             if any(table is None for table in tables):
                 raise AgentReplyPreconditionError("Schéma institutionnel indisponible")
             session.sync_session.info["tenant_schema"] = schema
-            await session.execute(text("SELECT set_config('search_path', :path, true)"), {"path": schema})
+            await set_tenant_search_path(session, schema)
             escalation = (await session.execute(
                 select(Escalation).where(Escalation.id == identity[1]).with_for_update()
             )).scalar_one_or_none()

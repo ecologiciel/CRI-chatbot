@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.core.database import TenantDatabaseIsolationError, set_tenant_search_path
 from app.core.tenant import TenantContext
 
 URL = os.getenv("TEST_TENANT_POOL_DB_URL")
@@ -61,6 +62,25 @@ async def test_tenant_search_path_is_transaction_local_and_restored():
 
         async with beta.db_session() as session:
             assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "beta"
+
+        # A temp table must not shadow the tenant table in the same session,
+        # nor survive into another tenant through the single-connection pool.
+        async with alpha.db_session() as session:
+            await session.execute(text("CREATE TEMP TABLE pool_probe (value text)"))
+            await session.execute(text("INSERT INTO pg_temp.pool_probe VALUES ('temporary')"))
+            assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "alpha"
+        with pytest.raises(TenantDatabaseIsolationError):
+            async with beta.db_session() as session:
+                await session.execute(text("SELECT value FROM pool_probe"))
+        async with beta.db_session() as session:
+            assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "beta"
+
+        # Some workflows set the tenant after opening a shared transaction.
+        # They must also reject and invalidate a temp-contaminated connection.
+        with pytest.raises(TenantDatabaseIsolationError):
+            async with factory() as session:
+                await session.execute(text("CREATE TEMP TABLE contaminant (value text)"))
+                await set_tenant_search_path(session, alpha.db_schema)
 
         async with factory() as session:
             assert (await session.execute(text("SELECT value FROM pool_probe"))).scalar_one() == "public"

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 
-from app.core.database import get_session_factory
+from app.core.database import get_session_factory, set_tenant_search_path
 from app.core.tenant import TenantContext
 from app.core.tenant_lifecycle import lock_active_tenant
 from app.models.admin import Admin
@@ -117,7 +117,7 @@ async def register_agent_reply(
         })).one()
         if any(table is None for table in tables):
             raise AgentReplyConflictError("Schéma institutionnel indisponible")
-        await session.execute(text("SELECT set_config('search_path', :path, true)"), {"path": tenant.db_schema})
+        await set_tenant_search_path(session, tenant.db_schema)
         escalation = (await session.execute(
             select(Escalation).where(Escalation.id == escalation_id).with_for_update()
         )).scalar_one_or_none()

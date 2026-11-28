@@ -49,6 +49,8 @@ def _make_tenant_mock(session_mock=None):
     }
 
     if session_mock:
+        if isinstance(session_mock.add, AsyncMock):
+            session_mock.add = MagicMock()
 
         @asynccontextmanager
         async def fake_db():
@@ -253,7 +255,7 @@ class TestEscalationLifecycle:
 
     @pytest.mark.asyncio
     async def test_create_escalation_audit_logged(self):
-        """Creation d'escalade -> audit_service.log_action appele."""
+        """Creation d'escalade et audit dans la meme session."""
         svc = _make_escalation_service()
         svc._gemini.generate_simple = AsyncMock(return_value="Resume")
 
@@ -283,10 +285,14 @@ class TestEscalationLifecycle:
                 tenant,
             )
 
-        svc._audit.log_action.assert_called_once()
-        audit_data = svc._audit.log_action.call_args[0][0]
-        assert audit_data.action == "create"
-        assert audit_data.resource_type == "escalation"
+        from app.models.audit import AuditLog
+
+        logs = [call.args[0] for call in session.add.call_args_list
+                if isinstance(call.args[0], AuditLog)]
+        assert len(logs) == 1
+        assert logs[0].action == "create"
+        assert logs[0].resource_type == "escalation"
+        svc._audit.log_action.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_assign_escalation_sets_assigned_status(self):
@@ -337,7 +343,7 @@ class TestEscalationLifecycle:
             if call_count == 1:
                 mock_r.scalar_one.return_value = escalation_mock
             else:
-                mock_r.scalar_one.return_value = "+212600000001"
+                mock_r.scalar_one.return_value = MagicMock(phone="+212600000001", opt_in_status="opted_in")
             return mock_r
 
         session.execute = AsyncMock(side_effect=_side_effect)
@@ -373,7 +379,7 @@ class TestEscalationLifecycle:
             if call_count == 1:
                 mock_r.scalar_one.return_value = escalation_mock
             else:
-                mock_r.scalar_one.return_value = "+212600000001"
+                mock_r.scalar_one.return_value = MagicMock(phone="+212600000001", opt_in_status="opted_in")
             return mock_r
 
         session.execute = AsyncMock(side_effect=_side_effect)
@@ -405,7 +411,7 @@ class TestEscalationLifecycle:
             if call_count == 1:
                 mock_r.scalar_one.return_value = escalation_mock
             else:
-                mock_r.scalar_one.return_value = "+212600000001"
+                mock_r.scalar_one.return_value = MagicMock(phone="+212600000001", opt_in_status="opted_in")
             return mock_r
 
         session.execute = AsyncMock(side_effect=_side_effect)
@@ -449,7 +455,7 @@ class TestEscalationLifecycle:
             if call_count == 1:
                 mock_r.scalar_one.return_value = escalation_mock
             else:
-                mock_r.scalar_one.return_value = "+212600000001"
+                mock_r.scalar_one.return_value = MagicMock(phone="+212600000001", opt_in_status="opted_in")
             return mock_r
 
         session.execute = AsyncMock(side_effect=_side_effect)

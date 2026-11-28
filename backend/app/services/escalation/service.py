@@ -28,6 +28,7 @@ from sqlalchemy import case, func, select, text, update
 from app.core.exceptions import EscalationConflictError, ResourceNotFoundError
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
+from app.models.audit import AuditLog
 from app.models.contact import Contact
 from app.models.conversation import Conversation, Message
 from app.models.enums import (
@@ -37,6 +38,7 @@ from app.models.enums import (
     EscalationTrigger,
     MessageDirection,
     MessageType,
+    OptInStatus,
 )
 from app.models.escalation import Escalation
 from app.schemas.audit import AuditLogCreate
@@ -316,6 +318,12 @@ class EscalationService:
 
             await session.flush()
             esc_id = escalation.id
+            session.add(AuditLog(
+                tenant_slug=tenant.slug, user_id=None, user_type="system",
+                action="create", resource_type="escalation", resource_id=str(esc_id),
+                details={"trigger": trigger.value, "priority": priority.value,
+                         "conversation_id": str(conversation_id)},
+            ))
 
         self._logger.info(
             "escalation_created",
@@ -347,23 +355,6 @@ class EscalationService:
                 error=str(exc),
                 tenant=tenant.slug,
             )
-
-        # 5. Audit log
-        await self._audit.log_action(
-            AuditLogCreate(
-                tenant_slug=tenant.slug,
-                user_id=None,
-                user_type="system",
-                action="create",
-                resource_type="escalation",
-                resource_id=str(esc_id),
-                details={
-                    "trigger": trigger.value,
-                    "priority": priority.value,
-                    "conversation_id": str(conversation_id),
-                },
-            ),
-        )
 
         # Return a lightweight object with the id
         escalation.id = esc_id
@@ -474,6 +465,10 @@ class EscalationService:
                 .where(Conversation.id == escalation.conversation_id)
                 .values(status=ConversationStatus.human_handled),
             )
+            session.add(AuditLog(
+                tenant_slug=tenant.slug, user_id=admin_id, user_type="admin",
+                action="assign", resource_type="escalation", resource_id=str(escalation_id),
+            ))
 
         self._logger.info(
             "escalation_assigned",
@@ -501,18 +496,6 @@ class EscalationService:
                 error=str(exc),
                 tenant=tenant.slug,
             )
-
-        # Audit
-        await self._audit.log_action(
-            AuditLogCreate(
-                tenant_slug=tenant.slug,
-                user_id=admin_id,
-                user_type="admin",
-                action="assign",
-                resource_type="escalation",
-                resource_id=str(escalation_id),
-            ),
-        )
 
         return escalation
 
@@ -552,16 +535,18 @@ class EscalationService:
                     details={"escalation_id": str(escalation_id), "current_status": escalation.status.value},
                 )
 
-            # Get the phone number via conversation → contact
-            conv_result = await session.execute(
-                select(Contact.phone)
+            # Serialize a human reply with a concurrent STOP for this contact.
+            contact = (await session.execute(
+                select(Contact)
                 .join(Conversation, Conversation.contact_id == Contact.id)
-                .where(Conversation.id == escalation.conversation_id),
-            )
-            phone = conv_result.scalar_one()
+                .where(Conversation.id == escalation.conversation_id)
+                .with_for_update(of=Contact)
+            )).scalar_one()
+            if contact.opt_in_status == OptInStatus.opted_out:
+                raise EscalationConflictError("Le contact a retiré son consentement WhatsApp")
 
             # Send WhatsApp message
-            wamid = await self._sender.send_text(tenant, phone, message)
+            wamid = await self._sender.send_text(tenant, contact.phone, message)
 
             # Persist outbound message
             msg = Message(
@@ -656,13 +641,10 @@ class EscalationService:
                 ),
             )
 
-            # Get phone for closure message
-            conv_result = await session.execute(
-                select(Contact.phone)
-                .join(Conversation, Conversation.contact_id == Contact.id)
-                .where(Conversation.id == escalation.conversation_id),
-            )
-            phone = conv_result.scalar_one()
+            session.add(AuditLog(
+                tenant_slug=tenant.slug, user_id=admin_id, user_type="admin",
+                action="close", resource_type="escalation", resource_id=str(escalation_id),
+            ))
 
         self._logger.info(
             "escalation_closed",
@@ -674,11 +656,19 @@ class EscalationService:
         # Send closure message
         try:
             closure_msg = CLOSURE_MESSAGES.get(language, CLOSURE_MESSAGES["fr"])
-            await self._sender.send_text(tenant, phone, closure_msg)
+            async with tenant.db_session() as session:
+                contact = (await session.execute(
+                    select(Contact)
+                    .join(Conversation, Conversation.contact_id == Contact.id)
+                    .where(Conversation.id == escalation.conversation_id)
+                    .with_for_update(of=Contact)
+                )).scalar_one()
+                if contact.opt_in_status != OptInStatus.opted_out:
+                    await self._sender.send_text(tenant, contact.phone, closure_msg)
         except Exception as exc:
             self._logger.warning(
                 "closure_message_failed",
-                error=str(exc),
+                error_type=type(exc).__name__,
                 tenant=tenant.slug,
             )
 
@@ -701,18 +691,6 @@ class EscalationService:
                 error=str(exc),
                 tenant=tenant.slug,
             )
-
-        # Audit
-        await self._audit.log_action(
-            AuditLogCreate(
-                tenant_slug=tenant.slug,
-                user_id=admin_id,
-                user_type="admin",
-                action="close",
-                resource_type="escalation",
-                resource_id=str(escalation_id),
-            ),
-        )
 
         return escalation
 

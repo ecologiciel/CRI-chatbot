@@ -28,9 +28,48 @@ from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.tenant.provisioning import TenantProvisioningService
 from app.services.whatsapp.config_envelope import open_channel_config, seal_channel_config
+from app.services.whatsapp.config_startup_guard import verify_channel_configs_on_startup
 
 URL = os.getenv("TEST_KMS_DB_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="requires disposable PostgreSQL")
+
+
+@pytest.mark.asyncio
+async def test_strict_startup_rejects_plaintext_and_tampered_channels():
+    engine = create_async_engine(URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    tenant_id = uuid.uuid4()
+    slug = "wastart" + tenant_id.hex
+    master = secrets.token_hex(32)
+    settings = SimpleNamespace(kms_master_key=master, whatsapp_config_require_encryption=True)
+    config = {"phone_number_id": "12345678901", "access_token": "fixture-secret"}
+    cipher = VersionedEnvelopeService(factory, master)
+    try:
+        async with engine.begin() as conn:
+            assert (await conn.scalar(text("SELECT current_database()"))).startswith("ragtest_")
+            await conn.execute(text("INSERT INTO public.tenants (id,name,slug,region,status,whatsapp_config) VALUES (:id,'Fixture',:slug,'Test','active',CAST(:config AS jsonb))"), {"id": tenant_id, "slug": slug, "config": json.dumps(config)})
+        with (
+            patch("app.services.whatsapp.config_startup_guard.get_settings", return_value=settings),
+            patch("app.services.whatsapp.config_startup_guard.get_session_factory", return_value=factory),
+            patch("app.core.config.get_settings", return_value=settings),
+            patch("app.core.tenant.get_session_factory", return_value=factory),
+        ):
+            with pytest.raises(RuntimeError, match="Channel configuration validation failed"):
+                await verify_channel_configs_on_startup()
+            await KMSService(factory, AsyncMock(), master).generate_tenant_key(tenant_id)
+            sealed = await seal_channel_config(tenant_id, config, cipher)
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE public.tenants SET whatsapp_config=CAST(:config AS jsonb) WHERE id=:id"), {"id": tenant_id, "config": json.dumps(sealed)})
+            await verify_channel_configs_on_startup()
+            altered = dict(sealed, phone_number_id="999999")
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE public.tenants SET whatsapp_config=CAST(:config AS jsonb) WHERE id=:id"), {"id": tenant_id, "config": json.dumps(altered)})
+            with pytest.raises(RuntimeError, match="Channel configuration validation failed"):
+                await verify_channel_configs_on_startup()
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM public.tenants WHERE id=:id"), {"id": tenant_id})
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

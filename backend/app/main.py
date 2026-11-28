@@ -83,6 +83,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     await verify_kms_on_startup()
 
+    from app.services.whatsapp.config_startup_guard import verify_channel_configs_on_startup
+
+    await verify_channel_configs_on_startup()
+
     await init_redis()
     logger.info("redis_connected")
 

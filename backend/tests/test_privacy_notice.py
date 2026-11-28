@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,6 +21,11 @@ TEST_TENANT_ID = uuid.UUID("12345678-1234-5678-1234-567812345678")
 TEST_PHONE = "+212600000001"
 _REDIS_PATCH = "app.services.whatsapp.privacy.get_redis"
 _AUDIT_PATCH = "app.services.whatsapp.privacy.get_audit_service"
+
+
+@asynccontextmanager
+async def _allow_reply(*_args):
+    yield True
 
 
 class FakeRedis:
@@ -187,7 +193,7 @@ class TestPipelineIntegration:
 
     @pytest.mark.asyncio
     async def test_privacy_service_called_in_handler(self, tenant: TenantContext) -> None:
-        """MessageHandler calls send_privacy_notice between steps 4 and 5."""
+        """MessageHandler guards the privacy notice before persisting the input."""
         from app.schemas.whatsapp import IncomingMessage
 
         mock_privacy = AsyncMock()
@@ -221,7 +227,7 @@ class TestPipelineIntegration:
         ):
             mock_redis_inst = AsyncMock()
             mock_redis_inst.set = AsyncMock(return_value=None)  # dedup: not duplicate
-            mock_redis_inst.incr = AsyncMock(return_value=1)
+            mock_redis_inst.eval = AsyncMock(return_value=1)
             mock_redis_inst.expire = AsyncMock()
             mock_redis_fn.return_value = mock_redis_inst
 
@@ -230,6 +236,7 @@ class TestPipelineIntegration:
             mock_cs.return_value = mock_cs_inst
 
             mock_conv_inst = AsyncMock()
+            mock_conv_inst.guard_bot_reply = MagicMock(side_effect=_allow_reply)
             mock_conv_inst.get_or_create = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
             mock_conv.return_value = mock_conv_inst
 
@@ -264,10 +271,7 @@ class TestPipelineIntegration:
                     "confidence": 0.95,
                     "chunk_ids": [],
                 }
-                try:
-                    await handler.handle_message(tenant, msg, None)
-                except Exception:
-                    pass  # Pipeline may fail on downstream mocks; we only check privacy
+                await handler.handle_message(tenant, msg, None)
 
             mock_privacy.send_privacy_notice.assert_awaited_once_with(
                 tenant,
@@ -313,7 +317,7 @@ class TestPipelineIntegration:
         ):
             mock_redis_inst = AsyncMock()
             mock_redis_inst.set = AsyncMock(return_value=None)
-            mock_redis_inst.incr = AsyncMock(return_value=1)
+            mock_redis_inst.eval = AsyncMock(return_value=1)
             mock_redis_inst.expire = AsyncMock()
             mock_redis_fn.return_value = mock_redis_inst
 
@@ -322,6 +326,7 @@ class TestPipelineIntegration:
             mock_cs.return_value = mock_cs_inst
 
             mock_conv_inst = AsyncMock()
+            mock_conv_inst.guard_bot_reply = MagicMock(side_effect=_allow_reply)
             mock_conv_inst.get_or_create = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
             mock_conv.return_value = mock_conv_inst
 
@@ -353,10 +358,8 @@ class TestPipelineIntegration:
                     "confidence": 0.95,
                     "chunk_ids": [],
                 }
-                try:
-                    await handler.handle_message(tenant, msg, None)
-                except Exception:
-                    pass
+                await handler.handle_message(tenant, msg, None)
 
             # Despite privacy service raising, conversation was still created
             mock_conv_inst.get_or_create.assert_awaited_once()
+            mock_privacy.send_privacy_notice.assert_awaited_once()

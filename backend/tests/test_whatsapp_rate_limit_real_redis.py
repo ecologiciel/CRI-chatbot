@@ -24,6 +24,7 @@ async def test_concurrent_limit_and_expiry_recovery():
     )
     phone = "+212600000001"
     key = f"{tenant.redis_prefix}:rl:user:{phone}"
+    handoff_key = f"{tenant.redis_prefix}:rl:handoff:{phone}"
     try:
         with patch("app.services.whatsapp.handler.get_redis", return_value=redis):
             results = await asyncio.gather(*(
@@ -45,6 +46,14 @@ async def test_concurrent_limit_and_expiry_recovery():
             await redis.expire(key, 5)
             await MessageHandler._check_user_rate_limit(tenant, phone)
             assert 0 < await redis.ttl(key) <= 5
+
+            # Additional handoff traffic is bounded separately and atomically.
+            handoff_results = await asyncio.gather(*(
+                MessageHandler._check_handoff_rate_limit(tenant, phone) for _ in range(25)
+            ))
+            assert handoff_results.count(False) == 20
+            assert handoff_results.count(True) == 5
+            assert 0 < await redis.ttl(handoff_key) <= USER_RATE_LIMIT_WINDOW
     finally:
-        await redis.delete(key)
+        await redis.delete(key, handoff_key)
         await redis.aclose()

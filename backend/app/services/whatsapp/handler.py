@@ -134,20 +134,16 @@ class MessageHandler:
                 self._logger.debug("message_duplicate_skipped", wamid=wamid, tenant=tenant.slug)
                 return HandlingOutcome.uncertain
 
-            # 2. Per-user rate limit (10 msg/min)
-            if await self._check_user_rate_limit(tenant, phone):
+            # Apply the normal limit before expensive extraction or model work.
+            # An existing human handoff gets a separate bounded allowance.
+            rate_limited = await self._check_user_rate_limit(tenant, phone)
+            if rate_limited:
                 RATE_LIMIT_TRIGGERED.labels(tenant=tenant.slug, level="user").inc()
                 self._logger.warning(
                     "user_rate_limited",
                     tenant=tenant.slug,
                     phone_last4=_mask_phone(phone),
                 )
-                sent = await self._sender.send_text(
-                    tenant,
-                    phone,
-                    PromptTemplates.get_message("rate_limit_user", "fr"),
-                )
-                return HandlingOutcome.accepted if sent else HandlingOutcome.uncertain
 
             # 4. Get or create contact
             sender_name = _extract_sender_name(contacts, phone)
@@ -157,20 +153,6 @@ class MessageHandler:
                 sender_name,
             )
 
-            # 4.5 CNDP privacy notice — first contact (loi 09-08, Art. 9)
-            try:
-                notice = await self._privacy_service.send_privacy_notice(
-                    tenant,
-                    phone,
-                    language=contact.language.value,
-                )
-                if durable and notice != NoticeResult.accepted:
-                    uncertain = True
-            except OutboundSupersededError:
-                raise
-            except Exception:
-                uncertain = True
-
             # 5. Get or create conversation (30min inactivity timeout)
             conversation = await self._conversation_service.get_or_create(
                 tenant,
@@ -178,6 +160,46 @@ class MessageHandler:
                 AgentType.public,
                 resume_escalated=True,
             )
+
+            if rate_limited:
+                # Hold the same lock as agent takeover while deciding whether
+                # the automatic notice may be sent. If takeover wins the race,
+                # continue to the handoff path instead of sending the notice.
+                async with self._conversation_service.guard_bot_reply(tenant, conversation.id) as allowed:
+                    if allowed:
+                        outbound_attempted = True
+                        sent = await self._sender.send_text(
+                            tenant, phone, PromptTemplates.get_message("rate_limit_user", "fr")
+                        )
+                        return HandlingOutcome.accepted if sent else HandlingOutcome.uncertain
+                if await self._check_handoff_rate_limit(tenant, phone):
+                    self._logger.warning("handoff_rate_limited", tenant=tenant.slug)
+                    return HandlingOutcome.uncertain
+
+            handoff_observed = False
+            if not rate_limited:
+                # Inform new contacts before persisting their message, unless
+                # a human already owns the conversation. Serialize this send
+                # with agent takeover just like all other automated replies.
+                handoff_observed = (
+                    await self._conversation_service.get_status(tenant, conversation.id)
+                    in HUMAN_HANDOFF_STATUSES
+                )
+                if not handoff_observed:
+                    try:
+                        async with self._conversation_service.guard_bot_reply(tenant, conversation.id) as allowed:
+                            if not allowed:
+                                handoff_observed = True
+                            else:
+                                notice = await self._privacy_service.send_privacy_notice(
+                                    tenant, phone, language=contact.language.value
+                                )
+                                if durable and notice != NoticeResult.accepted:
+                                    uncertain = True
+                    except OutboundSupersededError:
+                        raise
+                    except Exception:
+                        uncertain = True
 
             # 6. Extract content from the message
             content, media_url, msg_type = await self._extract_content(tenant, msg)
@@ -233,6 +255,18 @@ class MessageHandler:
                     self._logger.warning("handoff_message_notification_failed", tenant=tenant.slug)
                     uncertain = True
                 return HandlingOutcome.uncertain if uncertain else HandlingOutcome.accepted
+
+            # A handoff may have closed after the rate-limit guard was denied.
+            # Do not run the model for a message already over the bot limit.
+            if rate_limited or handoff_observed:
+                try:
+                    await get_redis().publish(
+                        f"{tenant.slug}:escalations:message",
+                        json.dumps({"conversation_id": str(conversation.id)}),
+                    )
+                except Exception:
+                    self._logger.warning("handoff_message_notification_failed", tenant=tenant.slug)
+                return HandlingOutcome.uncertain
 
             # Bot quota must not prevent delivery of inbound messages to an
             # already-open human handoff. This check is deliberately after the
@@ -682,6 +716,19 @@ class MessageHandler:
             USER_RATE_LIMIT_WINDOW,
         )
         return count > USER_RATE_LIMIT_MAX
+
+    @staticmethod
+    async def _check_handoff_rate_limit(tenant: TenantContext, phone: str) -> bool:
+        """Bound extra messages handled during a handoff, independently per sender."""
+        redis = get_redis()
+        key = f"{tenant.redis_prefix}:rl:handoff:{phone}"
+        count = await redis.eval(
+            "local n = redis.call('INCR', KEYS[1]); "
+            "if redis.call('TTL', KEYS[1]) < 0 then "
+            "redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return n",
+            1, key, USER_RATE_LIMIT_WINDOW,
+        )
+        return count > 20
 
 
 # ── Module-level helpers ──

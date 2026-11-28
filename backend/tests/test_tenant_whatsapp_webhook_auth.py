@@ -18,6 +18,7 @@ from app.core.tenant import TenantContext, TenantResolver
 from app.services.crypto.kms import KMSService
 from app.services.crypto.versioned_envelope import VersionedEnvelopeService
 from app.services.whatsapp.config_envelope import seal_channel_config
+from app.services.whatsapp.inbox_intake import persist_tenant_authenticated_webhook
 from app.services.whatsapp.tenant_webhook_auth import (
     TenantWebhookPayloadError,
     authenticate_tenant_payload,
@@ -91,6 +92,27 @@ def test_missing_credentials_and_invalid_or_empty_payloads_fail_closed():
     for raw in (b"not-json", body()):
         with pytest.raises(TenantWebhookPayloadError):
             authenticate_tenant_payload(valid, raw, signature(raw, "fixture-secret"))
+
+
+@pytest.mark.asyncio
+async def test_durable_intake_validates_entire_batch_before_any_write():
+    first = tenant("111", "first-secret", "first-token")
+    inbox, statuses = AsyncMock(return_value=True), AsyncMock(return_value=True)
+    with (
+        patch("app.services.whatsapp.inbox_intake.get_settings", return_value=SimpleNamespace(kms_master_key="00" * 32)),
+        patch("app.services.whatsapp.inbox_intake.get_session_factory", return_value=None),
+        patch("app.services.whatsapp.inbox_intake.persist_incoming_message", inbox),
+        patch("app.services.whatsapp.inbox_intake.persist_delivery_status", statuses),
+    ):
+        mixed = body("111", "222")
+        with pytest.raises(TenantWebhookPayloadError):
+            await persist_tenant_authenticated_webhook(first, mixed, signature(mixed, "first-secret"))
+        inbox.assert_not_awaited()
+        statuses.assert_not_awaited()
+        raw = body("111")
+        await persist_tenant_authenticated_webhook(first, raw, signature(raw, "first-secret"))
+        assert inbox.await_count == 1
+        assert inbox.await_args.kwargs["require_current_signing_secret"] is True
 
 
 @pytest.mark.asyncio

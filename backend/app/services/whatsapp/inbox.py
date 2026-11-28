@@ -35,6 +35,7 @@ async def persist_incoming_message(
     contacts: list[ContactInfo] | None,
     *,
     cipher: VersionedEnvelopeService,
+    require_current_signing_secret: bool = False,
 ) -> bool:
     """Commit an event or report an already stored event for this tenant.
 
@@ -83,6 +84,12 @@ async def persist_incoming_message(
                 or (current.whatsapp_config or {}).get("phone_number_id") != phone_number_id
             ):
                 raise TenantInactiveError("WhatsApp channel is inactive or has changed")
+            if require_current_signing_secret:
+                from app.services.whatsapp.tenant_webhook_auth import (
+                    require_current_signing_secret as check_secret,
+                )
+
+                await check_secret(tenant, current, session)
             # Serializing acceptance with claims makes sequence order reflect
             # commit order within this conversation. Provider arrival order can
             # still differ from the order in which the user sent messages.

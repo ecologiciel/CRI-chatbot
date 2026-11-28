@@ -13,8 +13,8 @@ import re
 
 from pydantic import ValidationError
 
-from app.core.exceptions import WhatsAppSignatureError
-from app.core.tenant import TenantContext
+from app.core.exceptions import TenantInactiveError, WhatsAppSignatureError
+from app.core.tenant import TenantContext, TenantResolver
 from app.schemas.whatsapp import WhatsAppWebhookPayload
 
 _SIGNATURE = re.compile(r"sha256=[0-9a-f]{64}\Z")
@@ -36,6 +36,15 @@ def _secret(config: dict | None, name: str) -> bytes:
     if len(encoded) > _MAX_SECRET_BYTES:
         raise WhatsAppSignatureError("Webhook authentication unavailable")
     return encoded
+
+
+async def require_current_signing_secret(tenant: TenantContext, current, session) -> None:
+    """Reject rotation between authentication and the locked database write."""
+    expected = _secret(tenant.whatsapp_config, "app_secret")
+    resolved = await TenantResolver._build_context(current, session=session)
+    actual = _secret(resolved.whatsapp_config, "app_secret")
+    if not hmac.compare_digest(expected, actual):
+        raise TenantInactiveError("WhatsApp channel credentials have changed")
 
 
 def verify_tenant_challenge(tenant: TenantContext, mode: str, token: str, challenge: str) -> str:

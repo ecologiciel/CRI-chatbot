@@ -262,6 +262,32 @@ class TestGenerationSuccess:
 
 class TestGenerationConfidence:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("provided_chunks", [False, True])
+    async def test_discarded_document_cannot_increase_answer_confidence(self, provided_chunks):
+        chunks = [
+            RetrievedChunk(
+                chunk_id=f"chunk-{i}", document_id=f"doc-{i}",
+                content=f"passage {i}", score=score, metadata={"title": f"Document {i}"},
+            )
+            for i, score in enumerate([0.6, 0.6, 0.6, 0.99])
+        ]
+        retrieval = MagicMock()
+        retrieval.retrieve = AsyncMock(return_value=_make_retrieval_result(
+            chunks=chunks, confidence=0.73, is_confident=True,
+        ))
+        service, _, gemini, _ = _make_generation_service(mock_retrieval=retrieval)
+        request = GenerationRequest(
+            query="Question", language="fr", chunks=chunks if provided_chunks else None,
+        )
+        response = await service.generate(TEST_TENANT, request)
+
+        assert response.confidence == pytest.approx(0.6)
+        assert response.is_confident is False
+        assert response.disclaimer is not None
+        assert "passage 3" not in gemini.generate.await_args.args[0].contents
+        assert [source["document_id"] for source in response.sources] == ["doc-0", "doc-1", "doc-2"]
+
+    @pytest.mark.asyncio
     async def test_low_confidence_adds_disclaimer(self):
         """Confidence < 0.7 -> disclaimer set, is_confident=False."""
         mock_retrieval = MagicMock()

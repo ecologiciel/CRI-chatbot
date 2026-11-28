@@ -175,7 +175,7 @@ async def get_tenant(
     """Get tenant by ID.
 
     Access control:
-    - super_admin: any tenant → TenantAdminResponse (includes whatsapp_config)
+    - super_admin: any tenant → TenantAdminResponse (channel identifiers only)
     - admin_tenant/supervisor/viewer: own tenant only → TenantResponse (no secrets)
 
     Raises:

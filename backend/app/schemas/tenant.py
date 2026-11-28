@@ -1,7 +1,7 @@
 """Pydantic v2 schemas for Tenant CRUD.
 
 IMPORTANT: TenantResponse NEVER exposes whatsapp_config (contains secrets).
-Use TenantAdminResponse for super-admin endpoints that need WhatsApp config.
+Super-admin responses expose only non-secret WhatsApp channel identifiers.
 """
 
 import uuid
@@ -118,10 +118,19 @@ class TenantResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class TenantAdminResponse(TenantResponse):
-    """Super-admin response — includes WhatsApp config."""
+class WhatsAppConfigView(BaseModel):
+    """Allowlisted channel identifiers; credentials and unknown keys stay private."""
 
-    whatsapp_config: WhatsAppConfig | None = None
+    phone_number_id: str | None = None
+    business_account_id: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class TenantAdminResponse(TenantResponse):
+    """Super-admin response with non-secret WhatsApp channel identifiers."""
+
+    whatsapp_config: WhatsAppConfigView | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

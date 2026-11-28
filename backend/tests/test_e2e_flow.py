@@ -366,6 +366,7 @@ class TestHappyPath:
         with patch(RUN_CONV_PATH, new_callable=AsyncMock, return_value=_make_run_result()) as run:
             await handler.handle_message(TEST_TENANT, _make_text_message(), None)
         assert run.await_args.kwargs["defer_feedback"] is True
+        assert run.await_args.kwargs["tracking_available"] is False
         assert observed == ["answer", "feedback"]
 
     @pytest.mark.asyncio()

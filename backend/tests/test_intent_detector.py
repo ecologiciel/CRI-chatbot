@@ -409,7 +409,7 @@ class TestRouter:
 
     def test_route_suivi(self):
         state = _make_state(intent="suivi_dossier", is_safe=True)
-        assert Router.route(state) == "tracking_agent"
+        assert Router.route(state) == "tracking_unavailable"
 
     def test_route_escalade(self):
         state = _make_state(intent="escalade", is_safe=True)

@@ -46,6 +46,9 @@ class Router:
             return "blocked_response"
 
         intent = state.get("intent", IntentType.FAQ)
-        if intent == IntentType.SUIVI_DOSSIER and not state.get("tracking_available", True):
+        # The current tracking agent generates an OTP but has no delivery
+        # integration. Never claim availability until delivery and OTP abuse
+        # protections are implemented and verified for the actual channel.
+        if intent == IntentType.SUIVI_DOSSIER:
             return "tracking_unavailable"
         return Router._ROUTING_MAP.get(intent, "faq_agent")

@@ -333,7 +333,7 @@ class TestEscaladeManuelle:
             == "out_of_scope_response"
         )
         assert (
-            Router.route({"intent": IntentType.SUIVI_DOSSIER, "is_safe": True}) == "tracking_agent"
+            Router.route({"intent": IntentType.SUIVI_DOSSIER, "is_safe": True}) == "tracking_unavailable"
         )
 
         # Phase 2 intents

@@ -22,6 +22,7 @@ from sqlalchemy import select
 from app.core.redis import get_redis
 from app.core.tenant import TenantContext
 from app.models.contact import Contact
+from app.models.dossier import Dossier
 from app.models.enums import DossierStatut, OptInStatus
 from app.schemas.audit import AuditLogCreate
 from app.services.audit.service import AuditService, get_audit_service
@@ -300,6 +301,10 @@ class NotificationService:
         template_name: str,
         language_code: str,
         components: list,
+        dossier_id: uuid.UUID,
+        expected_numero: str,
+        expected_status: str,
+        expected_name: str,
         sender: WhatsAppSenderService | None = None,
     ) -> tuple[str | None, str | None]:
         """Serialize opt-out updates with the bounded provider send request."""
@@ -314,11 +319,91 @@ class NotificationService:
                 return "opted_out", None
             if not contact.phone:
                 return "no_phone", None
+            current_language = contact.language.value if contact.language else "fr"
+            if (
+                contact.name or "Investisseur"
+            ) != expected_name or current_language != language_code:
+                return "contact_changed", None
+            dossier = (
+                await session.execute(
+                    select(Dossier).where(Dossier.id == dossier_id).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if dossier is None or dossier.contact_id != contact_id:
+                return "dossier_contact_mismatch", None
+            status = (
+                dossier.statut.value
+                if isinstance(dossier.statut, DossierStatut)
+                else dossier.statut
+            )
+            if dossier.numero != expected_numero or status != expected_status:
+                return "dossier_changed", None
             wamid = await (sender or self._sender).send_template(
                 tenant=tenant,
                 to=contact.phone,
                 template_name=template_name,
                 language_code=language_code,
+                components=components,
+            )
+            return None, wamid
+
+    async def _send_manual_with_current_data(
+        self,
+        tenant: TenantContext,
+        contact_id: uuid.UUID,
+        dossier_id: uuid.UUID,
+        *,
+        event_type: NotificationEventType,
+        template_name: str,
+        sender: WhatsAppSenderService,
+    ) -> tuple[str | None, str | None]:
+        """Lock the recipient and dossier until the provider request finishes."""
+        allowed = {
+            NotificationEventType.decision_finale: {"valide", "rejete"},
+            NotificationEventType.complement_request: {"complement", "incomplet"},
+            NotificationEventType.status_update: {"en_cours"},
+            NotificationEventType.dossier_incomplet: {"incomplet"},
+        }
+        async with tenant.db_session() as session:
+            contact = (
+                await session.execute(
+                    select(Contact).where(Contact.id == contact_id).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if contact is None:
+                return "contact_not_found", None
+            if contact.opt_in_status == OptInStatus.opted_out:
+                return "opted_out", None
+            if not contact.phone:
+                return "no_phone", None
+            dossier = (
+                await session.execute(
+                    select(Dossier).where(Dossier.id == dossier_id).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if dossier is None or dossier.contact_id != contact_id:
+                return "dossier_contact_mismatch", None
+            status = (
+                dossier.statut.value
+                if isinstance(dossier.statut, DossierStatut)
+                else dossier.statut
+            )
+            if status not in allowed[event_type]:
+                return "dossier_status_mismatch", None
+            language = contact.language.value if contact.language else "fr"
+            components = self.build_template_components(
+                contact_name=contact.name or "Investisseur",
+                dossier_numero=dossier.numero,
+                event_type=event_type,
+                language_code=language,
+            )
+            label_language = language if language in ("fr", "ar", "en") else "fr"
+            components[0]["parameters"][2]["text"] = STATUT_LABELS[status][label_language]
+            wamid = await sender.send_template(
+                tenant=tenant,
+                to=contact.phone,
+                template_name=template_name,
+                language_code=language,
                 components=components,
             )
             return None, wamid
@@ -367,7 +452,6 @@ class NotificationService:
         log = self._logger.bind(
             tenant=tenant.slug,
             dossier_id=event.dossier_id,
-            numero=event.numero,
         )
 
         # 1. Decision matrix
@@ -458,6 +542,10 @@ class NotificationService:
                 template_name=decision.template_name,
                 language_code=language_code,
                 components=components,
+                dossier_id=uuid.UUID(event.dossier_id),
+                expected_numero=event.numero,
+                expected_status=event.new_statut,
+                expected_name=contact_name,
             )
             if skip_reason:
                 log.info("notification_skipped_after_recheck", reason=skip_reason)

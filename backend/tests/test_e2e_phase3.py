@@ -305,6 +305,13 @@ async def test_e2e_import_triggers_notifications(tenant_a):
         return None
 
     notification_svc._load_contact = AsyncMock(side_effect=_load_contact)
+    locked_dossier = MagicMock(
+        contact_id=CONTACT_A_ID, numero="2024-10001", statut=DossierStatut.valide
+    )
+    tenant_a._mock_db_session.execute.side_effect = [
+        MagicMock(scalar_one_or_none=lambda: contact_a),
+        MagicMock(scalar_one_or_none=lambda: locked_dossier),
+    ]
 
     # Mock Redis dedup (always allow — first time)
     with patch("app.services.notification.service.get_redis") as mock_get_redis:

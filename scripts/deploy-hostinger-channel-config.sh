@@ -20,13 +20,17 @@ flock -x -n 9 || { echo 'Backup in progress' >&2; exit 1; }
 [[ "$(git rev-parse HEAD)" == "$EXPECTED_HEAD" && -z "$(git status --porcelain --untracked-files=no)" ]] || { echo 'Unexpected or modified source tree' >&2; exit 1; }
 BACKUP_DIR="$BACKUP_DIR" BACKUP_VERIFY_HASH=1 bash scripts/backup/check-hostinger-backup.sh
 COMPOSE=(docker compose --project-name "$PROJECT" --env-file .env.demo -f docker-compose.hostinger.yml -f docker-compose.hostinger.local.yml)
+active_durable=$("${COMPOSE[@]}" --profile whatsapp-durable --profile agent-replies --profile dossier-import --profile dossier-outbox ps --status running --services)
+if grep -Eq '^(whatsapp-inbox-worker|agent-reply-worker|dossier-import-worker|dossier-outbox-worker)$' <<< "$active_durable"; then
+  echo 'Durable worker is active; coordinated release required' >&2; exit 1
+fi
 image_tags=$("${COMPOSE[@]}" config --no-interpolate --format json | python3 -c '
 import json, re, sys
 s = json.load(sys.stdin)["services"]
 backend, admin = s["backend"]["image"], s["frontend-admin"]["image"]
 if any(not re.fullmatch(r"[a-z0-9][a-z0-9._/:\-]*", v) for v in (backend, admin)):
     raise SystemExit("Invalid application image tag")
-shared = {"backend", "extractor", "ingestion-worker", "learning-worker", "purge-worker", "whatsapp-inbox-worker", "demo-bootstrap", "frontend-admin"}
+shared = {"backend", "extractor", "ingestion-worker", "learning-worker", "purge-worker", "whatsapp-inbox-worker", "agent-reply-worker", "demo-bootstrap", "frontend-admin"}
 protected = {entry["image"] for name, entry in s.items() if name not in shared and "image" in entry}
 if backend == admin or backend in protected or admin in protected:
     raise SystemExit("Application image tag conflicts with another service")

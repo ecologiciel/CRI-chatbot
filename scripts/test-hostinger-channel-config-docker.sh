@@ -55,6 +55,7 @@ services:
   ingestion-worker: {<<: *fixture, image: $old}
   learning-worker: {<<: *fixture, image: $old}
   purge-worker: {<<: *fixture, image: $old}
+  agent-reply-worker: {<<: *fixture, image: $old, profiles: ["agent-replies"]}
   frontend-admin: {<<: *fixture, image: $old_admin}
 EOF
 printf 'services: {}\n' > "$fixture/deploy/docker-compose.hostinger.local.yml"
@@ -76,6 +77,11 @@ export CANDIDATE_BACKEND="$new" CANDIDATE_ADMIN="$new" EXPECTED_HEAD="$(git rev-
 compose=(docker compose -p "$project" --env-file .env.demo -f docker-compose.hostinger.yml -f docker-compose.hostinger.local.yml)
 printf 'DB_COUNT=0\nFAIL_HEALTH=0\nWHATSAPP_CONFIG_REQUIRE_ENCRYPTION=true\n' > .env.demo
 "${compose[@]}" up -d --wait --wait-timeout 60 >/dev/null
+"${compose[@]}" --profile agent-replies up -d --no-deps agent-reply-worker >/dev/null
+if bash "$root/deploy-hostinger-channel-config.sh" > "$fixture/active.log" 2>&1; then echo 'Expected active-worker refusal' >&2; exit 1; fi
+grep -q 'Durable worker is active' "$fixture/active.log"
+"${compose[@]}" --profile agent-replies stop agent-reply-worker >/dev/null
+echo CONFIG_RELEASE_ACTIVE_WORKER_REFUSED_OK
 bash "$root/deploy-hostinger-channel-config.sh" > "$fixture/success.log" 2>&1
 grep -q '^WHATSAPP_CONFIG_REQUIRE_ENCRYPTION=true$' .env.demo
 [[ "$(docker inspect -f '{{.Image}}' "$(${compose[@]} ps -q backend)")" == "$(docker image inspect -f '{{.Id}}' "$new")" ]]
